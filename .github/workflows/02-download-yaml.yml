@@ -1,0 +1,132 @@
+# ============================================================================
+# Workflow : 📥 Télécharger un YAML existant (Cas 2 — Modification)
+# ============================================================================
+# Ce workflow permet à un utilisateur de :
+# 1. Sélectionner une application existante via un input
+# 2. Télécharger le fichier YAML correspondant en tant qu'artefact GitHub
+#
+# L'utilisateur peut ensuite modifier le YAML localement, puis le soumettre
+# via le template d'Issue (Cas 1) pour déclencher la mise à jour.
+# ============================================================================
+
+name: "📥 Télécharger un YAML existant"
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_name:
+        description: |
+          Nom de l'application (kebab-case).
+          Laissez vide pour afficher la liste de toutes les applications disponibles.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+
+  # -------------------------------------------------------------------------
+  # Job 1 : Lister les applications disponibles (si aucun nom fourni)
+  # -------------------------------------------------------------------------
+  list-apps:
+    name: "📋 Lister les applications"
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.app_name == '' }}
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Lister les fichiers YAML disponibles
+        id: list
+        run: |
+          echo "## 📋 Applications disponibles" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Les fichiers suivants sont disponibles dans \`declarations/apps/\` :" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          found=false
+          for file in declarations/apps/*.yaml; do
+            # Ignorer les fichiers préfixés par _ (exemples)
+            basename=$(basename "$file" .yaml)
+            if [[ "$basename" == _* ]]; then
+              continue
+            fi
+
+            if [ -f "$file" ]; then
+              found=true
+              echo "- \`$basename\`" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+          if [ "$found" = false ]; then
+            echo "⚠️ Aucune application trouvée dans \`declarations/apps/\`." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Utilisez le template d'Issue **📦 Demande Entitlement Management** pour créer une nouvelle application." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "---" >> $GITHUB_STEP_SUMMARY
+            echo "👉 Relancez ce workflow en saisissant le nom de l'application souhaitée dans le champ **app_name**." >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # -------------------------------------------------------------------------
+  # Job 2 : Télécharger le YAML de l'application sélectionnée
+  # -------------------------------------------------------------------------
+  download-yaml:
+    name: "📥 Télécharger le YAML"
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.app_name != '' }}
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Vérifier l'existence du fichier
+        id: check
+        run: |
+          APP_NAME="${{ github.event.inputs.app_name }}"
+          FILE_PATH="declarations/apps/${APP_NAME}.yaml"
+
+          if [ ! -f "$FILE_PATH" ]; then
+            echo "## ❌ Application introuvable" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Le fichier \`${FILE_PATH}\` n'existe pas dans le repository." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Applications disponibles :" >> $GITHUB_STEP_SUMMARY
+            for file in declarations/apps/*.yaml; do
+              basename=$(basename "$file" .yaml)
+              if [[ "$basename" != _* ]] && [ -f "$file" ]; then
+                echo "- \`$basename\`" >> $GITHUB_STEP_SUMMARY
+              fi
+            done
+            exit 1
+          fi
+
+          echo "file_path=$FILE_PATH" >> $GITHUB_OUTPUT
+          echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
+
+      - name: Afficher le contenu dans le résumé
+        if: success()
+        run: |
+          FILE_PATH="${{ steps.check.outputs.file_path }}"
+          APP_NAME="${{ steps.check.outputs.app_name }}"
+
+          echo "## ✅ Fichier trouvé : \`${APP_NAME}.yaml\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Contenu actuel :" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```yaml' >> $GITHUB_STEP_SUMMARY
+          cat "$FILE_PATH" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "📥 Téléchargez l'artefact ci-dessous, modifiez-le, puis soumettez-le via le template d'Issue **📦 Demande Entitlement Management**." >> $GITHUB_STEP_SUMMARY
+
+      - name: Uploader le YAML en tant qu'artefact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: "${{ steps.check.outputs.app_name }}-yaml"
+          path: "${{ steps.check.outputs.file_path }}"
+          retention-days: 7

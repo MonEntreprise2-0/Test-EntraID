@@ -1,0 +1,143 @@
+# ============================================================================
+# FICHIER DÉCLARATIF — Entitlement Management Entra ID
+# ============================================================================
+# Ce fichier est un EXEMPLE commenté. Il est ignoré par Terraform (préfixe _).
+# Copiez-le et renommez-le : <nom-application-kebab-case>.yaml
+#
+# Convention : 1 fichier = 1 application = 1 catalogue Entitlement Management
+# Emplacement : declarations/apps/<nom-application>.yaml
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+# METADATA — Identification de l'application
+# ---------------------------------------------------------------------------
+application_name: "salesforce-crm"          # Identifiant unique (kebab-case, doit correspondre au nom du fichier)
+owner: "team-commercial@ardian.com"         # Contact fonctionnel / Data Owner
+description: "Gestion des accès Salesforce CRM pour les équipes commerciales Ardian"
+
+# ---------------------------------------------------------------------------
+# CATALOGUE — Conteneur logique dans Entitlement Management
+# ---------------------------------------------------------------------------
+# Un catalogue regroupe les ressources et les Access Packages d'une application.
+# Terraform crée/met à jour ce catalogue automatiquement.
+catalog:
+  display_name: "Salesforce CRM"            # Nom affiché dans le portail MyAccess
+  description: "Catalogue pour l'application Salesforce CRM"
+  published: true                           # true = visible par les utilisateurs éligibles
+
+# ---------------------------------------------------------------------------
+# RESOURCES — Ressources à inclure dans le catalogue
+# ---------------------------------------------------------------------------
+# ⚠️ MODE CONSOMMATEUR : ces ressources DOIVENT pré-exister dans Entra ID.
+#    Terraform utilise des blocs `data` pour les chercher par display_name.
+#    Si une ressource n'existe pas → terraform plan ÉCHOUE.
+#
+# Types supportés :
+#   - "group"       : Groupe de sécurité Entra ID
+#   - "application" : Application (Enterprise App / App Registration)
+resources:
+  - type: "group"
+    display_name: "GRP-APP-Salesforce-Users"        # Nom exact du groupe dans Entra ID
+
+  - type: "group"
+    display_name: "GRP-APP-Salesforce-Admins"       # Nom exact du groupe dans Entra ID
+
+  # - type: "application"                           # Décommentez si vous ajoutez des rôles applicatifs
+  #   display_name: "Salesforce CRM Enterprise"
+
+# ---------------------------------------------------------------------------
+# ACCESS PACKAGES — Paquets d'accès demandables par les utilisateurs
+# ---------------------------------------------------------------------------
+# Chaque Access Package est un "bundle" de rôles sur les ressources du catalogue.
+# Un utilisateur demande un Access Package dans le portail MyAccess.
+access_packages:
+
+  # -------------------------------------------------------------------------
+  # ACCESS PACKAGE 1 : Accès Standard
+  # -------------------------------------------------------------------------
+  - display_name: "Salesforce - Accès Standard"
+    description: "Accès utilisateur standard à Salesforce CRM"
+    hidden: false                               # false = visible dans MyAccess
+
+    # Rôles inclus dans ce package (sous-ensemble des resources du catalogue)
+    resource_roles:
+      - resource_display_name: "GRP-APP-Salesforce-Users"
+        resource_type: "group"
+        role: "Member"                          # "Member" ou "Owner" pour les groupes
+
+    # Politiques d'assignation (qui peut demander, workflow d'approbation, durée)
+    policies:
+      - display_name: "Politique de demande standard"
+
+        # --- Qui peut demander cet Access Package ---
+        requestor:
+          scope_type: "specific"                # "all_members" | "specific" | "none"
+          groups:                               # Groupes éligibles à la demande
+            - "GRP-Eligible-Salesforce"         # ⚠️ Doit exister dans Entra ID
+
+        # --- Workflow d'approbation ---
+        approval:
+          required: true                        # true = approbation obligatoire
+          stages:                               # Étapes d'approbation (séquentielles)
+            - approver_groups:
+                - "GRP-DataOwner-Salesforce"    # Groupe des approbateurs
+              fallback_approver_groups: []      # Approbateurs de secours (optionnel)
+              days_to_decide: 14                # Délai max pour statuer (jours)
+
+        # --- Durée de l'assignation ---
+        assignment:
+          type: "expiring"                      # "expiring" | "permanent"
+          duration_in_days: 365                 # Durée si type = "expiring"
+
+        # --- Revue d'accès ---
+        review:
+          enabled: true                         # Activer la revue périodique
+          frequency_in_days: 180                # Fréquence de la revue (jours)
+          reviewer_type: "manager"              # "manager" | "self" | "specific"
+          reviewer_groups: []                   # Si reviewer_type = "specific"
+
+  # -------------------------------------------------------------------------
+  # ACCESS PACKAGE 2 : Accès Administrateur (profil élevé)
+  # -------------------------------------------------------------------------
+  - display_name: "Salesforce - Accès Administrateur"
+    description: "Accès administrateur à Salesforce CRM (profil élevé, durée limitée)"
+    hidden: false
+
+    resource_roles:
+      - resource_display_name: "GRP-APP-Salesforce-Admins"
+        resource_type: "group"
+        role: "Member"
+
+    policies:
+      - display_name: "Politique admin Salesforce"
+
+        requestor:
+          scope_type: "specific"
+          groups:
+            - "GRP-IT-Managers"                 # Seuls les IT Managers peuvent demander
+
+        approval:
+          required: true
+          stages:
+            # Étape 1 : Approbation Data Owner
+            - approver_groups:
+                - "GRP-DataOwner-Salesforce"
+              fallback_approver_groups: []
+              days_to_decide: 7
+
+            # Étape 2 : Approbation équipe IAM (double validation)
+            - approver_groups:
+                - "GRP-IAM-Team"
+              fallback_approver_groups: []
+              days_to_decide: 7
+
+        assignment:
+          type: "expiring"
+          duration_in_days: 90                  # Durée courte pour les accès admin
+
+        review:
+          enabled: true
+          frequency_in_days: 30                 # Revue mensuelle pour les admins
+          reviewer_type: "specific"
+          reviewer_groups:
+            - "GRP-IAM-Team"                    # L'équipe IAM effectue la revue

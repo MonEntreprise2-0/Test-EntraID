@@ -1,0 +1,191 @@
+# ============================================================================
+# Workflow : Issue -> Pull Request (Cas 1 & Cas 2)
+# ============================================================================
+# Declencheur : Ouverture d'une Issue avec le label 'entitlement-request'
+#
+# Ce workflow :
+# 1. Parse le corps de l'Issue (extraction du YAML via parse-issue-body.py)
+# 2. Cree une branche 'entitlement/<app_name>-<timestamp>'
+# 3. Commit le fichier YAML dans declarations/apps/
+# 4. Ouvre une Pull Request ciblant main
+# 5. Commente et ferme l'Issue source
+# ============================================================================
+
+name: "\U0001F504 Issue \u2192 Pull Request"
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  process-issue:
+    name: "\U0001F4DD Traiter l'Issue"
+    runs-on: ubuntu-latest
+    if: contains(github.event.issue.labels.*.name, 'entitlement-request')
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Parse Issue body
+        id: parse
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          python .github/scripts/parse-issue-body.py \
+            --body "$ISSUE_BODY" \
+            --output-dir ./parsed
+
+          APP_NAME=$(cat ./parsed/app_name.txt)
+          OPERATION=$(cat ./parsed/operation_type.txt)
+
+          echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
+          echo "operation=$OPERATION" >> $GITHUB_OUTPUT
+
+      - name: Determine branch name
+        id: branch
+        run: |
+          APP_NAME="${{ steps.parse.outputs.app_name }}"
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          BRANCH="entitlement/${APP_NAME}-${TIMESTAMP}"
+          echo "name=$BRANCH" >> $GITHUB_OUTPUT
+
+      - name: Create branch and commit YAML
+        run: |
+          APP_NAME="${{ steps.parse.outputs.app_name }}"
+          BRANCH="${{ steps.branch.outputs.name }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git checkout -b "$BRANCH"
+
+          # Copier le YAML parse dans declarations/
+          cp ./parsed/app.yaml "declarations/apps/${APP_NAME}.yaml"
+
+          git add "declarations/apps/${APP_NAME}.yaml"
+          git commit -m "feat(entitlement): ${APP_NAME} \u2014 via Issue #${{ github.event.issue.number }}"
+          git push origin "$BRANCH"
+
+      - name: Create Pull Request
+        id: create-pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const appName = '${{ steps.parse.outputs.app_name }}';
+            const operation = '${{ steps.parse.outputs.operation }}';
+            const branch = '${{ steps.branch.outputs.name }}';
+            const issueNumber = context.issue.number;
+
+            const pr = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[Entitlement] ${appName} \u2014 ${operation}`,
+              head: branch,
+              base: 'main',
+              body: [
+                `## \U0001F4E6 Entitlement Management \u2014 ${appName}`,
+                '',
+                `**Op\u00e9ration** : ${operation}`,
+                `**Issue source** : #${issueNumber}`,
+                `**Fichier** : \`declarations/apps/${appName}.yaml\``,
+                '',
+                '---',
+                '',
+                '### \u2705 Checklist de validation automatique',
+                '',
+                '- [ ] Validation JSON Schema',
+                '- [ ] Terraform Plan (contr\u00f4le SSoT Entra ID)',
+                '',
+                '### \U0001F465 Approbations requises',
+                '',
+                '- [ ] Data Owner / M\u00e9tier',
+                '- [ ] \u00c9quipe IAM',
+                '',
+                '---',
+                `> \U0001F916 PR cr\u00e9\u00e9e automatiquement \u00e0 partir de l'Issue #${issueNumber}`,
+              ].join('\n'),
+            });
+
+            core.setOutput('pr_number', pr.data.number);
+            core.setOutput('pr_url', pr.data.html_url);
+
+      - name: Comment on Issue and close
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = '${{ steps.create-pr.outputs.pr_number }}';
+            const prUrl = '${{ steps.create-pr.outputs.pr_url }}';
+            const appName = '${{ steps.parse.outputs.app_name }}';
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: [
+                '## \u2705 Issue trait\u00e9e avec succ\u00e8s',
+                '',
+                `La Pull Request **#${prNumber}** a \u00e9t\u00e9 cr\u00e9\u00e9e automatiquement :`,
+                `\U0001F449 ${prUrl}`,
+                '',
+                '**Prochaines \u00e9tapes** :',
+                '1. La CI va valider le sch\u00e9ma et ex\u00e9cuter `terraform plan`',
+                '2. Les approbateurs seront notifi\u00e9s pour review',
+                '3. Apr\u00e8s approbation et merge, les changements seront appliqu\u00e9s \u00e0 Entra ID',
+                '',
+                `> \U0001F4C4 Fichier : \`declarations/apps/${appName}.yaml\``,
+              ].join('\n'),
+            });
+
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              state: 'closed',
+              state_reason: 'completed',
+            });
+
+      - name: Handle errors
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: [
+                '## \u274c Erreur lors du traitement de l\'Issue',
+                '',
+                'Une erreur s\'est produite lors de la cr\u00e9ation de la Pull Request.',
+                `Consultez les [logs du workflow](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) pour plus de d\u00e9tails.`,
+                '',
+                '**Actions possibles** :',
+                '- V\u00e9rifiez que le contenu YAML est valide',
+                '- V\u00e9rifiez que le nom de l\'application est en kebab-case',
+                '- Corrigez et cr\u00e9ez une nouvelle Issue',
+              ].join('\n'),
+            });
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: ['error'],
+            });

@@ -1,0 +1,124 @@
+﻿name: "📦 Demande Entitlement Management"
+description: "Créer ou modifier un Access Package via un fichier YAML déclaratif"
+title: "[Entitlement] <application_name>"
+labels:
+  - "entitlement-request"
+  - "automated"
+body:
+
+  # -----------------------------------------------------------------------
+  # Section 1 : Identification
+  # -----------------------------------------------------------------------
+  - type: markdown
+    attributes:
+      value: |
+        ## 📋 Demande d'Access Package — Entitlement Management
+
+        Ce formulaire vous permet de **créer** ou **modifier** les Access Packages
+        d'une application dans Entra ID.
+
+        > **Pré-requis** : Les groupes et applications référencés dans votre YAML
+        > doivent déjà exister dans Entra ID. Le pipeline vérifiera leur existence
+        > et échouera si un élément est manquant.
+
+  - type: input
+    id: app_name
+    attributes:
+      label: "Nom de l'application"
+      description: "Identifiant unique en kebab-case (ex: salesforce-crm, sap-s4hana). Doit correspondre au champ `application_name` dans le YAML."
+      placeholder: "mon-application"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: operation_type
+    attributes:
+      label: "Type d'opération"
+      description: "Sélectionnez le type d'opération souhaitée."
+      options:
+        - "🆕 Création — Nouvel Access Package"
+        - "✏️ Modification — Mise à jour d'un Access Package existant"
+        - "🗑️ Suppression — Retrait d'un Access Package"
+    validations:
+      required: true
+
+  # -----------------------------------------------------------------------
+  # Section 2 : Contenu YAML
+  # -----------------------------------------------------------------------
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        ## 📄 Fichier YAML déclaratif
+
+        Collez ci-dessous le contenu **complet** de votre fichier YAML.
+
+        > 💡 **Astuce** : Pour une modification, utilisez d'abord le workflow
+        > **"📥 Télécharger un YAML existant"** (onglet Actions) pour récupérer
+        > le fichier actuel, modifiez-le, puis collez-le ici.
+
+  - type: textarea
+    id: yaml_content
+    attributes:
+      label: "Contenu YAML"
+      description: "Collez le fichier YAML complet. Il sera validé automatiquement par le pipeline CI."
+      placeholder: |
+        application_name: "mon-application"
+        owner: "equipe@ardian.com"
+        description: "Description de l'application"
+        catalog:
+          display_name: "Mon Application"
+          description: "Catalogue pour Mon Application"
+          published: true
+        resources:
+          - type: "group"
+            display_name: "GRP-APP-MonApp-Users"
+        access_packages:
+          - display_name: "MonApp - Accès Standard"
+            description: "Accès utilisateur standard"
+            resource_roles:
+              - resource_display_name: "GRP-APP-MonApp-Users"
+                resource_type: "group"
+                role: "Member"
+            policies:
+              - display_name: "Politique standard"
+                requestor:
+                  scope_type: "all_members"
+                approval:
+                  required: false
+                assignment:
+                  type: "expiring"
+                  duration_in_days: 365
+      render: yaml
+    validations:
+      required: true
+
+  # -----------------------------------------------------------------------
+  # Section 3 : Justification
+  # -----------------------------------------------------------------------
+  - type: textarea
+    id: justification
+    attributes:
+      label: "Justification"
+      description: "Expliquez brièvement pourquoi cette demande est nécessaire (contexte métier, projet, etc.)."
+      placeholder: "Onboarding d'une nouvelle équipe sur Salesforce CRM..."
+    validations:
+      required: true
+
+  # -----------------------------------------------------------------------
+  # Section 4 : Checklist de vérification
+  # -----------------------------------------------------------------------
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: "Checklist de vérification"
+      description: "Confirmez les points suivants avant de soumettre."
+      options:
+        - label: "Les groupes référencés dans le YAML existent dans Entra ID"
+          required: true
+        - label: "Les applications référencées dans le YAML existent dans Entra ID"
+          required: true
+        - label: "Le champ `application_name` correspond au nom du fichier (kebab-case)"
+          required: true
+        - label: "J'ai vérifié la structure de mon YAML avec le fichier d'exemple"
+          required: true

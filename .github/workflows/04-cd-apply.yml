@@ -1,0 +1,90 @@
+﻿# ============================================================================
+# Workflow : CD - Terraform Apply (Déploiement automatique)
+# ============================================================================
+# Déclencheur : Push / Merge sur la branche 'main' avec modifications dans
+#               declarations/apps/** ou terraform/**
+#
+# Ce workflow :
+# 1. Effectue un terraform apply -auto-approve via OIDC
+# 2. Génère un résumé du déploiement dans le GITHUB_STEP_SUMMARY
+# 3. Met à jour l'état de l'Entitlement Management dans Entra ID
+# ============================================================================
+
+name: "🚀 CD — Terraform Apply"
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'declarations/apps/**'
+      - 'terraform/**'
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TF_WORKING_DIR: terraform
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+jobs:
+  terraform-apply:
+    name: "⚡ Déploiement Entra ID"
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.5'
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Terraform Init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform init
+
+      - name: Terraform Apply
+        id: apply
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          terraform apply \
+            -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
+            -var="use_oidc=true" \
+            -auto-approve \
+            -no-color \
+            2>&1 | tee apply_output.txt
+
+      - name: Generate Deployment Summary
+        if: always()
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          echo "## 🚀 Résumé du déploiement Entitlement Management" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Statut** : ${{ steps.apply.outcome == 'success' && '✅ Succès' || '❌ Échec' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Date** : $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit** : \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.apply.outcome }}" = "success" ]; then
+            echo "### 📊 Ressources configurées" >> $GITHUB_STEP_SUMMARY
+            echo "```" >> $GITHUB_STEP_SUMMARY
+            terraform output -json summary | jq . >> $GITHUB_STEP_SUMMARY 2>&1 || true
+            echo "```" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ❌ Extraits des erreurs" >> $GITHUB_STEP_SUMMARY
+            echo "```" >> $GITHUB_STEP_SUMMARY
+            tail -n 30 apply_output.txt >> $GITHUB_STEP_SUMMARY 2>&1 || true
+            echo "```" >> $GITHUB_STEP_SUMMARY
+          fi

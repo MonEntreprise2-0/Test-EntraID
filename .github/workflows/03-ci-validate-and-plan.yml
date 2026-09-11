@@ -1,0 +1,215 @@
+# ============================================================================
+# Workflow : CI - Validation Schema & Terraform Plan
+# ============================================================================
+# Declencheur : Pull Request ciblant main avec modifications dans
+#               declarations/apps/** ou terraform/**
+#
+# Ce workflow :
+# 1. Valide le schema JSON des fichiers YAML modifies
+# 2. Execute terraform plan via OIDC pour controler la SSoT Entra ID
+# 3. Poste le resultat du plan en commentaire sur la PR
+# ============================================================================
+
+name: "\U0001F50D CI \u2014 Validation & Terraform Plan"
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'declarations/apps/**'
+      - 'terraform/**'
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+
+env:
+  TF_WORKING_DIR: terraform
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+jobs:
+
+  # -------------------------------------------------------------------------
+  # Job 1 : Validation du schema YAML
+  # -------------------------------------------------------------------------
+  validate-schema:
+    name: "\U0001F4CB Validation Schema"
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install pyyaml jsonschema
+
+      - name: Detect changed YAML files
+        id: changed
+        run: |
+          CHANGED_FILES=$(git diff --name-only --diff-filter=ACMR origin/main...HEAD -- 'declarations/apps/*.yaml' | grep -v '^declarations/apps/_' || true)
+
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "No YAML files changed."
+            echo "files=" >> $GITHUB_OUTPUT
+            echo "count=0" >> $GITHUB_OUTPUT
+          else
+            echo "Changed YAML files:"
+            echo "$CHANGED_FILES"
+            EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+            echo "files<<$EOF" >> $GITHUB_OUTPUT
+            echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
+            echo "$EOF" >> $GITHUB_OUTPUT
+            echo "count=$(echo \"$CHANGED_FILES\" | wc -l)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Validate each YAML file
+        if: steps.changed.outputs.count != '0'
+        run: |
+          ERRORS=0
+
+          while IFS= read -r file; do
+            echo "================================================"
+            echo "Validating: $file"
+            echo "================================================"
+
+            python .github/scripts/validate-schema.py \
+              --yaml-file "$file" \
+              --schema-file schemas/app-declaration.schema.json || ERRORS=$((ERRORS + 1))
+
+            echo ""
+          done <<< "${{ steps.changed.outputs.files }}"
+
+          if [ $ERRORS -gt 0 ]; then
+            echo "$ERRORS file(s) failed validation."
+            exit 1
+          fi
+
+          echo "All YAML files are valid."
+
+  # -------------------------------------------------------------------------
+  # Job 2 : Terraform Plan
+  # -------------------------------------------------------------------------
+  terraform-plan:
+    name: "\U0001F3D7\uFE0F Terraform Plan"
+    runs-on: ubuntu-latest
+    needs: validate-schema
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.5'
+          terraform_wrapper: true
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Terraform Init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform init
+
+      - name: Terraform Validate
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          terraform plan \
+            -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
+            -var="use_oidc=true" \
+            -no-color \
+            -detailed-exitcode \
+            2>&1 | tee plan_output.txt
+
+          PLAN_EXIT_CODE=${PIPESTATUS[0]}
+          echo "exit_code=$PLAN_EXIT_CODE" >> $GITHUB_OUTPUT
+
+          if [ $PLAN_EXIT_CODE -eq 1 ]; then
+            echo "Terraform plan failed."
+            exit 1
+          fi
+        continue-on-error: true
+
+      - name: Post Plan result as PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const planOutput = fs.readFileSync('${{ env.TF_WORKING_DIR }}/plan_output.txt', 'utf8');
+            const exitCode = '${{ steps.plan.outputs.exit_code }}';
+
+            let status, emoji;
+            switch (exitCode) {
+              case '0':
+                status = 'Aucun changement detect\u00e9';
+                emoji = '\u2705';
+                break;
+              case '2':
+                status = 'Changements detect\u00e9s (\u00e0 appliquer apr\u00e8s merge)';
+                emoji = '\U0001F4CB';
+                break;
+              default:
+                status = 'Erreur lors du plan';
+                emoji = '\u274c';
+            }
+
+            const maxLen = 60000;
+            const truncated = planOutput.length > maxLen
+              ? planOutput.substring(0, maxLen) + '\n\n... (sortie tronqu\u00e9e)'
+              : planOutput;
+
+            const body = [
+              `## ${emoji} Terraform Plan \u2014 ${status}`,
+              '',
+              '<details>',
+              '<summary>Afficher le plan complet</summary>',
+              '',
+              '```hcl',
+              truncated,
+              '```',
+              '</details>',
+              '',
+              exitCode === '1'
+                ? [
+                    '> [!CAUTION]',
+                    '> Le plan a \u00e9chou\u00e9. V\u00e9rifiez que toutes les ressources r\u00e9f\u00e9renc\u00e9es',
+                    '> (groupes, applications) existent bien dans **Entra ID**.',
+                    '> Consultez les logs ci-dessus pour identifier la ressource manquante.',
+                  ].join('\n')
+                : [
+                    '> [!NOTE]',
+                    '> Ce plan sera appliqu\u00e9 automatiquement apr\u00e8s le merge sur `main`.',
+                  ].join('\n'),
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: body,
+            });
+
+      - name: Fail if plan errored
+        if: steps.plan.outputs.exit_code == '1'
+        run: |
+          echo "Terraform plan failed. See PR comment for details."
+          exit 1
