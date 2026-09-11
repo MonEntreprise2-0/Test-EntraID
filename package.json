@@ -1,0 +1,12 @@
+﻿{
+  "name": "ardian-entitlement-mgmt",
+  "version": "1.0.0",
+  "description": "Serveur local de test et d'industrialisation Entitlement Management Entra ID — Ardian",
+  "main": "scripts/test-server.js",
+  "scripts": {
+    "start": "node scripts/test-server.js"
+  },
+  "keywords": ["entra-id", "terraform", "gitops", "entitlement-management"],
+  "author": "Ardian Cloud IAM & DevOps",
+  "license": "MIT"
+}
