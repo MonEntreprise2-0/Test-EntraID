@@ -1,4 +1,4 @@
-﻿name: "📦 Demande Entitlement Management"
+name: "📦 Demande Entitlement Management"
 description: "Créer ou modifier un Access Package via un fichier YAML déclaratif"
 title: "[Entitlement] <application_name>"
 labels:

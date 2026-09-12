@@ -1,4 +1,4 @@
-﻿# Guide Opérationnel — Run Entitlement Management
+# Guide Opérationnel — Run Entitlement Management
 
 Ce guide est destiné aux équipes IAM, DevOps et aux Data Owners responsables de la gestion des accès applicatifs chez Ardian.
 

@@ -1,4 +1,4 @@
-﻿{
+{
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://ardian.com/schemas/entitlement-management/app-declaration.schema.json",
   "title": "Entitlement Management App Declaration",

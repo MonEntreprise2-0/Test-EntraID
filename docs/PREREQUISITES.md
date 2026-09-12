@@ -1,4 +1,4 @@
-﻿# Pré-requis d'Infrastructure et Configuration OIDC
+# Pré-requis d'Infrastructure et Configuration OIDC
 
 Ce document détaille les éléments requis dans Azure AD / Entra ID et Azure Subscriptions pour exécuter la chaîne automatisée d'Entitlement Management.
 
