@@ -1,4 +1,4 @@
-﻿# Architecture Technique — GitOps Entitlement Management
+# Architecture Technique — GitOps Entitlement Management
 
 Ce document décrit les principes d'architecture et la conception technique de la solution d'industrialisation du run d'Entitlement Management pour Ardian.
 

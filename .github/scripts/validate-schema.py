@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 validate-schema.py - Valide un fichier YAML contre le JSON Schema.
 

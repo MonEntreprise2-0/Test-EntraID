@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 parse-issue-body.py - Extrait les champs structures du corps d'une Issue GitHub.
 
