@@ -1,0 +1,20 @@
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Pipeline generated files
+**/discovered_catalogs.json
+**/discovered_summary.md
+**/imports.tf
+**/plan_output.txt
+**/apply_output.txt
+**/plan_summary.md
+parsed/
