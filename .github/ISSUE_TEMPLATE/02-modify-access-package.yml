@@ -1,0 +1,72 @@
+name: "✏️ Modifier un Access Package"
+description: "Mettre à jour la configuration d'une application ou d'un Access Package existant"
+title: "[Modification] <nom-application>"
+labels:
+  - "entitlement-request"
+  - "modification"
+body:
+
+  - type: markdown
+    attributes:
+      value: |
+        ## ✏️ Modification d'un Access Package existant
+        
+        Ce formulaire permet de mettre à jour la configuration d'une application déjà gérée dans le référentiel :
+        - Ajouter ou retirer des groupes / rôles
+        - Modifier la durée d'accès ou les approbateurs
+        - Ajuster les paramètres du catalogue
+
+  - type: dropdown
+    id: target_file
+    attributes:
+      label: "Fichier à modifier dans declarations/apps/"
+      description: "Sélectionnez l'application concernée parmi les fichiers du répertoire declarations/apps/."
+      options:
+        - "declarations/apps/cat-test03.yaml"
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        ### 📋 Procédure de modification :
+        1. Récupérez le fichier sélectionné dans le dossier [`declarations/apps/`](../tree/main/declarations/apps/).
+        2. Effectuez vos modifications en local sur votre poste.
+        3. Glissez-déposez le fichier `.yaml` mis à jour dans la zone ci-dessous.
+
+  - type: textarea
+    id: yaml_file
+    attributes:
+      label: "Fichier YAML modifié (Glisser-déposer)"
+      description: "Glissez et déposez votre fichier `.yaml` mis à jour directement ici."
+      placeholder: "Glissez et déposez votre fichier .yaml modifié ici..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: changes_description
+    attributes:
+      label: "Description des modifications"
+      description: "Résumez brièvement ce qui a changé par rapport à la version précédente."
+      placeholder: "Ajout du groupe Group_Test02, réduction de la durée de 365 à 180 jours..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: justification
+    attributes:
+      label: "Justification métier"
+      description: "Expliquez la raison de ces modifications."
+      placeholder: "Demande du Data Owner suite à l'évolution des profils utilisateurs..."
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: "Checklist de conformité"
+      options:
+        - label: "Les nouveaux groupes éventuels existent déjà dans Entra ID"
+          required: true
+        - label: "J'ai vérifié la conformité de la structure YAML"
+          required: true

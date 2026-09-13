@@ -1,16 +1,6 @@
 # ============================================================================
-# Workflow : Issue -> Pull Request (Cas 1 & Cas 2)
+# Workflow : Issue -> Pull Request (Création, Modification, Suppression)
 # ============================================================================
-# Declencheur : Ouverture d'une Issue avec le label 'entitlement-request'
-#
-# Ce workflow :
-# 1. Parse le corps de l'Issue (extraction du YAML via parse-issue-body.py)
-# 2. Cree une branche 'entitlement/<app_name>-<timestamp>'
-# 3. Commit le fichier YAML dans declarations/apps/
-# 4. Ouvre une Pull Request ciblant main
-# 5. Commente et ferme l'Issue source
-# ============================================================================
-
 name: "🔄 Issue → Pull Request"
 
 on:
@@ -62,13 +52,15 @@ jobs:
         id: branch
         run: |
           APP_NAME="${{ steps.parse.outputs.app_name }}"
+          OPERATION="${{ steps.parse.outputs.operation }}"
           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-          BRANCH="entitlement/${APP_NAME}-${TIMESTAMP}"
+          BRANCH="entitlement/${OPERATION}-${APP_NAME}-${TIMESTAMP}"
           echo "name=$BRANCH" >> $GITHUB_OUTPUT
 
-      - name: Create branch and commit YAML
+      - name: Create branch and apply Git changes
         run: |
           APP_NAME="${{ steps.parse.outputs.app_name }}"
+          OPERATION="${{ steps.parse.outputs.operation }}"
           BRANCH="${{ steps.branch.outputs.name }}"
 
           git config user.name "github-actions[bot]"
@@ -76,11 +68,21 @@ jobs:
 
           git checkout -b "$BRANCH"
 
-          # Copier le YAML parse dans declarations/
-          cp ./parsed/app.yaml "declarations/apps/${APP_NAME}.yaml"
+          if [ "$OPERATION" = "suppression" ]; then
+            TARGET_FILE="declarations/apps/${APP_NAME}.yaml"
+            if [ -f "$TARGET_FILE" ]; then
+              git rm "$TARGET_FILE"
+              git commit -m "feat(entitlement): suppression de ${APP_NAME} — via Issue #${{ github.event.issue.number }}"
+            else
+              echo "⚠️ Fichier ${TARGET_FILE} introuvable pour suppression."
+              exit 1
+            fi
+          else
+            cp ./parsed/app.yaml "declarations/apps/${APP_NAME}.yaml"
+            git add "declarations/apps/${APP_NAME}.yaml"
+            git commit -m "feat(entitlement): ${OPERATION} de ${APP_NAME} — via Issue #${{ github.event.issue.number }}"
+          fi
 
-          git add "declarations/apps/${APP_NAME}.yaml"
-          git commit -m "feat(entitlement): ${APP_NAME} — via Issue #${{ github.event.issue.number }}"
           git push origin "$BRANCH"
 
       - name: Create Pull Request
@@ -98,18 +100,36 @@ jobs:
             const branch = process.env.BRANCH;
             const issueNumber = process.env.ISSUE_NUM;
 
+            let operationTitle = '';
+            let operationDesc = '';
+            switch (operation) {
+              case 'suppression':
+                operationTitle = '🗑️ Suppression';
+                operationDesc = `⚠️ Cette Pull Request **supprime** le fichier déclaratif de l'application \`${appName}\`.\nLors du merge sur \`main\`, Terraform supprimera automatiquement le catalogue, les Access Packages et les politiques associées dans **Entra ID**.`;
+                break;
+              case 'modification':
+                operationTitle = '✏️ Modification';
+                operationDesc = `Cette Pull Request met à jour la configuration déclarative de l'application \`${appName}\`.`;
+                break;
+              default:
+                operationTitle = '🆕 Création';
+                operationDesc = `Cette Pull Request déclare la nouvelle application \`${appName}\` dans le référentiel.`;
+            }
+
             const pr = await github.rest.pulls.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: `[Entitlement] ${appName} — ${operation}`,
+              title: `[Entitlement] ${appName} — ${operationTitle}`,
               head: branch,
               base: 'main',
               body: [
                 `## 📦 Entitlement Management — ${appName}`,
                 '',
-                `**Opération** : ${operation}`,
+                `**Opération** : ${operationTitle}`,
                 `**Issue source** : #${issueNumber}`,
                 `**Fichier** : \`declarations/apps/${appName}.yaml\``,
+                '',
+                operationDesc,
                 '',
                 '---',
                 '',
@@ -137,28 +157,30 @@ jobs:
           PR_NUMBER: ${{ steps.create-pr.outputs.pr_number }}
           PR_URL: ${{ steps.create-pr.outputs.pr_url }}
           APP_NAME: ${{ steps.parse.outputs.app_name }}
+          OPERATION: ${{ steps.parse.outputs.operation }}
         with:
           script: |
             const prNumber = process.env.PR_NUMBER;
             const prUrl = process.env.PR_URL;
             const appName = process.env.APP_NAME;
+            const operation = process.env.OPERATION;
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
               body: [
-                '## ✅ Issue traitée avec succès',
+                '## ✅ Demande prise en charge avec succès',
                 '',
                 `La Pull Request **#${prNumber}** a été créée automatiquement :`,
                 `👉 ${prUrl}`,
                 '',
                 '**Prochaines étapes** :',
-                '1. La CI va valider le schéma et exécuter `terraform plan`',
-                '2. Les approbateurs seront notifiés pour review',
-                '3. Après approbation et merge, les changements seront appliqués à Entra ID',
+                '1. La CI valide le schéma et calcule le plan d\'impact Terraform',
+                '2. Le résumé prévisionnel des actions dans Entra ID est notifié dans la PR',
+                '3. Après approbation et merge sur `main`, les changements sont appliqués automatiquement à Entra ID',
                 '',
-                `> 📄 Fichier : \`declarations/apps/${appName}.yaml\``,
+                `> 📄 Application : \`${appName}\` (${operation})`,
               ].join('\n'),
             });
 
@@ -180,15 +202,14 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
               body: [
-                '## ❌ Erreur lors du traitement de l\'Issue',
+                '## ❌ Erreur lors du traitement de votre demande',
                 '',
-                'Une erreur s\'est produite lors de la création de la Pull Request.',
+                'Une erreur s\'est produite lors de l\'analyse du formulaire ou de la création de la Pull Request.',
                 `Consultez les [logs du workflow](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) pour plus de détails.`,
                 '',
-                '**Actions possibles** :',
-                '- Vérifiez que le contenu YAML est valide',
-                '- Vérifiez que le nom de l\'application est en kebab-case',
-                '- Corrigez et créez une nouvelle Issue',
+                '**Vérifications conseillées** :',
+                '- Assurez-vous d\'avoir bien glissé-déposé un fichier `.yaml` valide',
+                '- Vérifiez que le nom de l\'application correspond à celui dans le fichier YAML',
               ].join('\n'),
             });
 

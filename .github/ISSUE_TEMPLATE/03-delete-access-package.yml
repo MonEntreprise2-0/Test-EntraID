@@ -1,0 +1,44 @@
+name: "🗑️ Supprimer un Access Package"
+description: "Retirer définitivement une application et ses Access Packages d'Entra ID"
+title: "[Suppression] <nom-application>"
+labels:
+  - "entitlement-request"
+  - "suppression"
+body:
+
+  - type: markdown
+    attributes:
+      value: |
+        ## 🗑️ Retrait définitif d'un Access Package
+        
+        > [!WARNING]
+        > Cette action supprimera le fichier déclaratif de l'application dans Git.
+        > Lors du merge de la Pull Request, Terraform supprimera automatiquement le catalogue,
+        > les Access Packages et les politiques associées dans **Entra ID**.
+
+  - type: dropdown
+    id: target_file
+    attributes:
+      label: "Application à supprimer"
+      description: "Sélectionnez le fichier correspondant à l'application à supprimer."
+      options:
+        - "declarations/apps/cat-test03.yaml"
+    validations:
+      required: true
+
+  - type: textarea
+    id: justification
+    attributes:
+      label: "Justification de la suppression"
+      description: "Indiquez la raison du décommissionnement (fin de contrat, migration, etc.)."
+      placeholder: "Application décommissionnée au profit de..."
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: "Confirmation obligatoire"
+      options:
+        - label: "Je confirme vouloir supprimer définitivement cet Access Package et son catalogue dans Entra ID"
+          required: true

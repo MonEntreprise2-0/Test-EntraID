@@ -11,7 +11,7 @@ on:
       - 'terraform/**'
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 env:
@@ -210,3 +210,21 @@ jobs:
             tail -n 30 apply_output.txt >> $GITHUB_STEP_SUMMARY 2>&1 || true
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
+
+      - name: 🔄 Synchroniser les listes déroulantes des formulaires d'Issues
+        if: steps.apply.outcome == 'success'
+        run: |
+          python .github/scripts/sync-dropdowns.py
+          if [ -n "$(git status --porcelain .github/ISSUE_TEMPLATE)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add .github/ISSUE_TEMPLATE/
+            git commit -m "chore: synchronisation automatique des formulaires d'issues [skip ci]"
+            git push origin main
+          fi
+
+      - name: Fail workflow if Apply failed
+        if: steps.apply.outcome != 'success'
+        run: |
+          echo "::error::Terraform apply a échoué. Consultez les erreurs dans le résumé ci-dessus."
+          exit 1
