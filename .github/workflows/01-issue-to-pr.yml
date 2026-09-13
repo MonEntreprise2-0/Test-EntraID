@@ -11,7 +11,7 @@
 # 5. Commente et ferme l'Issue source
 # ============================================================================
 
-name: "\U0001F504 Issue \u2192 Pull Request"
+name: "🔄 Issue → Pull Request"
 
 on:
   issues:
@@ -24,7 +24,7 @@ permissions:
 
 jobs:
   process-issue:
-    name: "\U0001F4DD Traiter l'Issue"
+    name: "📝 Traiter l'Issue"
     runs-on: ubuntu-latest
     if: contains(github.event.issue.labels.*.name, 'entitlement-request')
 
@@ -80,46 +80,51 @@ jobs:
           cp ./parsed/app.yaml "declarations/apps/${APP_NAME}.yaml"
 
           git add "declarations/apps/${APP_NAME}.yaml"
-          git commit -m "feat(entitlement): ${APP_NAME} \u2014 via Issue #${{ github.event.issue.number }}"
+          git commit -m "feat(entitlement): ${APP_NAME} — via Issue #${{ github.event.issue.number }}"
           git push origin "$BRANCH"
 
       - name: Create Pull Request
         id: create-pr
         uses: actions/github-script@v7
+        env:
+          APP_NAME: ${{ steps.parse.outputs.app_name }}
+          OPERATION: ${{ steps.parse.outputs.operation }}
+          BRANCH: ${{ steps.branch.outputs.name }}
+          ISSUE_NUM: ${{ github.event.issue.number }}
         with:
           script: |
-            const appName = '${{ steps.parse.outputs.app_name }}';
-            const operation = '${{ steps.parse.outputs.operation }}';
-            const branch = '${{ steps.branch.outputs.name }}';
-            const issueNumber = context.issue.number;
+            const appName = process.env.APP_NAME;
+            const operation = process.env.OPERATION;
+            const branch = process.env.BRANCH;
+            const issueNumber = process.env.ISSUE_NUM;
 
             const pr = await github.rest.pulls.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: `[Entitlement] ${appName} \u2014 ${operation}`,
+              title: `[Entitlement] ${appName} — ${operation}`,
               head: branch,
               base: 'main',
               body: [
-                `## \U0001F4E6 Entitlement Management \u2014 ${appName}`,
+                `## 📦 Entitlement Management — ${appName}`,
                 '',
-                `**Op\u00e9ration** : ${operation}`,
+                `**Opération** : ${operation}`,
                 `**Issue source** : #${issueNumber}`,
                 `**Fichier** : \`declarations/apps/${appName}.yaml\``,
                 '',
                 '---',
                 '',
-                '### \u2705 Checklist de validation automatique',
+                '### ✅ Checklist de validation automatique',
                 '',
                 '- [ ] Validation JSON Schema',
-                '- [ ] Terraform Plan (contr\u00f4le SSoT Entra ID)',
+                '- [ ] Terraform Plan (contrôle SSoT Entra ID)',
                 '',
-                '### \U0001F465 Approbations requises',
+                '### 👥 Approbations requises',
                 '',
-                '- [ ] Data Owner / M\u00e9tier',
-                '- [ ] \u00c9quipe IAM',
+                '- [ ] Data Owner / Métier',
+                '- [ ] Équipe IAM',
                 '',
                 '---',
-                `> \U0001F916 PR cr\u00e9\u00e9e automatiquement \u00e0 partir de l'Issue #${issueNumber}`,
+                `> 🤖 PR créée automatiquement à partir de l'Issue #${issueNumber}`,
               ].join('\n'),
             });
 
@@ -128,28 +133,32 @@ jobs:
 
       - name: Comment on Issue and close
         uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ steps.create-pr.outputs.pr_number }}
+          PR_URL: ${{ steps.create-pr.outputs.pr_url }}
+          APP_NAME: ${{ steps.parse.outputs.app_name }}
         with:
           script: |
-            const prNumber = '${{ steps.create-pr.outputs.pr_number }}';
-            const prUrl = '${{ steps.create-pr.outputs.pr_url }}';
-            const appName = '${{ steps.parse.outputs.app_name }}';
+            const prNumber = process.env.PR_NUMBER;
+            const prUrl = process.env.PR_URL;
+            const appName = process.env.APP_NAME;
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
               body: [
-                '## \u2705 Issue trait\u00e9e avec succ\u00e8s',
+                '## ✅ Issue traitée avec succès',
                 '',
-                `La Pull Request **#${prNumber}** a \u00e9t\u00e9 cr\u00e9\u00e9e automatiquement :`,
-                `\U0001F449 ${prUrl}`,
+                `La Pull Request **#${prNumber}** a été créée automatiquement :`,
+                `👉 ${prUrl}`,
                 '',
-                '**Prochaines \u00e9tapes** :',
-                '1. La CI va valider le sch\u00e9ma et ex\u00e9cuter `terraform plan`',
-                '2. Les approbateurs seront notifi\u00e9s pour review',
-                '3. Apr\u00e8s approbation et merge, les changements seront appliqu\u00e9s \u00e0 Entra ID',
+                '**Prochaines étapes** :',
+                '1. La CI va valider le schéma et exécuter `terraform plan`',
+                '2. Les approbateurs seront notifiés pour review',
+                '3. Après approbation et merge, les changements seront appliqués à Entra ID',
                 '',
-                `> \U0001F4C4 Fichier : \`declarations/apps/${appName}.yaml\``,
+                `> 📄 Fichier : \`declarations/apps/${appName}.yaml\``,
               ].join('\n'),
             });
 
@@ -171,15 +180,15 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
               body: [
-                '## \u274c Erreur lors du traitement de l\'Issue',
+                '## ❌ Erreur lors du traitement de l\'Issue',
                 '',
-                'Une erreur s\'est produite lors de la cr\u00e9ation de la Pull Request.',
-                `Consultez les [logs du workflow](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) pour plus de d\u00e9tails.`,
+                'Une erreur s\'est produite lors de la création de la Pull Request.',
+                `Consultez les [logs du workflow](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) pour plus de détails.`,
                 '',
                 '**Actions possibles** :',
-                '- V\u00e9rifiez que le contenu YAML est valide',
-                '- V\u00e9rifiez que le nom de l\'application est en kebab-case',
-                '- Corrigez et cr\u00e9ez une nouvelle Issue',
+                '- Vérifiez que le contenu YAML est valide',
+                '- Vérifiez que le nom de l\'application est en kebab-case',
+                '- Corrigez et créez une nouvelle Issue',
               ].join('\n'),
             });
 
