@@ -1,7 +1,7 @@
 # ============================================================================
 # Workflow : CI - Validation Schema & Terraform Plan
 # ============================================================================
-name: "\U0001F50D CI \u2014 Validation & Terraform Plan"
+name: "🔍 CI — Validation & Terraform Plan"
 
 on:
   pull_request:
@@ -160,20 +160,8 @@ jobs:
           echo "" >> $SUMMARY_FILE
 
           # Afficher la découverte automatique des catalogues
-          if [ -f "discovered_catalogs.json" ]; then
-            echo "### 🔎 Statut des catalogues (Smart Discovery)" >> $SUMMARY_FILE
-            echo "" >> $SUMMARY_FILE
-            python3 -c "
-import json
-with open('discovered_catalogs.json') as f:
-    data = json.load(f)
-for app, cat in data.items():
-    if cat.get('exists'):
-        print(f\"- 📦 **{cat.get('display_name')}** : Déjà existant dans Entra ID (Mode Consommateur, ID: \`{cat.get('id')}\`)\")
-    else:
-        print(f\"- 🆕 **{cat.get('display_name')}** : Absent d'Entra ID (sera créé par Terraform)\")
-" >> $SUMMARY_FILE 2>/dev/null || true
-            echo "" >> $SUMMARY_FILE
+          if [ -f "discovered_summary.md" ]; then
+            cat discovered_summary.md >> $SUMMARY_FILE
           fi
 
           # Extraire les créations

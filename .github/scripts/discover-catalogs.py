@@ -11,7 +11,9 @@ Il compare ensuite chaque fichier YAML declaratif :
   - Si le catalogue n'existe pas encore :
     -> Marque comme `exists: false` (Terraform le creera).
 
-Sortie : un fichier JSON consomme par Terraform (`discovered_catalogs.json`).
+Sorties :
+  - Un fichier JSON consomme par Terraform (`discovered_catalogs.json`)
+  - Un fichier Markdown pour le resume de la PR / du CD (`discovered_summary.md`)
 """
 
 import argparse
@@ -107,6 +109,10 @@ def main():
     print("----------------------------------------------------")
 
     discovered = {}
+    summary_lines = [
+        "### 🔎 Statut des catalogues (Smart Discovery)",
+        ""
+    ]
 
     for app_name, app_data in apps.items():
         catalog_cfg = app_data.get("catalog", {})
@@ -137,6 +143,7 @@ def main():
             }
             print(f"  ✅ [{app_name}] Catalogue '{actual_name}' trouve dans Entra ID")
             print(f"     -> Mode Consommateur actif (ID: {cat_id})")
+            summary_lines.append(f"- 📦 **{actual_name}** : Déjà existant dans Entra ID (Mode Consommateur, ID: `{cat_id}`)")
         else:
             discovered[app_name] = {
                 "exists": False,
@@ -146,6 +153,7 @@ def main():
             }
             print(f"  🆕 [{app_name}] Catalogue '{target_name}' non trouve dans Entra ID")
             print(f"     -> Mode Creation actif (Terraform va le creer)")
+            summary_lines.append(f"- 🆕 **{target_name}** : Absent d'Entra ID (sera créé par Terraform)")
 
     print("----------------------------------------------------")
 
@@ -157,7 +165,13 @@ def main():
     with open(args.output_file, "w", encoding="utf-8") as f:
         json.dump(discovered, f, indent=2)
 
-    print(f"💾 Fichier d'inventaire genere : {args.output_file}")
+    # 4. Ecrire le fichier Markdown de resume
+    summary_file = os.path.join(out_dir if out_dir else ".", "discovered_summary.md")
+    with open(summary_file, "w", encoding="utf-8") as f:
+        f.write("\n".join(summary_lines) + "\n\n")
+
+    print(f"💾 Fichier JSON genere : {args.output_file}")
+    print(f"📝 Resume Markdown genere : {summary_file}")
     print("====================================================\n")
 
 

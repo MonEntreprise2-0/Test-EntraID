@@ -1,7 +1,7 @@
 # ============================================================================
 # Workflow : CD - Terraform Apply (Deploiement automatique)
 # ============================================================================
-name: "\U0001F680 CD \u2014 Terraform Apply"
+name: "🚀 CD — Terraform Apply"
 
 on:
   push:
@@ -66,6 +66,9 @@ jobs:
         run: |
           echo "## 📋 Plan avant déploiement" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f "discovered_summary.md" ]; then
+            cat discovered_summary.md >> $GITHUB_STEP_SUMMARY
+          fi
 
           terraform plan \
             -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
