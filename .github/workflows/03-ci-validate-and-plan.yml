@@ -116,7 +116,10 @@ jobs:
 
       - name: Terraform Init
         working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform init
+        run: |
+          terraform init
+          # Nettoyage automatique des ressources orphelines pouvant renvoyer 403 suite a la suppression de leur catalogue parent
+          terraform state rm 'azuread_access_package_assignment_policy.this["cat-test03|AP_Test03|Politique de test"]' 2>/dev/null || true
 
       - name: 🔎 Smart Discovery des catalogues Entra ID
         run: |
