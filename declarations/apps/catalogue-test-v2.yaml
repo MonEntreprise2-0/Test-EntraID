@@ -5,7 +5,7 @@
 # 1 fichier = 1 Application = 1 Catalogue Entitlement Management.
 # ============================================================================
 
-app_name: "cataloque-test-v2"
+app_name: "catalogue-test-v2"
 app_description: "Description de mon test avec la nouvelle nomenclature"
 
 access_packages:
@@ -31,7 +31,7 @@ access_packages:
         group_name: "Group_Test01"
 
       - resource_type: "Application Role"
-        enterprise_app: "Group_Test02"
+        group_name: "Group_Test02"
 
   - context_subapp: "SubApp"
     privilege_level: "Admin"
@@ -47,4 +47,4 @@ access_packages:
         group_name: "Group_Test01"
 
       - resource_type: "Application Role"
-        enterprise_app: "Group_Test02"
+        group_name: "Group_Test02"
