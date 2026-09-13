@@ -1,11 +1,10 @@
 application_name: "cat-test03"
 owner: "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
-description: "Catalogue de test CAT_Test03 avec Access Package AP_Test03"
+description: "Application cat-test03 utilisant le catalogue existant Cat_Test01"
 
 catalog:
-  display_name: "CAT_Test01"
-  description: "Catalogue de test pour validation du pipeline GitOps"
-  published: true
+  display_name: "Cat_Test01"
+  existing: true
 
 resources:
   - type: "group"
@@ -13,7 +12,7 @@ resources:
 
 access_packages:
   - display_name: "AP_Test03"
-    description: "Access Package de test incluant le groupe Group_Test01"
+    description: "Access Package AP_Test03 dans le catalogue existant Cat_Test01"
     hidden: false
 
     resource_roles:
