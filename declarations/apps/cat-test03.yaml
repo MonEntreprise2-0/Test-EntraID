@@ -1,9 +1,9 @@
 application_name: "cat-test03"
-owner: "team-iam@ardian.com"
+owner: "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
 description: "Catalogue de test CAT_Test03 avec Access Package AP_Test03"
 
 catalog:
-  display_name: "CAT_Test03"
+  display_name: "CAT_Test01"
   description: "Catalogue de test pour validation du pipeline GitOps"
   published: true
 
