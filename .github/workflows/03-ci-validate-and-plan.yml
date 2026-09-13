@@ -176,15 +176,15 @@ jobs:
 
           echo "| Action | Nombre |" >> $SUMMARY_FILE
           echo "|--------|--------|" >> $SUMMARY_FILE
-          echo "| 🆕 Créations | $CREATES |" >> $SUMMARY_FILE
-          echo "| ✏️ Modifications | $UPDATES |" >> $SUMMARY_FILE
-          echo "| 🗑️ Suppressions | $DESTROYS |" >> $SUMMARY_FILE
+          echo "| 🆕 Assets à créer | $CREATES |" >> $SUMMARY_FILE
+          echo "| ✏️ Assets à modifier | $UPDATES |" >> $SUMMARY_FILE
+          echo "| 🗑️ Assets à supprimer | $DESTROYS |" >> $SUMMARY_FILE
           echo "| 🔄 Remplacements | $REPLACES |" >> $SUMMARY_FILE
           echo "" >> $SUMMARY_FILE
 
           # Détail des créations
           if [ "$CREATES" -gt 0 ]; then
-            echo "### 🆕 Ressources à créer" >> $SUMMARY_FILE
+            echo "### 🆕 Assets qui seront créés si vous confirmez le merge :" >> $SUMMARY_FILE
             echo "" >> $SUMMARY_FILE
             grep '# .* will be created' $PLAN_FILE | while read -r line; do
               RESOURCE=$(echo "$line" | sed 's/.*# //' | sed 's/ will be created//')
@@ -206,7 +206,7 @@ jobs:
 
           # Détail des modifications
           if [ "$UPDATES" -gt 0 ]; then
-            echo "### ✏️ Ressources à modifier" >> $SUMMARY_FILE
+            echo "### ✏️ Assets qui seront modifiés si vous confirmez le merge :" >> $SUMMARY_FILE
             echo "" >> $SUMMARY_FILE
             grep '# .* will be updated' $PLAN_FILE | while read -r line; do
               RESOURCE=$(echo "$line" | sed 's/.*# //' | sed 's/ will be updated in-place//')
@@ -219,7 +219,7 @@ jobs:
 
           # Détail des suppressions
           if [ "$DESTROYS" -gt 0 ]; then
-            echo "### 🗑️ Ressources à supprimer" >> $SUMMARY_FILE
+            echo "### 🗑️ Assets qui seront supprimés si vous confirmez le merge :" >> $SUMMARY_FILE
             echo "" >> $SUMMARY_FILE
             grep '# .* will be destroyed' $PLAN_FILE | while read -r line; do
               RESOURCE=$(echo "$line" | sed 's/.*# //' | sed 's/ will be destroyed//')
@@ -285,6 +285,46 @@ jobs:
               ? planOutput.substring(0, maxLen) + '\n\n... (sortie tronquée)'
               : planOutput;
 
+            let footerBlock = [];
+            if (exitCode === '1') {
+              const missingApps = [];
+              const appMatches = planOutput.matchAll(/No service principals found matching filter: "displayName eq '([^']+)'"/g);
+              for (const m of appMatches) {
+                missingApps.push(m[1]);
+              }
+              const missingGroups = [];
+              const grpMatches = planOutput.matchAll(/No group found with display_name "([^"]+)"/g);
+              for (const m of grpMatches) {
+                missingGroups.push(m[1]);
+              }
+
+              footerBlock = [
+                '> [!CAUTION]',
+                '> ### 🚫 Assets bloquants à créer avant de lancer le merge :',
+                '> **Certaines ressources ou rôles applicatifs déclarés dans votre fichier YAML n\'existent pas encore dans Entra ID.**',
+                '>',
+                '> ⚠️ **Action requise :** Il faut **demander à votre administrateur la création de ces assets** car les ressources / app roles ne sont pas créés via ce workflow et ce sont des assets bloquants (c\'est-à-dire que s\'ils ne sont pas présents, cette action ne peut pas réussir).',
+              ];
+
+              if (missingApps.length > 0 || missingGroups.length > 0) {
+                footerBlock.push('>');
+                footerBlock.push('> **Détail des assets à créer avant de relancer :**');
+                for (const app of missingApps) {
+                  footerBlock.push(`> - 📱 Application / Rôle applicatif à créer : \`${app}\``);
+                }
+                for (const grp of missingGroups) {
+                  footerBlock.push(`> - 👥 Groupe Entra ID à créer : \`${grp}\``);
+                }
+              }
+            } else {
+              footerBlock = [
+                '> [!NOTE]',
+                '> ### ℹ️ Assets qui seront créés si vous confirmez le merge :',
+                '> Ce plan sera appliqué automatiquement après le merge sur `main`.',
+                '> **Vérifiez attentivement la liste des assets ci-dessus avant de confirmer le merge.**',
+              ];
+            }
+
             const body = [
               `## ${emoji} Terraform Plan — ${status}`,
               '',
@@ -300,17 +340,7 @@ jobs:
               '```',
               '</details>',
               '',
-              exitCode === '1'
-                ? [
-                    '> [!CAUTION]',
-                    '> Le plan a échoué. Vérifiez que toutes les ressources référencées',
-                    '> (groupes, applications) existent bien dans **Entra ID**.',
-                  ].join('\n')
-                : [
-                    '> [!NOTE]',
-                    '> Ce plan sera appliqué automatiquement après le merge sur `main`.',
-                    '> **Vérifiez attentivement le résumé ci-dessus avant de merger.**',
-                  ].join('\n'),
+              footerBlock.join('\n'),
             ].join('\n');
 
             await github.rest.issues.createComment({
