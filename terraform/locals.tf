@@ -192,4 +192,12 @@ locals {
     "manager"  = "Manager"
     "specific" = "Reviewers"
   }
+
+  # =========================================================================
+  # 9. MAP UNIFIEE DES CATALOGUE IDS (crees ou consommes)
+  # =========================================================================
+  catalog_ids = merge(
+    { for k, c in azuread_access_package_catalog.this : k => c.id },
+    { for k, c in data.azuread_access_package_catalog.existing : k => c.id }
+  )
 }

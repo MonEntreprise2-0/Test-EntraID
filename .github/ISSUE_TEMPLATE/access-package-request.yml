@@ -70,6 +70,7 @@ body:
           display_name: "Mon Application"
           description: "Catalogue pour Mon Application"
           published: true
+          # existing: true   # décommentez si le catalogue existe déjà dans Entra ID
         resources:
           - type: "group"
             display_name: "GRP-APP-MonApp-Users"

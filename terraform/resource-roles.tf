@@ -15,7 +15,7 @@
 resource "azuread_access_package_resource_catalog_association" "groups" {
   for_each = local.catalog_group_associations
 
-  catalog_id             = azuread_access_package_catalog.this[each.value.app_name].id
+  catalog_id             = local.catalog_ids[each.value.app_name]
   resource_origin_id     = data.azuread_group.all[each.value.display_name].object_id
   resource_origin_system = "AadGroup"
 }
@@ -26,7 +26,7 @@ resource "azuread_access_package_resource_catalog_association" "groups" {
 resource "azuread_access_package_resource_catalog_association" "apps" {
   for_each = local.catalog_app_associations
 
-  catalog_id             = azuread_access_package_catalog.this[each.value.app_name].id
+  catalog_id             = local.catalog_ids[each.value.app_name]
   resource_origin_id     = data.azuread_service_principal.all[each.value.display_name].object_id
   resource_origin_system = "AadApplication"
 }

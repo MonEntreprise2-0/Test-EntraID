@@ -1,22 +1,30 @@
 # ============================================================================
-# OUTPUTS — Identifiants des ressources creees
-# ============================================================================
-# Ces outputs permettent de tracer les ressources creees dans Entra ID
-# et sont affiches dans les logs du pipeline CI/CD.
+# OUTPUTS — Identifiants des ressources creees ou consommees
 # ============================================================================
 
 # -----------------------------------------------------------------------------
 # Catalogues
 # -----------------------------------------------------------------------------
 output "catalogs" {
-  description = "Map des catalogues crees (application_name => {id, display_name})"
-  value = {
-    for app_name, catalog in azuread_access_package_catalog.this :
-    app_name => {
-      id           = catalog.id
-      display_name = catalog.display_name
+  description = "Map des catalogues (application_name => {id, display_name, source})"
+  value = merge(
+    {
+      for app_name, catalog in azuread_access_package_catalog.this :
+      app_name => {
+        id           = catalog.id
+        display_name = catalog.display_name
+        source       = "managed_by_terraform"
+      }
+    },
+    {
+      for app_name, catalog in data.azuread_access_package_catalog.existing :
+      app_name => {
+        id           = catalog.id
+        display_name = catalog.display_name
+        source       = "existing_in_entraid"
+      }
     }
-  }
+  )
 }
 
 # -----------------------------------------------------------------------------
@@ -53,9 +61,9 @@ output "assignment_policies" {
 output "summary" {
   description = "Resume du deploiement"
   value = {
-    total_catalogs   = length(azuread_access_package_catalog.this)
+    total_catalogs   = length(local.catalog_ids)
     total_packages   = length(azuread_access_package.this)
     total_policies   = length(azuread_access_package_assignment_policy.this)
-    applications     = keys(azuread_access_package_catalog.this)
+    applications     = keys(local.catalog_ids)
   }
 }

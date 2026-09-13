@@ -24,6 +24,7 @@ catalog:
   display_name: "Salesforce CRM"            # Nom affiché dans le portail MyAccess
   description: "Catalogue pour l'application Salesforce CRM"
   published: true                           # true = visible par les utilisateurs éligibles
+  existing: false                           # true = utiliser un catalogue pré-existant dans Entra ID (Mode Consommateur)
 
 # ---------------------------------------------------------------------------
 # RESOURCES — Ressources à inclure dans le catalogue

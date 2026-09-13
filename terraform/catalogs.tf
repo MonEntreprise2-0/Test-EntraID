@@ -1,15 +1,28 @@
 # ============================================================================
 # CATALOGUES — azuread_access_package_catalog
 # ============================================================================
-# Un catalogue par application (1 YAML = 1 catalogue).
-# Le catalogue est le conteneur logique qui regroupe les ressources
-# et les Access Packages d'une application dans Entitlement Management.
+# Mode 1 : Création / Gestion par Terraform (défaut ou existing: false)
+# Mode 2 : Consommation d'un catalogue pré-existant dans Entra ID (existing: true)
 # ============================================================================
 
+# 1. Catalogues créés et gérés par Terraform
 resource "azuread_access_package_catalog" "this" {
-  for_each = local.apps
+  for_each = {
+    for app_name, app in local.apps : app_name => app
+    if !try(app.catalog.existing, false) && try(app.catalog.create, true)
+  }
 
   display_name       = each.value.catalog.display_name
-  description        = each.value.catalog.description
-  externally_visible = each.value.catalog.published
+  description        = try(each.value.catalog.description, "Catalogue ${each.value.catalog.display_name}")
+  externally_visible = try(each.value.catalog.published, true)
+}
+
+# 2. Catalogues pré-existants dans Entra ID (Mode Consommateur SSoT)
+data "azuread_access_package_catalog" "existing" {
+  for_each = {
+    for app_name, app in local.apps : app_name => app
+    if try(app.catalog.existing, false) || !try(app.catalog.create, true)
+  }
+
+  display_name = each.value.catalog.display_name
 }

@@ -32,7 +32,7 @@
     },
     "catalog": {
       "type": "object",
-      "required": ["display_name", "description", "published"],
+      "required": ["display_name"],
       "additionalProperties": false,
       "properties": {
         "display_name": {
@@ -43,13 +43,23 @@
         },
         "description": {
           "type": "string",
-          "minLength": 10,
+          "minLength": 5,
           "maxLength": 500,
           "description": "Description du catalogue."
         },
         "published": {
           "type": "boolean",
           "description": "Si true, le catalogue est visible par les utilisateurs éligibles."
+        },
+        "existing": {
+          "type": "boolean",
+          "default": false,
+          "description": "Si true, utilise un catalogue pré-existant dans Entra ID au lieu d'en créer un nouveau."
+        },
+        "create": {
+          "type": "boolean",
+          "default": true,
+          "description": "false pour utiliser un catalogue pré-existant dans Entra ID au lieu d'en créer un nouveau."
         }
       }
     },
