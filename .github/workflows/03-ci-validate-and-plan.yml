@@ -1,15 +1,6 @@
 # ============================================================================
 # Workflow : CI - Validation Schema & Terraform Plan
 # ============================================================================
-# Declencheur : Pull Request ciblant main avec modifications dans
-#               declarations/apps/** ou terraform/**
-#
-# Ce workflow :
-# 1. Valide le schema JSON des fichiers YAML modifies
-# 2. Execute terraform plan via OIDC pour controler la SSoT Entra ID
-# 3. Poste le resultat du plan en commentaire sur la PR
-# ============================================================================
-
 name: "\U0001F50D CI \u2014 Validation & Terraform Plan"
 
 on:
@@ -32,9 +23,6 @@ env:
 
 jobs:
 
-  # -------------------------------------------------------------------------
-  # Job 1 : Validation du schema YAML
-  # -------------------------------------------------------------------------
   validate-schema:
     name: "\U0001F4CB Validation Schema"
     runs-on: ubuntu-latest
@@ -96,9 +84,6 @@ jobs:
 
           echo "All YAML files are valid."
 
-  # -------------------------------------------------------------------------
-  # Job 2 : Terraform Plan
-  # -------------------------------------------------------------------------
   terraform-plan:
     name: "\U0001F3D7\uFE0F Terraform Plan"
     runs-on: ubuntu-latest
@@ -149,39 +134,146 @@ jobs:
           fi
         continue-on-error: true
 
+      - name: Generate human-readable summary
+        id: summary
+        if: always()
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          PLAN_FILE="plan_output.txt"
+          SUMMARY_FILE="plan_summary.md"
+
+          echo "## 📋 Résumé des changements prévus dans Entra ID" > $SUMMARY_FILE
+          echo "" >> $SUMMARY_FILE
+
+          # Extraire les créations
+          CREATES=$(grep -c '# .* will be created' $PLAN_FILE 2>/dev/null || echo "0")
+          UPDATES=$(grep -c '# .* will be updated' $PLAN_FILE 2>/dev/null || echo "0")
+          DESTROYS=$(grep -c '# .* will be destroyed' $PLAN_FILE 2>/dev/null || echo "0")
+          REPLACES=$(grep -c '# .* must be replaced' $PLAN_FILE 2>/dev/null || echo "0")
+          NOCHANGE=$(grep -c 'No changes.' $PLAN_FILE 2>/dev/null || echo "0")
+
+          echo "| Action | Nombre |" >> $SUMMARY_FILE
+          echo "|--------|--------|" >> $SUMMARY_FILE
+          echo "| 🆕 Créations | $CREATES |" >> $SUMMARY_FILE
+          echo "| ✏️ Modifications | $UPDATES |" >> $SUMMARY_FILE
+          echo "| 🗑️ Suppressions | $DESTROYS |" >> $SUMMARY_FILE
+          echo "| 🔄 Remplacements | $REPLACES |" >> $SUMMARY_FILE
+          echo "" >> $SUMMARY_FILE
+
+          # Détail des créations
+          if [ "$CREATES" -gt 0 ]; then
+            echo "### 🆕 Ressources à créer" >> $SUMMARY_FILE
+            echo "" >> $SUMMARY_FILE
+            grep '# .* will be created' $PLAN_FILE | while read -r line; do
+              RESOURCE=$(echo "$line" | sed 's/.*# //' | sed 's/ will be created//')
+              # Extraire le type lisible
+              TYPE=$(echo "$RESOURCE" | sed 's/\..*//' | sed 's/azuread_//')
+              KEY=$(echo "$RESOURCE" | grep -oP '\["[^"]*"\]' | tr -d '[]"' || echo "")
+              case "$TYPE" in
+                access_package_catalog) ICON="📦"; LABEL="Catalogue" ;;
+                access_package) ICON="🎫"; LABEL="Access Package" ;;
+                access_package_assignment_policy) ICON="📜"; LABEL="Politique d'assignation" ;;
+                access_package_resource_catalog_association) ICON="🔗"; LABEL="Association ressource → catalogue" ;;
+                access_package_resource_package_association) ICON="🔗"; LABEL="Association ressource → package" ;;
+                *) ICON="📌"; LABEL="$TYPE" ;;
+              esac
+              echo "- $ICON **$LABEL** : \`$KEY\`" >> $SUMMARY_FILE
+            done
+            echo "" >> $SUMMARY_FILE
+          fi
+
+          # Détail des modifications
+          if [ "$UPDATES" -gt 0 ]; then
+            echo "### ✏️ Ressources à modifier" >> $SUMMARY_FILE
+            echo "" >> $SUMMARY_FILE
+            grep '# .* will be updated' $PLAN_FILE | while read -r line; do
+              RESOURCE=$(echo "$line" | sed 's/.*# //' | sed 's/ will be updated in-place//')
+              TYPE=$(echo "$RESOURCE" | sed 's/\..*//' | sed 's/azuread_//')
+              KEY=$(echo "$RESOURCE" | grep -oP '\["[^"]*"\]' | tr -d '[]"' || echo "")
+              echo "- ✏️ **$TYPE** : \`$KEY\`" >> $SUMMARY_FILE
+            done
+            echo "" >> $SUMMARY_FILE
+          fi
+
+          # Détail des suppressions
+          if [ "$DESTROYS" -gt 0 ]; then
+            echo "### 🗑️ Ressources à supprimer" >> $SUMMARY_FILE
+            echo "" >> $SUMMARY_FILE
+            grep '# .* will be destroyed' $PLAN_FILE | while read -r line; do
+              RESOURCE=$(echo "$line" | sed 's/.*# //' | sed 's/ will be destroyed//')
+              TYPE=$(echo "$RESOURCE" | sed 's/\..*//' | sed 's/azuread_//')
+              KEY=$(echo "$RESOURCE" | grep -oP '\["[^"]*"\]' | tr -d '[]"' || echo "")
+              echo "- 🗑️ **$TYPE** : \`$KEY\`" >> $SUMMARY_FILE
+            done
+            echo "" >> $SUMMARY_FILE
+          fi
+
+          if [ "$NOCHANGE" -gt 0 ] && [ "$CREATES" -eq 0 ] && [ "$UPDATES" -eq 0 ] && [ "$DESTROYS" -eq 0 ]; then
+            echo "✅ **Aucun changement détecté** — l'infrastructure Entra ID est déjà à jour." >> $SUMMARY_FILE
+          fi
+
+          cat $SUMMARY_FILE
+
+          # Store for PR comment
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "content<<$EOF" >> $GITHUB_OUTPUT
+          cat $SUMMARY_FILE >> $GITHUB_OUTPUT
+          echo "$EOF" >> $GITHUB_OUTPUT
+
       - name: Post Plan result as PR comment
+        if: always()
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            const planOutput = fs.readFileSync('${{ env.TF_WORKING_DIR }}/plan_output.txt', 'utf8');
+
+            // Read plan output
+            let planOutput = '';
+            try {
+              planOutput = fs.readFileSync('${{ env.TF_WORKING_DIR }}/plan_output.txt', 'utf8');
+            } catch (e) {
+              planOutput = 'Plan output not available.';
+            }
+
+            // Read summary
+            let summaryContent = '';
+            try {
+              summaryContent = fs.readFileSync('${{ env.TF_WORKING_DIR }}/plan_summary.md', 'utf8');
+            } catch (e) {
+              summaryContent = '⚠️ Résumé non disponible.';
+            }
+
             const exitCode = '${{ steps.plan.outputs.exit_code }}';
 
             let status, emoji;
             switch (exitCode) {
               case '0':
-                status = 'Aucun changement detect\u00e9';
-                emoji = '\u2705';
+                status = 'Aucun changement détecté';
+                emoji = '✅';
                 break;
               case '2':
-                status = 'Changements detect\u00e9s (\u00e0 appliquer apr\u00e8s merge)';
-                emoji = '\U0001F4CB';
+                status = 'Changements détectés';
+                emoji = '📋';
                 break;
               default:
                 status = 'Erreur lors du plan';
-                emoji = '\u274c';
+                emoji = '❌';
             }
 
-            const maxLen = 60000;
+            const maxLen = 50000;
             const truncated = planOutput.length > maxLen
-              ? planOutput.substring(0, maxLen) + '\n\n... (sortie tronqu\u00e9e)'
+              ? planOutput.substring(0, maxLen) + '\n\n... (sortie tronquée)'
               : planOutput;
 
             const body = [
-              `## ${emoji} Terraform Plan \u2014 ${status}`,
+              `## ${emoji} Terraform Plan — ${status}`,
+              '',
+              summaryContent,
+              '',
+              '---',
               '',
               '<details>',
-              '<summary>Afficher le plan complet</summary>',
+              '<summary>🔍 Afficher le plan Terraform complet</summary>',
               '',
               '```hcl',
               truncated,
@@ -191,13 +283,13 @@ jobs:
               exitCode === '1'
                 ? [
                     '> [!CAUTION]',
-                    '> Le plan a \u00e9chou\u00e9. V\u00e9rifiez que toutes les ressources r\u00e9f\u00e9renc\u00e9es',
+                    '> Le plan a échoué. Vérifiez que toutes les ressources référencées',
                     '> (groupes, applications) existent bien dans **Entra ID**.',
-                    '> Consultez les logs ci-dessus pour identifier la ressource manquante.',
                   ].join('\n')
                 : [
                     '> [!NOTE]',
-                    '> Ce plan sera appliqu\u00e9 automatiquement apr\u00e8s le merge sur `main`.',
+                    '> Ce plan sera appliqué automatiquement après le merge sur `main`.',
+                    '> **Vérifiez attentivement le résumé ci-dessus avant de merger.**',
                   ].join('\n'),
             ].join('\n');
 
