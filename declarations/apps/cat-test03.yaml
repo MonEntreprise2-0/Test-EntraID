@@ -1,9 +1,9 @@
 application_name: "cat-test03"
 owner: "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
-description: "Application cat-test03 utilisant le catalogue existant CAT_Test01"
+description: "Application cat-test03 utilisant le catalogue existant Cat_Test01"
 
 catalog:
-  display_name: "CAT_Test01"
+  display_name: "Cat_Test01"
   existing: true
 
 resources:
@@ -12,7 +12,7 @@ resources:
 
 access_packages:
   - display_name: "AP_Test03"
-    description: "Access Package AP_Test03 dans le catalogue existant CAT_Test01"
+    description: "Access Package AP_Test03 dans le catalogue existant Cat_Test01"
     hidden: false
 
     resource_roles:
