@@ -1,0 +1,200 @@
+# ============================================================================
+# FICHIER DÉCLARATIF — Entitlement Management Entra ID (Format Ardian v2)
+# ============================================================================
+# Ce fichier est un EXEMPLE commenté. Il est ignoré par Terraform (préfixe _).
+# Copiez-le et renommez-le en kebab-case : <nom-application>.yaml
+#
+# Convention Ardian :
+#   1 fichier YAML = 1 Application = 1 Catalogue Entitlement Management
+#
+# Emplacement : declarations/apps/<nom-application>.yaml
+#
+# Rappel "Mode Consommateur" :
+#   Ce pipeline ne crée AUCUNE ressource cible (groupes, apps, sites SharePoint).
+#   Si une ressource référencée n'existe pas dans Entra ID, la CI bloquera
+#   automatiquement le merge.
+# ============================================================================
+
+
+# ============================================================================
+# NIVEAU 1 : LE CATALOGUE (APPLICATION)
+# ============================================================================
+# Ces champs décrivent l'application et son catalogue dans Entra ID.
+# Le catalogue sera créé automatiquement s'il n'existe pas déjà (Smart Discovery).
+
+app_name: "mon-application"                   # [OBLIGATOIRE] Nom du catalogue / de l'application
+                                              #   Doit correspondre au nom du fichier (sans extension).
+                                              #   Convention : kebab-case, minuscules, tirets (-) uniquement.
+
+app_description: "Description fonctionnelle de l'application"
+                                              # [OBLIGATOIRE] Description du catalogue.
+                                              #   Utilisée uniquement si le catalogue doit être créé. Dans le cas où le catalogue existe déjà, ce champ sera ignoré
+
+
+# ============================================================================
+# NIVEAU 2 : LES ACCESS PACKAGES (LISTE)
+# ============================================================================
+# Chaque élément de cette liste crée un Access Package dans le catalogue.
+#
+# IMPORTANT — Nommage automatique :
+#   Le nom de l'Access Package est CONSTRUIT automatiquement par le pipeline.
+#   Il ne doit PAS être renseigné dans ce fichier.
+#   Formule : [Context/Subapp] [Privilege Level] - [Env]
+#   Si "context_subapp" est vide, il est omis du nom.
+#   Exemples :
+#     - context/subapp: "SubApp", privilege_level: "Read Only", env: "Prod"
+#       → Nom généré : "SubApp Read Only - Prod"
+#     - context_subapp: "", privilege_level: "Admin", env: "UAT"
+#       → Nom généré : "Admin - UAT"
+# ============================================================================
+
+access_packages:
+
+  # ==========================================================================
+  # EXEMPLE 1 : Access Package avec des Application Roles
+  # ==========================================================================
+  # Cas d'usage : Donner accès à un ou plusieurs rôles applicatifs d'Enterprise Apps
+  #               enregistrées dans Entra ID (ex: app-frontend, app-backend).
+  # ==========================================================================
+
+  - context_subapp: "SubApp"          # [FACULTATIF] Notion métier / sous-application.
+                                              #   Laissez vide ("") ou supprimez la ligne si non applicable.
+                                              #   Le nom de l'access Package seera SubApp Read Only - Prod
+
+    privilege_level: "Read Only"              # [OBLIGATOIRE] Intention métier de l'accès.
+                                              #   Exemples : "Read Only", "User", "Admin", "IT Access"
+
+    env: "Prod"                               # [OBLIGATOIRE] Environnement cible.
+                                              #   Exemples : "Dev", "UAT", "Prod", "Staging"
+
+    description: "Accès en lecture seule aux modules SubApp en production"
+                                              # [OBLIGATOIRE] Description de l'Access Package
+                                              #   (visible par les utilisateurs dans le portail MyAccess).
+
+    authorization_owners:                     # [OBLIGATOIRE] Liste des emails des propriétaires.
+      - "data-owner@ardian.com"               #   Ce sont les personnes habilitées à approuver
+      - "backup-owner@ardian.com"             #   ou révoquer les demandes d'accès.
+
+    owner_only: false                         # [OBLIGATOIRE] Gère la politique d'assignation :
+                                              #   true  = Assignation directe par un administrateur uniquement.
+                                              #   false = Self-service (l'utilisateur peut demander l'accès lui-même
+                                              #           via le portail MyAccess, soumis à approbation).
+
+    # --------------------------------------------------------------------------
+    # NIVEAU 3 : LES RESSOURCES DE L'ACCESS PACKAGE
+    # --------------------------------------------------------------------------
+    # Chaque ressource est un rôle applicatif, un groupe Entra ID ou un site SharePoint
+    # que l'utilisateur recevra lorsqu'il obtiendra cet Access Package.
+    # --------------------------------------------------------------------------
+
+    resources:
+
+      # --- Section pour l'ajout d'Application Roles. Supprimer si non applicable ---
+
+      - resource_type: "Application Role"     # [OBLIGATOIRE] Type de la ressource.
+                                              #   Valeurs possibles : "Application Role", "EntraID Group", "Sharepoint Group"
+
+        enterprise_app: "app-frontend"        # [OBLIGATOIRE si resource_type = Application Role] Nom de l'Enterprise App dans Entra ID.
+                                              #   Le pipeline vérifiera que cette application existe dans le tenant.
+
+        app_role: "SubApp ReadOnly"   # [OBLIGATOIRE si Application Role] Nom exact du rôle dans l'App Registration.
+                                              #   Doit correspondre au "Value" ou "Display Name" du rôle déclaré
+                                              #   dans la section "App Roles" de l'App Registration.
+
+      - resource_type: "Application Role"     # Si vous souhaitez ajouter une deuxième application dans l'Access Package
+        enterprise_app: "app-backend"
+        app_role: "SubApp ReadOnly"
+
+
+  # ==========================================================================
+  # EXEMPLE 2 : Access Package avec des Groupes Entra ID
+  # ==========================================================================
+  # Cas d'usage : Donner accès à un ou plusieurs groupes de sécurité Entra ID
+  #               (ex: groupes d'accès réseau, groupes de licences, groupes M365).
+  # ==========================================================================
+
+  - context_subapp: ""                        # Vide → Le nom de l'AP sera : "Collaborateur - Prod"
+    privilege_level: "Collaborateur"
+    env: "Prod"
+    description: "Accès collaborateur standard : groupes de sécurité réseau et licences"
+    authorization_owners:
+      - "iam-team@ardian.com"
+    owner_only: false
+
+    resources:
+
+      # --- Section pour l'ajout de Groupes Entra ID. Supprimer si non applicable ---
+
+      - resource_type: "EntraID Group"        # [OBLIGATOIRE] Type de la ressource.
+
+        group_name: "GRP-SEC-Reseau-Prod"     # [OBLIGATOIRE si resource_type = EntraID Group] Nom du groupe existant dans Entra ID.
+                                              #   Le code Terraform évaluera ce nom SANS tenir compte de la casse
+                                              #   (ex: "grp-sec-reseau-prod" trouvera "GRP-SEC-Reseau-Prod").
+
+      - resource_type: "EntraID Group"        # Si vous souhaitez ajouter un deuxième groupe dans l'Access Package
+        group_name: "GRP-LIC-Office365"
+
+
+  # ==========================================================================
+  # EXEMPLE 3 : Access Package avec des Sites SharePoint
+  # ==========================================================================
+  # Cas d'usage : Donner accès à un ou plusieurs sites SharePoint Online
+  #               (ex: espace projet, bibliothèque documentaire partagée).
+  # ==========================================================================    ########### TO BE CONFIRMED ###########
+
+  - context_subapp: "Documentation Projet"
+    privilege_level: "Contributeur"
+    env: "Prod"
+    description: "Accès en contribution au site SharePoint de documentation projet"
+    authorization_owners:
+      - "project-lead@ardian.com"
+    owner_only: true                          # Assignation directe par un admin uniquement
+
+    resources:
+
+      # --- Section pour l'ajout de Sites SharePoint. Supprimer si non applicable ---
+
+      - resource_type: "Sharepoint Group"     # [OBLIGATOIRE] Type de la ressource.
+
+        catalog_id: "abc12345-def6-7890-ghij-klmnopqrstuv"
+                                              # [OBLIGATOIRE si resource_type = Sharepoint Group] ID du catalogue SharePoint.
+                                              #   Récupérable depuis l'admin SharePoint ou l'API Graph.
+
+        sharepoint_url: "https://123.sharepoint.com/sites/ProjetAlpha"
+                                              # [OBLIGATOIRE si resource_type = Sharepoint Group] URL complète du site SharePoint.
+
+        group_name: "GRP-M365-ProjetAlpha"    # [FACULTATIF si resource_type = Sharepoint Group] Groupe M365 optionnel TOBE CONFIRMED
+                                              #   associé au site SharePoint.
+
+
+  # ==========================================================================
+  # EXEMPLE 4 : Access Package MIXTE (plusieurs types de ressources combinés)
+  # ==========================================================================
+  # Cas d'usage : Un même Access Package peut regrouper des Application Roles,
+  #               des Groupes Entra ID ET des Sites SharePoint.
+  # ==========================================================================
+
+  - context_subapp: "Deal Room"
+    privilege_level: "Admin"
+    env: "UAT"
+    description: "Accès administrateur complet à la Deal Room en environnement UAT"
+    authorization_owners:
+      - "deal-manager@ardian.com"
+      - "iam-admin@ardian.com"
+    owner_only: true
+
+    resources:
+
+      # --- Application Roles ---
+      - resource_type: "Application Role"
+        enterprise_app: "dealroom-app"
+        app_role: "DealRoom Admin"
+
+      # --- Groupes Entra ID ---
+      - resource_type: "EntraID Group"
+        group_name: "GRP-DealRoom-Admins-UAT"
+
+      # --- Sites SharePoint ---
+      - resource_type: "Sharepoint Group"
+        catalog_id: "xyz98765-abcd-1234-efgh-ijklmnopqrst"
+        sharepoint_url: "https://ardian.sharepoint.com/sites/DealRoom-UAT"

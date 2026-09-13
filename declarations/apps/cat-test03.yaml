@@ -1,33 +1,15 @@
-application_name: "cat-test03"
-owner: "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
-description: "Application cat-test03 avec auto-decouverte du catalogue Cat_Test01"
-
-catalog:
-  display_name: "Cat_Test01"
-
-resources:
-  - type: "group"
-    display_name: "Group_Test01"
+app_name: "cat-test03"
+app_description: "Application cat-test03 avec auto-decouverte du catalogue Cat_Test01"
 
 access_packages:
-  - display_name: "AP_Test03"
+  - context_subapp: ""
+    privilege_level: "AP_Test03"
+    env: "Prod"
     description: "Access Package AP_Test03 gere dans Cat_Test01"
-    hidden: false
+    authorization_owners:
+      - "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
+    owner_only: false
 
-    resource_roles:
-      - resource_display_name: "Group_Test01"
-        resource_type: "group"
-        role: "Member"
-
-    policies:
-      - display_name: "Politique de test"
-
-        requestor:
-          scope_type: "all_members"
-
-        approval:
-          required: false
-
-        assignment:
-          type: "expiring"
-          duration_in_days: 180
+    resources:
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test01"

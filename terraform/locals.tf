@@ -1,10 +1,10 @@
 # ============================================================================
-# LOCALS — Chargement dynamique des fichiers YAML et aplatissement
+# LOCALS — Chargement dynamique des fichiers YAML (Support Ardian v1 & v2)
 # ============================================================================
 # Ce fichier est le coeur du mecanisme data-driven :
 # 1. fileset() decouvre tous les YAML dans declarations/apps/
 # 2. yamldecode() parse chaque fichier en structure HCL
-# 3. Les structures imbriquees sont aplaties en maps pour for_each
+# 3. Les structures imbriquees (v1 ou v2) sont aplaties en maps pour for_each
 # ============================================================================
 
 locals {
@@ -19,30 +19,50 @@ locals {
     f if !startswith(f, "_")
   ]
 
-  # Parser chaque YAML en une map indexee par application_name
+  # Parser chaque YAML en une map indexee par nom d'application
   apps = {
     for f in local.yaml_files :
-    yamldecode(file("${path.module}/${var.declarations_path}/${f}")).application_name =>
+    coalesce(
+      try(yamldecode(file("${path.module}/${var.declarations_path}/${f}")).app_name, null),
+      try(yamldecode(file("${path.module}/${var.declarations_path}/${f}")).application_name, null),
+      trimsuffix(f, ".yaml")
+    ) =>
     yamldecode(file("${path.module}/${var.declarations_path}/${f}"))
   }
+
+  # Mapping des groupes decouverts de maniere insensible a la casse
+  discovered_groups = try(
+    jsondecode(file("${path.module}/discovered_groups.json")),
+    {}
+  )
 
   # =========================================================================
   # 2. EXTRACTION DES GROUPES (pour les blocs data SSoT)
   # =========================================================================
 
-  # Groupes declares comme ressources dans les catalogues
+  # Groupes declares (support v1 et v2)
   resource_group_names = distinct(flatten([
-    for app_name, app in local.apps : [
-      for res in app.resources : res.display_name
-      if res.type == "group"
-    ]
+    for app_name, app in local.apps : concat(
+      # Schema v1
+      [
+        for res in try(app.resources, []) : res.display_name
+        if try(res.type, "") == "group"
+      ],
+      # Schema v2
+      flatten([
+        for ap in try(app.access_packages, []) : [
+          for res in try(ap.resources, []) : res.group_name
+          if try(res.resource_type, "") == "EntraID Group"
+        ]
+      ])
+    )
   ]))
 
-  # Groupes references dans les politiques (demandeurs, approbateurs, reviseurs)
+  # Groupes references dans les politiques (demandeurs, approbateurs v1)
   policy_group_names = distinct(flatten([
     for app_name, app in local.apps : flatten([
-      for ap in app.access_packages : flatten([
-        for pol in ap.policies : concat(
+      for ap in try(app.access_packages, []) : flatten([
+        for pol in try(ap.policies, []) : concat(
           try(pol.requestor.groups, []),
           flatten([
             for stage in try(pol.approval.stages, []) : concat(
@@ -64,10 +84,20 @@ locals {
   # =========================================================================
 
   all_application_names = distinct(flatten([
-    for app_name, app in local.apps : [
-      for res in app.resources : res.display_name
-      if res.type == "application"
-    ]
+    for app_name, app in local.apps : concat(
+      # Schema v1
+      [
+        for res in try(app.resources, []) : res.display_name
+        if try(res.type, "") == "application"
+      ],
+      # Schema v2
+      flatten([
+        for ap in try(app.access_packages, []) : [
+          for res in try(ap.resources, []) : res.enterprise_app
+          if try(res.resource_type, "") == "Application Role"
+        ]
+      ])
+    )
   ]))
 
   # =========================================================================
@@ -76,28 +106,54 @@ locals {
 
   # Associations groupes -> catalogues
   catalog_group_associations = {
-    for item in flatten([
-      for app_name, app in local.apps : [
-        for res in app.resources : {
-          key          = "${app_name}|${res.display_name}"
-          app_name     = app_name
-          display_name = res.display_name
-        } if res.type == "group"
-      ]
-    ]) : item.key => item
+    for item in distinct(flatten([
+      for app_name, app in local.apps : concat(
+        # Schema v1
+        [
+          for res in try(app.resources, []) : {
+            key          = "${app_name}|${res.display_name}"
+            app_name     = app_name
+            display_name = res.display_name
+          } if try(res.type, "") == "group"
+        ],
+        # Schema v2
+        flatten([
+          for ap in try(app.access_packages, []) : [
+            for res in try(ap.resources, []) : {
+              key          = "${app_name}|${res.group_name}"
+              app_name     = app_name
+              display_name = res.group_name
+            } if try(res.resource_type, "") == "EntraID Group"
+          ]
+        ])
+      )
+    ])) : item.key => item
   }
 
   # Associations applications -> catalogues
   catalog_app_associations = {
-    for item in flatten([
-      for app_name, app in local.apps : [
-        for res in app.resources : {
-          key          = "${app_name}|${res.display_name}"
-          app_name     = app_name
-          display_name = res.display_name
-        } if res.type == "application"
-      ]
-    ]) : item.key => item
+    for item in distinct(flatten([
+      for app_name, app in local.apps : concat(
+        # Schema v1
+        [
+          for res in try(app.resources, []) : {
+            key          = "${app_name}|${res.display_name}"
+            app_name     = app_name
+            display_name = res.display_name
+          } if try(res.type, "") == "application"
+        ],
+        # Schema v2
+        flatten([
+          for ap in try(app.access_packages, []) : [
+            for res in try(ap.resources, []) : {
+              key          = "${app_name}|${res.enterprise_app}"
+              app_name     = app_name
+              display_name = res.enterprise_app
+            } if try(res.resource_type, "") == "Application Role"
+          ]
+        ])
+      )
+    ])) : item.key => item
   }
 
   # =========================================================================
@@ -107,12 +163,18 @@ locals {
   access_packages = {
     for item in flatten([
       for app_name, app in local.apps : [
-        for ap in app.access_packages : {
-          key          = "${app_name}|${ap.display_name}"
-          app_name     = app_name
-          display_name = ap.display_name
-          description  = ap.description
-          hidden       = try(ap.hidden, false)
+        for ap in try(app.access_packages, []) : {
+          key = "${app_name}|${try(
+            ap.display_name,
+            trimspace("${try(ap.context_subapp, "")} ${ap.privilege_level} - ${ap.env}")
+          )}"
+          app_name = app_name
+          display_name = try(
+            ap.display_name,
+            trimspace("${try(ap.context_subapp, "")} ${ap.privilege_level} - ${ap.env}")
+          )
+          description = try(ap.description, "Access Package pour ${app_name}")
+          hidden      = try(ap.hidden, false)
         }
       ]
     ]) : item.key => item
@@ -125,17 +187,38 @@ locals {
   resource_package_associations = {
     for item in flatten([
       for app_name, app in local.apps : [
-        for ap in app.access_packages : [
-          for rr in ap.resource_roles : {
-            key               = "${app_name}|${ap.display_name}|${rr.resource_display_name}|${rr.role}"
-            app_name          = app_name
-            ap_key            = "${app_name}|${ap.display_name}"
-            resource_display_name = rr.resource_display_name
-            resource_type     = rr.resource_type
-            role              = rr.role
-            catalog_assoc_key = "${app_name}|${rr.resource_display_name}"
-          }
-        ]
+        for ap in try(app.access_packages, []) : concat(
+          # Schema v1
+          [
+            for rr in try(ap.resource_roles, []) : {
+              key                   = "${app_name}|${ap.display_name}|${rr.resource_display_name}|${rr.role}"
+              app_name              = app_name
+              ap_key                = "${app_name}|${ap.display_name}"
+              resource_display_name = rr.resource_display_name
+              resource_type         = rr.resource_type
+              role                  = rr.role
+              catalog_assoc_key     = "${app_name}|${rr.resource_display_name}"
+            }
+          ],
+          # Schema v2
+          [
+            for res in try(ap.resources, []) : {
+              key = "${app_name}|${try(
+                ap.display_name,
+                trimspace("${try(ap.context_subapp, "")} ${ap.privilege_level} - ${ap.env}")
+              )}|${try(res.enterprise_app, res.group_name)}|${try(res.app_role, "Member")}"
+              app_name = app_name
+              ap_key = "${app_name}|${try(
+                ap.display_name,
+                trimspace("${try(ap.context_subapp, "")} ${ap.privilege_level} - ${ap.env}")
+              )}"
+              resource_display_name = try(res.enterprise_app, res.group_name)
+              resource_type         = res.resource_type == "Application Role" ? "application" : "group"
+              role                  = try(res.app_role, "Member")
+              catalog_assoc_key     = "${app_name}|${try(res.enterprise_app, res.group_name)}"
+            } if try(res.resource_type, "") != "Sharepoint Group"
+          ]
+        )
       ]
     ]) : item.key => item
   }
@@ -147,27 +230,59 @@ locals {
   assignment_policies = {
     for item in flatten([
       for app_name, app in local.apps : [
-        for ap in app.access_packages : [
-          for pol in ap.policies : {
-            key             = "${app_name}|${ap.display_name}|${pol.display_name}"
-            app_name        = app_name
-            ap_key          = "${app_name}|${ap.display_name}"
-            display_name    = pol.display_name
-            requestor       = pol.requestor
-            approval        = pol.approval
-            assignment      = pol.assignment
-            review          = try(pol.review, { enabled = false })
-          }
-        ]
+        for ap in try(app.access_packages, []) : concat(
+          # Schema v1
+          [
+            for pol in try(ap.policies, []) : {
+              key          = "${app_name}|${ap.display_name}|${pol.display_name}"
+              app_name     = app_name
+              ap_key       = "${app_name}|${ap.display_name}"
+              display_name = pol.display_name
+              requestor    = pol.requestor
+              approval     = pol.approval
+              assignment   = pol.assignment
+              review       = try(pol.review, { enabled = false })
+              owner_only   = false
+            }
+          ],
+          # Schema v2
+          contains(keys(ap), "owner_only") ? [
+            {
+              key = "${app_name}|${try(
+                ap.display_name,
+                trimspace("${try(ap.context_subapp, "")} ${ap.privilege_level} - ${ap.env}")
+              )}|Politique"
+              app_name = app_name
+              ap_key = "${app_name}|${try(
+                ap.display_name,
+                trimspace("${try(ap.context_subapp, "")} ${ap.privilege_level} - ${ap.env}")
+              )}"
+              display_name = "Politique - ${try(
+                ap.display_name,
+                trimspace("${try(ap.context_subapp, "")} ${ap.privilege_level} - ${ap.env}")
+              )}"
+              owner_only           = ap.owner_only
+              authorization_owners = try(ap.authorization_owners, [])
+              assignment           = { type = "expiring", duration_in_days = 365 }
+              requestor = {
+                scope_type = ap.owner_only ? "none" : "all_members"
+                groups     = []
+              }
+              approval = {
+                required = !ap.owner_only
+                stages   = []
+              }
+              review = { enabled = false }
+            }
+          ] : []
+        )
       ]
     ]) : item.key => item
   }
 
   # =========================================================================
-  # 8. TABLE DE CONVERSION — Frequence de revue (jours -> enum Entra ID)
+  # 8. TABLES DE CONVERSION
   # =========================================================================
-  # Entra ID n'accepte pas de valeur arbitraire en jours pour la frequence
-  # de revue. Cette table mappe les valeurs du YAML vers les enums supportes.
 
   review_frequency_map = {
     7   = "weekly"
@@ -179,14 +294,12 @@ locals {
     365 = "annual"
   }
 
-  # Mapping scope_type YAML -> Entra ID enum
   scope_type_map = {
     "all_members" = "AllExistingDirectoryMemberUsers"
     "specific"    = "SpecificDirectorySubjects"
     "none"        = "NoSubjects"
   }
 
-  # Mapping reviewer_type YAML -> Entra ID enum
   reviewer_type_map = {
     "self"     = "Self"
     "manager"  = "Manager"
@@ -194,27 +307,19 @@ locals {
   }
 
   # =========================================================================
-  # 9. SMART DISCOVERY — Decouverte automatique et mapping des catalogues
+  # 9. SMART DISCOVERY — Catalogues
   # =========================================================================
 
-  # Fichier genere par le script .github/scripts/discover-catalogs.py
   discovered_catalogs = try(
     jsondecode(file("${path.module}/discovered_catalogs.json")),
     {}
   )
 
-  # Catalogues a creer par Terraform :
-  # Ceux qui ne sont PAS detectes comme deja existants dans Entra ID
-  # ET qui ne sont PAS explicitement marques existing: true dans le YAML.
   catalogs_to_create = {
     for app_name, app in local.apps : app_name => app
     if !try(local.discovered_catalogs[app_name].exists, false) && !try(app.catalog.existing, false)
   }
 
-  # Map unifiee des catalog IDs :
-  # 1. Catalogues crees par Terraform
-  # 2. Catalogues avec existing explicite (data source fallback)
-  # 3. Catalogues decouverts automatiquement dans Entra ID (Smart Discovery)
   catalog_ids = merge(
     { for k, c in azuread_access_package_catalog.this : k => c.id },
     { for k, c in data.azuread_access_package_catalog.existing : k => c.id },

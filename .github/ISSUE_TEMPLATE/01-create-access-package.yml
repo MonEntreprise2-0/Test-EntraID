@@ -9,25 +9,28 @@ body:
   - type: markdown
     attributes:
       value: |
-        ## 🆕 Déclaration d'une nouvelle application
+        ## 🆕 Déclaration d'une nouvelle application (Format Ardian v2)
         
         Ce formulaire vous permet de créer un nouveau catalogue et ses Access Packages dans Entra ID.
         
-        ### 📖 Guide rapide de rédaction du fichier YAML
-        Votre fichier `.yaml` doit définir 4 sections principales :
-        1. **`application_name`** : Identifiant unique en minuscules et tirets (ex: `salesforce-crm`).
-        2. **`catalog`** : Nom affiché dans MyAccess (ex: `display_name: "Salesforce CRM"`).
-        3. **`resources`** : Groupes Entra ID à inclure (doivent pré-exister).
-        4. **`access_packages`** : Paquets d'accès avec leurs rôles et politiques d'assignation.
+        ### 📖 Guide rapide de rédaction du fichier YAML :
+        Votre fichier `.yaml` doit définir :
+        1. **`app_name`** : Identifiant unique et nom du catalogue en minuscules et tirets (ex: `salesforce-crm`).
+        2. **`app_description`** : Description du catalogue (utilisée uniquement s'il faut le créer).
+        3. **`access_packages`** : Liste des packages d'accès avec :
+           - `context_subapp` (facultatif), `privilege_level` et `env` (ex: `Prod`, `UAT`)
+           - `description` et `authorization_owners` (emails des approbateurs)
+           - `owner_only` : `true` (admin uniquement) ou `false` (self-service MyAccess)
+           - `resources` : liste des ressources (`Application Role`, `EntraID Group`, ou `Sharepoint Group`)
         
-        > 💡 Pour un exemple complet et commenté, consultez : [`declarations/apps/_example.yaml`](../blob/main/declarations/apps/_example.yaml)
+        > 💡 Pour un exemple complet et commenté, consultez : [`declarations/apps/_exemple-new.yaml`](../blob/main/declarations/apps/_exemple-new.yaml)
 
   - type: input
     id: app_name
     attributes:
       label: "Nom de l'application"
-      description: "Identifiant unique en minuscules avec tirets (kebab-case). Doit correspondre EXACTEMENT à la valeur de `application_name` dans le YAML."
-      placeholder: "ex: mon-application"
+      description: "Identifiant unique en minuscules avec tirets (kebab-case). Doit correspondre EXACTEMENT à la valeur de `app_name` dans le YAML."
+      placeholder: "ex: icredit"
     validations:
       required: true
 
@@ -54,7 +57,7 @@ body:
     attributes:
       label: "Checklist de conformité"
       options:
-        - label: "Le champ `Nom de l'application` correspond au nom défini dans le YAML"
+        - label: "Le champ `Nom de l'application` correspond au nom défini dans le YAML (`app_name`)"
           required: true
-        - label: "Les groupes de sécurité référencés existent déjà dans Entra ID"
+        - label: "Les ressources référencées (groupes, rôles applicatifs ou SharePoint) existent déjà dans Entra ID"
           required: true

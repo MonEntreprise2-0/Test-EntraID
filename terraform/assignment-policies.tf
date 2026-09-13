@@ -7,7 +7,7 @@
 #   - La duree de l'assignation (duration_in_days / expiration_date)
 #   - La revue d'acces periodique (assignment_review_settings)
 #
-# Cle for_each : "<app>|<access_package>|<policy_display_name>"
+# Cle for_each : composite key
 # ============================================================================
 
 resource "azuread_access_package_assignment_policy" "this" {
@@ -19,8 +19,8 @@ resource "azuread_access_package_assignment_policy" "this" {
 
   # Duree de l'assignation
   duration_in_days = (
-    each.value.assignment.type == "expiring"
-    ? each.value.assignment.duration_in_days
+    try(each.value.assignment.type, "expiring") == "expiring"
+    ? try(each.value.assignment.duration_in_days, 365)
     : 0  # 0 = permanent (pas d'expiration)
   )
 
@@ -28,12 +28,12 @@ resource "azuread_access_package_assignment_policy" "this" {
   # Qui peut demander cet Access Package
   # ---------------------------------------------------------------------------
   requestor_settings {
-    scope_type        = lookup(local.scope_type_map, each.value.requestor.scope_type, "NoSubjects")
-    requests_accepted = each.value.requestor.scope_type != "none"
+    scope_type        = lookup(local.scope_type_map, try(each.value.requestor.scope_type, "none"), "NoSubjects")
+    requests_accepted = try(each.value.requestor.scope_type, "none") != "none"
 
     # Groupes eligibles (uniquement si scope_type = "specific")
     dynamic "requestor" {
-      for_each = each.value.requestor.scope_type == "specific" ? each.value.requestor.groups : []
+      for_each = try(each.value.requestor.scope_type, "") == "specific" ? each.value.requestor.groups : []
       content {
         object_id    = data.azuread_group.all[requestor.value].object_id
         subject_type = "groupMembers"
@@ -45,17 +45,17 @@ resource "azuread_access_package_assignment_policy" "this" {
   # Workflow d'approbation
   # ---------------------------------------------------------------------------
   approval_settings {
-    approval_required = each.value.approval.required
+    approval_required = try(each.value.approval.required, false)
 
-    # Etapes d'approbation (1 a 3 etapes sequentielles)
+    # Etapes d'approbation
     dynamic "approval_stage" {
-      for_each = each.value.approval.required ? each.value.approval.stages : []
+      for_each = try(each.value.approval.required, false) ? try(each.value.approval.stages, []) : []
       content {
         approval_timeout_in_days = approval_stage.value.days_to_decide
 
         # Approbateurs principaux
         dynamic "primary_approver" {
-          for_each = approval_stage.value.approver_groups
+          for_each = try(approval_stage.value.approver_groups, [])
           content {
             object_id    = data.azuread_group.all[primary_approver.value].object_id
             subject_type = "groupMembers"
@@ -84,7 +84,7 @@ resource "azuread_access_package_assignment_policy" "this" {
       review_frequency = lookup(
         local.review_frequency_map,
         assignment_review_settings.value.frequency_in_days,
-        "quarterly"  # Valeur par defaut si la frequence n'est pas dans la table
+        "quarterly"
       )
       duration_in_days = min(assignment_review_settings.value.frequency_in_days, 14)
       review_type      = lookup(

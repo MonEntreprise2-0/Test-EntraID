@@ -23,6 +23,7 @@ body:
       description: "Sélectionnez l'application concernée parmi les fichiers du répertoire declarations/apps/."
       options:
         - "declarations/apps/cat-test03.yaml"
+        - "declarations/apps/icredit.yaml"
     validations:
       required: true
 
@@ -66,7 +67,8 @@ body:
     attributes:
       label: "Checklist de conformité"
       options:
-        - label: "Les nouveaux groupes éventuels existent déjà dans Entra ID"
+        - "declarations/apps/cat-test03.yaml"
+        - "declarations/apps/icredit.yaml"
           required: true
         - label: "J'ai vérifié la conformité de la structure YAML"
           required: true

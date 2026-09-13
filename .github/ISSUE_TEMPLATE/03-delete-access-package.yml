@@ -23,6 +23,7 @@ body:
       description: "Sélectionnez le fichier correspondant à l'application à supprimer."
       options:
         - "declarations/apps/cat-test03.yaml"
+        - "declarations/apps/icredit.yaml"
     validations:
       required: true
 
@@ -40,5 +41,6 @@ body:
     attributes:
       label: "Confirmation obligatoire"
       options:
-        - label: "Je confirme vouloir supprimer définitivement cet Access Package et son catalogue dans Entra ID"
+        - "declarations/apps/cat-test03.yaml"
+        - "declarations/apps/icredit.yaml"
           required: true

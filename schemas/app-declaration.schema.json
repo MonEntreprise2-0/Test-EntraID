@@ -1,100 +1,31 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://ardian.com/schemas/entitlement-management/app-declaration.schema.json",
-  "title": "Entitlement Management App Declaration",
-  "description": "Schéma de validation pour les fichiers YAML déclaratifs de l'Entitlement Management Entra ID — Ardian",
+  "$id": "https://ardian.com/schemas/entitlement-management/app-declaration-v2.schema.json",
+  "title": "Entitlement Management App Declaration (Format Ardian v2)",
+  "description": "Schema de validation pour les fichiers YAML declaratifs de l'Entitlement Management Entra ID — Format Ardian v2",
   "type": "object",
   "required": [
-    "application_name",
-    "owner",
-    "description",
-    "catalog",
-    "resources",
+    "app_name",
+    "app_description",
     "access_packages"
   ],
   "additionalProperties": false,
   "properties": {
-    "application_name": {
+    "app_name": {
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$",
-      "description": "Identifiant unique de l'application en kebab-case. Doit correspondre au nom du fichier (sans extension)."
+      "description": "Nom du catalogue et identifiant unique de l'application en kebab-case. Doit correspondre au nom du fichier (sans extension)."
     },
-    "owner": {
+    "app_description": {
       "type": "string",
-      "format": "email",
-      "description": "Adresse email du Data Owner ou de l'équipe responsable."
-    },
-    "description": {
-      "type": "string",
-      "minLength": 10,
+      "minLength": 5,
       "maxLength": 500,
-      "description": "Description fonctionnelle de l'application."
-    },
-    "catalog": {
-      "type": "object",
-      "required": ["display_name"],
-      "additionalProperties": false,
-      "properties": {
-        "display_name": {
-          "type": "string",
-          "minLength": 3,
-          "maxLength": 256,
-          "description": "Nom affiché du catalogue dans le portail MyAccess."
-        },
-        "description": {
-          "type": "string",
-          "minLength": 5,
-          "maxLength": 500,
-          "description": "Description du catalogue."
-        },
-        "published": {
-          "type": "boolean",
-          "description": "Si true, le catalogue est visible par les utilisateurs éligibles."
-        },
-        "id": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-          "description": "ID (UUID) du catalogue existant dans Entra ID."
-        },
-        "existing": {
-          "type": "boolean",
-          "default": false,
-          "description": "Si true, utilise un catalogue pré-existant dans Entra ID au lieu d'en créer un nouveau."
-        },
-        "create": {
-          "type": "boolean",
-          "default": true,
-          "description": "false pour utiliser un catalogue pré-existant dans Entra ID au lieu d'en créer un nouveau."
-        }
-      }
-    },
-    "resources": {
-      "type": "array",
-      "minItems": 1,
-      "description": "Liste des ressources à inclure dans le catalogue. Doivent pré-exister dans Entra ID.",
-      "items": {
-        "type": "object",
-        "required": ["type", "display_name"],
-        "additionalProperties": false,
-        "properties": {
-          "type": {
-            "type": "string",
-            "enum": ["group", "application"],
-            "description": "Type de ressource Entra ID."
-          },
-          "display_name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256,
-            "description": "Nom d'affichage exact de la ressource dans Entra ID (utilisé pour la recherche via data block)."
-          }
-        }
-      }
+      "description": "Description fonctionnelle du catalogue dans Entra ID."
     },
     "access_packages": {
       "type": "array",
       "minItems": 1,
-      "description": "Liste des Access Packages rattachés à ce catalogue.",
+      "description": "Liste des Access Packages rattaches a cette application / catalogue.",
       "items": {
         "$ref": "#/definitions/access_package"
       }
@@ -103,238 +34,143 @@
   "definitions": {
     "access_package": {
       "type": "object",
-      "required": ["display_name", "description", "resource_roles", "policies"],
+      "required": [
+        "privilege_level",
+        "env",
+        "description",
+        "authorization_owners",
+        "owner_only",
+        "resources"
+      ],
       "additionalProperties": false,
       "properties": {
-        "display_name": {
+        "context_subapp": {
           "type": "string",
-          "minLength": 3,
-          "maxLength": 256,
-          "description": "Nom affiché de l'Access Package dans MyAccess."
+          "maxLength": 100,
+          "description": "Notion metier / sous-application (facultatif). Si vide ou omis, exclu du nommage de l'Access Package."
+        },
+        "privilege_level": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Intention metier de l'acces (ex: Read Only, User, Admin, IT Access)."
+        },
+        "env": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50,
+          "description": "Environnement cible (ex: Dev, UAT, Prod)."
         },
         "description": {
           "type": "string",
-          "minLength": 10,
+          "minLength": 5,
           "maxLength": 500,
-          "description": "Description fonctionnelle de l'Access Package."
+          "description": "Description fonctionnelle de l'Access Package affichee dans MyAccess."
         },
-        "hidden": {
+        "authorization_owners": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "format": "email"
+          },
+          "description": "Liste des emails des approbateurs / proprietaires de l'autorisation."
+        },
+        "owner_only": {
           "type": "boolean",
-          "default": false,
-          "description": "Si true, l'Access Package est masqué dans MyAccess."
+          "description": "True = Assignation directe par admin (pas de self-service) / False = Self-service avec approbation."
         },
-        "resource_roles": {
+        "resources": {
           "type": "array",
           "minItems": 1,
-          "description": "Rôles sur les ressources inclus dans cet Access Package.",
+          "description": "Ressources attribuees par cet Access Package.",
           "items": {
-            "$ref": "#/definitions/resource_role"
-          }
-        },
-        "policies": {
-          "type": "array",
-          "minItems": 1,
-          "description": "Politiques d'assignation pour cet Access Package.",
-          "items": {
-            "$ref": "#/definitions/policy"
+            "$ref": "#/definitions/resource"
           }
         }
       }
     },
-    "resource_role": {
+    "resource": {
       "type": "object",
-      "required": ["resource_display_name", "resource_type", "role"],
-      "additionalProperties": false,
+      "required": ["resource_type"],
       "properties": {
-        "resource_display_name": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256,
-          "description": "Nom d'affichage de la ressource (doit correspondre à une entrée de la section resources)."
-        },
         "resource_type": {
           "type": "string",
-          "enum": ["group", "application"],
-          "description": "Type de la ressource."
+          "enum": ["Application Role", "EntraID Group", "Sharepoint Group"],
+          "description": "Type de la ressource cible."
         },
-        "role": {
+        "enterprise_app": {
           "type": "string",
           "minLength": 1,
-          "description": "Rôle à attribuer. Pour un groupe : 'Member' ou 'Owner'. Pour une application : nom du rôle applicatif."
-        }
-      }
-    },
-    "policy": {
-      "type": "object",
-      "required": ["display_name", "requestor", "approval", "assignment"],
-      "additionalProperties": false,
-      "properties": {
-        "display_name": {
-          "type": "string",
-          "minLength": 3,
           "maxLength": 256,
-          "description": "Nom de la politique d'assignation."
+          "description": "Nom de l'Enterprise App cible dans Entra ID."
         },
-        "requestor": {
-          "$ref": "#/definitions/requestor"
-        },
-        "approval": {
-          "$ref": "#/definitions/approval"
-        },
-        "assignment": {
-          "$ref": "#/definitions/assignment"
-        },
-        "review": {
-          "$ref": "#/definitions/review"
-        }
-      }
-    },
-    "requestor": {
-      "type": "object",
-      "required": ["scope_type"],
-      "additionalProperties": false,
-      "properties": {
-        "scope_type": {
+        "app_role": {
           "type": "string",
-          "enum": ["all_members", "specific", "none"],
-          "description": "Portée des demandeurs. 'all_members' = tous les membres du tenant, 'specific' = groupes spécifiques, 'none' = assignation admin uniquement."
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Nom exact du role dans l'App Registration."
         },
-        "groups": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "description": "Groupes éligibles à demander l'accès. Requis si scope_type = 'specific'. Doivent pré-exister dans Entra ID."
+        "group_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Nom du groupe existant dans Entra ID (evalue de maniere insensible a la casse)."
+        },
+        "catalog_id": {
+          "type": "string",
+          "description": "ID du catalogue SharePoint."
+        },
+        "sharepoint_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL complete du site SharePoint."
         }
       },
-      "if": {
-        "properties": { "scope_type": { "const": "specific" } }
-      },
-      "then": {
-        "required": ["scope_type", "groups"],
-        "properties": {
-          "groups": {
-            "minItems": 1
+      "allOf": [
+        {
+          "if": {
+            "properties": { "resource_type": { "const": "Application Role" } }
+          },
+          "then": {
+            "required": ["enterprise_app", "app_role"],
+            "additionalProperties": false,
+            "properties": {
+              "resource_type": { "const": "Application Role" },
+              "enterprise_app": { "type": "string" },
+              "app_role": { "type": "string" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "resource_type": { "const": "EntraID Group" } }
+          },
+          "then": {
+            "required": ["group_name"],
+            "additionalProperties": false,
+            "properties": {
+              "resource_type": { "const": "EntraID Group" },
+              "group_name": { "type": "string" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "resource_type": { "const": "Sharepoint Group" } }
+          },
+          "then": {
+            "required": ["catalog_id", "sharepoint_url"],
+            "additionalProperties": false,
+            "properties": {
+              "resource_type": { "const": "Sharepoint Group" },
+              "catalog_id": { "type": "string" },
+              "sharepoint_url": { "type": "string" },
+              "group_name": { "type": "string" }
+            }
           }
         }
-      }
-    },
-    "approval": {
-      "type": "object",
-      "required": ["required"],
-      "additionalProperties": false,
-      "properties": {
-        "required": {
-          "type": "boolean",
-          "description": "Si true, une approbation est nécessaire pour obtenir l'accès."
-        },
-        "stages": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 3,
-          "description": "Étapes d'approbation séquentielles (1 à 3 étapes max).",
-          "items": {
-            "$ref": "#/definitions/approval_stage"
-          }
-        }
-      },
-      "if": {
-        "properties": { "required": { "const": true } }
-      },
-      "then": {
-        "required": ["required", "stages"]
-      }
-    },
-    "approval_stage": {
-      "type": "object",
-      "required": ["approver_groups", "days_to_decide"],
-      "additionalProperties": false,
-      "properties": {
-        "approver_groups": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "description": "Groupes dont les membres sont approbateurs pour cette étape."
-        },
-        "fallback_approver_groups": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "default": [],
-          "description": "Approbateurs de secours si aucun approbateur principal ne répond."
-        },
-        "days_to_decide": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 30,
-          "description": "Nombre de jours accordés pour statuer (1-30)."
-        }
-      }
-    },
-    "assignment": {
-      "type": "object",
-      "required": ["type"],
-      "additionalProperties": false,
-      "properties": {
-        "type": {
-          "type": "string",
-          "enum": ["expiring", "permanent"],
-          "description": "'expiring' = l'accès expire après une durée définie, 'permanent' = pas d'expiration."
-        },
-        "duration_in_days": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 1095,
-          "description": "Durée de l'assignation en jours. Requis si type = 'expiring'. Maximum 3 ans (1095 jours)."
-        }
-      },
-      "if": {
-        "properties": { "type": { "const": "expiring" } }
-      },
-      "then": {
-        "required": ["type", "duration_in_days"]
-      }
-    },
-    "review": {
-      "type": "object",
-      "required": ["enabled"],
-      "additionalProperties": false,
-      "properties": {
-        "enabled": {
-          "type": "boolean",
-          "description": "Si true, une revue d'accès périodique est activée."
-        },
-        "frequency_in_days": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 365,
-          "description": "Fréquence de la revue en jours. Requis si enabled = true."
-        },
-        "reviewer_type": {
-          "type": "string",
-          "enum": ["manager", "self", "specific"],
-          "description": "Qui effectue la revue. 'manager' = le manager de l'utilisateur, 'self' = l'utilisateur lui-même, 'specific' = groupes désignés."
-        },
-        "reviewer_groups": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "default": [],
-          "description": "Groupes de réviseurs. Requis si reviewer_type = 'specific'."
-        }
-      },
-      "if": {
-        "properties": { "enabled": { "const": true } }
-      },
-      "then": {
-        "required": ["enabled", "frequency_in_days", "reviewer_type"]
-      }
+      ]
     }
   }
 }
