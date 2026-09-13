@@ -18,3 +18,4 @@ terraform.rc
 **/apply_output.txt
 **/plan_summary.md
 parsed/
+*.pdf
