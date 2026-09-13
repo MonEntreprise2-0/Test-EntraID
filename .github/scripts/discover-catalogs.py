@@ -28,21 +28,32 @@ except ImportError:
 
 
 def get_entraid_catalogs() -> list:
-    """Interroge Microsoft Graph API pour lister les catalogues Entra ID."""
-    url = "https://graph.microsoft.com/v1.0/identityGovernance/entitlementManagement/accessPackageCatalogs?$top=999"
-    cmd = ["az", "rest", "--method", "get", "--url", url, "--output", "json"]
+    """Interroge Microsoft Graph API pour lister les catalogues Entra ID.
+    Teste les endpoints v1.0 (/catalogs) et beta (/accessPackageCatalogs).
+    """
+    endpoints = [
+        "https://graph.microsoft.com/v1.0/identityGovernance/entitlementManagement/catalogs?$top=999",
+        "https://graph.microsoft.com/beta/identityGovernance/entitlementManagement/accessPackageCatalogs?$top=999",
+        "https://graph.microsoft.com/beta/identityGovernance/entitlementManagement/catalogs?$top=999",
+    ]
 
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        data = json.loads(result.stdout)
-        catalogs = data.get("value", [])
-        return catalogs
-    except subprocess.CalledProcessError as e:
-        print(f"⚠️ Avertissement : Impossible d'interroger Graph API via Azure CLI : {e.stderr}", file=sys.stderr)
-        return []
-    except Exception as e:
-        print(f"⚠️ Avertissement : Erreur lors de la decouverte Entra ID : {e}", file=sys.stderr)
-        return []
+    for url in endpoints:
+        cmd = ["az", "rest", "--method", "get", "--url", url, "--output", "json"]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and result.stdout:
+                data = json.loads(result.stdout)
+                catalogs = data.get("value", [])
+                print(f"📡 Reponse reussie depuis {url} ({len(catalogs)} catalogues trouves)")
+                return catalogs
+            else:
+                err_snippet = result.stderr.strip() if result.stderr else "code non-zero"
+                print(f"ℹ️ Endpoint {url} : {err_snippet[:120]}...", file=sys.stderr)
+        except Exception as e:
+            print(f"ℹ️ Exception sur {url} : {e}", file=sys.stderr)
+
+    print("⚠️ Aucun endpoint Graph API n'a renvoye de donnees de catalogues.", file=sys.stderr)
+    return []
 
 
 def load_yaml_declarations(declarations_dir: str) -> dict:
