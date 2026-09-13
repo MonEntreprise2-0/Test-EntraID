@@ -30,7 +30,7 @@ access_packages:
       - resource_type: "EntraID Group"
         group_name: "Group_Test01"
 
-      - resource_type: "Application Role"
+      - resource_type: "EntraID Group"
         group_name: "Group_Test02"
 
   - context_subapp: "SubApp"
@@ -46,5 +46,5 @@ access_packages:
       - resource_type: "EntraID Group"
         group_name: "Group_Test01"
 
-      - resource_type: "Application Role"
+      - resource_type: "EntraID Group"
         group_name: "Group_Test02"
