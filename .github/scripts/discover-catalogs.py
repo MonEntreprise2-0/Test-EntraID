@@ -220,6 +220,12 @@ def main():
             print(f"  ✅ [{app_name}] Catalogue '{actual_name}' trouve dans Entra ID (ID: {cat_id})")
             summary_lines.append(f"- 📦 **{actual_name}** : Déjà existant dans Entra ID (Mode Consommateur, ID: `{cat_id}`)")
 
+            # Importer le catalogue existant dans Terraform s'il existe deja
+            import_blocks.append(f'''import {{
+  to = azuread_access_package_catalog.this["{app_name}"]
+  id = "{cat_id}"
+}}''')
+
             # Verifier les ressources deja associees au catalogue dans Entra ID
             existing_resources = get_catalog_resources(cat_id)
             print(f"     -> {len(existing_resources)} ressource(s) deja presente(s) dans le catalogue")
