@@ -255,7 +255,7 @@ def main():
                 "status": "not_found"
             }
             print(f"  🆕 [{app_name}] Catalogue '{target_name}' non trouve dans Entra ID (sera cree)")
-            summary_lines.append(f"- 🆕 **{target_name}** : Absent d'Entra ID (sera créé par Terraform)")
+            summary_lines.append(f"- 🆕 **{target_name}** : Asset qui sera créé dans Entra ID si vous confirmez le merge (Catalogue)")
 
     # Resolution des groupes pour l'insensibilite a la casse
     print("----------------------------------------------------")

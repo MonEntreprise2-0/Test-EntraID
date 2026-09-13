@@ -177,18 +177,18 @@ jobs:
             MODIFIED=$(grep -c 'Modifications complete' $APPLY_FILE 2>/dev/null || echo "0")
             DESTROYED=$(grep -c 'Destruction complete' $APPLY_FILE 2>/dev/null || echo "0")
 
-            echo "### ✅ Actions réalisées dans Entra ID" >> $GITHUB_STEP_SUMMARY
+            echo "### ✅ Assets créés ou mis à jour dans Entra ID suite au merge" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "| Action | Nombre |" >> $GITHUB_STEP_SUMMARY
             echo "|--------|--------|" >> $GITHUB_STEP_SUMMARY
-            echo "| 🆕 Créées | $ADDED |" >> $GITHUB_STEP_SUMMARY
-            echo "| ✏️ Modifiées | $MODIFIED |" >> $GITHUB_STEP_SUMMARY
-            echo "| 🗑️ Supprimées | $DESTROYED |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🆕 Assets créés | $ADDED |" >> $GITHUB_STEP_SUMMARY
+            echo "| ✏️ Assets modifiés | $MODIFIED |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🗑️ Assets supprimés | $DESTROYED |" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
 
             # Lister les ressources créées
             if [ "$ADDED" -gt 0 ]; then
-              echo "### Détail des créations" >> $GITHUB_STEP_SUMMARY
+              echo "### Détail des assets créés dans Entra ID" >> $GITHUB_STEP_SUMMARY
               echo "" >> $GITHUB_STEP_SUMMARY
               grep 'Creation complete' $APPLY_FILE | while read -r line; do
                 RESOURCE=$(echo "$line" | grep -oP 'azuread_[^:]+' || echo "$line")
