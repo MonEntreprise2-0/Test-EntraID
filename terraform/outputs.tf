@@ -7,24 +7,18 @@
 # -----------------------------------------------------------------------------
 output "catalogs" {
   description = "Map des catalogues (application_name => {id, display_name, source})"
-  value = merge(
-    {
-      for app_name, catalog in azuread_access_package_catalog.this :
-      app_name => {
-        id           = catalog.id
-        display_name = catalog.display_name
-        source       = "managed_by_terraform"
-      }
-    },
-    {
-      for app_name, catalog in data.azuread_access_package_catalog.existing :
-      app_name => {
-        id           = catalog.id
-        display_name = catalog.display_name
-        source       = "existing_in_entraid"
-      }
+  value = {
+    for app_name, id in local.catalog_ids :
+    app_name => {
+      id           = id
+      display_name = local.apps[app_name].catalog.display_name
+      source = (
+        try(local.discovered_catalogs[app_name].exists, false)
+        ? "discovered_in_entraid"
+        : (try(local.apps[app_name].catalog.existing, false) ? "existing_in_entraid" : "managed_by_terraform")
+      )
     }
-  )
+  }
 }
 
 # -----------------------------------------------------------------------------
