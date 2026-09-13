@@ -1,6 +1,6 @@
 application_name: "cat-test03"
 owner: "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
-description: "Application cat-test03 utilisant le catalogue Cat_Test01"
+description: "Application cat-test03 avec auto-decouverte du catalogue Cat_Test01"
 
 catalog:
   display_name: "Cat_Test01"
@@ -11,7 +11,7 @@ resources:
 
 access_packages:
   - display_name: "AP_Test03"
-    description: "Access Package AP_Test03 dans le catalogue Cat_Test01"
+    description: "Access Package AP_Test03 gere dans Cat_Test01"
     hidden: false
 
     resource_roles:
@@ -30,4 +30,4 @@ access_packages:
 
         assignment:
           type: "expiring"
-          duration_in_days: 365
+          duration_in_days: 180
