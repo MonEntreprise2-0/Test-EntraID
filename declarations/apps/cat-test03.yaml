@@ -1,0 +1,35 @@
+application_name: "cat-test03"
+owner: "team-iam@ardian.com"
+description: "Catalogue de test CAT_Test03 avec Access Package AP_Test03"
+
+catalog:
+  display_name: "CAT_Test03"
+  description: "Catalogue de test pour validation du pipeline GitOps"
+  published: true
+
+resources:
+  - type: "group"
+    display_name: "Group_Test01"
+
+access_packages:
+  - display_name: "AP_Test03"
+    description: "Access Package de test incluant le groupe Group_Test01"
+    hidden: false
+
+    resource_roles:
+      - resource_display_name: "Group_Test01"
+        resource_type: "group"
+        role: "Member"
+
+    policies:
+      - display_name: "Politique de test"
+
+        requestor:
+          scope_type: "all_members"
+
+        approval:
+          required: false
+
+        assignment:
+          type: "expiring"
+          duration_in_days: 365
