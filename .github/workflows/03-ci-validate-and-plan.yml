@@ -106,9 +106,23 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: pip install pyyaml
+
       - name: Terraform Init
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform init
+
+      - name: 🔎 Smart Discovery des catalogues Entra ID
+        run: |
+          python .github/scripts/discover-catalogs.py \
+            --declarations-dir declarations/apps \
+            --output-file terraform/discovered_catalogs.json
 
       - name: Terraform Validate
         working-directory: ${{ env.TF_WORKING_DIR }}
@@ -144,6 +158,23 @@ jobs:
 
           echo "## 📋 Résumé des changements prévus dans Entra ID" > $SUMMARY_FILE
           echo "" >> $SUMMARY_FILE
+
+          # Afficher la découverte automatique des catalogues
+          if [ -f "discovered_catalogs.json" ]; then
+            echo "### 🔎 Statut des catalogues (Smart Discovery)" >> $SUMMARY_FILE
+            echo "" >> $SUMMARY_FILE
+            python3 -c "
+import json
+with open('discovered_catalogs.json') as f:
+    data = json.load(f)
+for app, cat in data.items():
+    if cat.get('exists'):
+        print(f\"- 📦 **{cat.get('display_name')}** : Déjà existant dans Entra ID (Mode Consommateur, ID: \`{cat.get('id')}\`)\")
+    else:
+        print(f\"- 🆕 **{cat.get('display_name')}** : Absent d'Entra ID (sera créé par Terraform)\")
+" >> $SUMMARY_FILE 2>/dev/null || true
+            echo "" >> $SUMMARY_FILE
+          fi
 
           # Extraire les créations
           CREATES=$(grep -c '# .* will be created' $PLAN_FILE 2>/dev/null || echo "0")

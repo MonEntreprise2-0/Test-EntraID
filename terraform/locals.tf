@@ -194,10 +194,33 @@ locals {
   }
 
   # =========================================================================
-  # 9. MAP UNIFIEE DES CATALOGUE IDS (crees ou consommes)
+  # 9. SMART DISCOVERY — Decouverte automatique et mapping des catalogues
   # =========================================================================
+
+  # Fichier genere par le script .github/scripts/discover-catalogs.py
+  discovered_catalogs = try(
+    jsondecode(file("${path.module}/discovered_catalogs.json")),
+    {}
+  )
+
+  # Catalogues a creer par Terraform :
+  # Ceux qui ne sont PAS detectes comme deja existants dans Entra ID
+  # ET qui ne sont PAS explicitement marques existing: true dans le YAML.
+  catalogs_to_create = {
+    for app_name, app in local.apps : app_name => app
+    if !try(local.discovered_catalogs[app_name].exists, false) && !try(app.catalog.existing, false)
+  }
+
+  # Map unifiee des catalog IDs :
+  # 1. Catalogues crees par Terraform
+  # 2. Catalogues avec existing explicite (data source fallback)
+  # 3. Catalogues decouverts automatiquement dans Entra ID (Smart Discovery)
   catalog_ids = merge(
     { for k, c in azuread_access_package_catalog.this : k => c.id },
-    { for k, c in data.azuread_access_package_catalog.existing : k => c.id }
+    { for k, c in data.azuread_access_package_catalog.existing : k => c.id },
+    {
+      for k, v in local.discovered_catalogs : k => v.id
+      if try(v.exists, false) && v.id != null
+    }
   )
 }

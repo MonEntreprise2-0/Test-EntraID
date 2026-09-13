@@ -42,9 +42,23 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: pip install pyyaml
+
       - name: Terraform Init
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform init
+
+      - name: 🔎 Smart Discovery des catalogues Entra ID
+        run: |
+          python .github/scripts/discover-catalogs.py \
+            --declarations-dir declarations/apps \
+            --output-file terraform/discovered_catalogs.json
 
       - name: Terraform Plan (pre-apply review)
         id: plan
