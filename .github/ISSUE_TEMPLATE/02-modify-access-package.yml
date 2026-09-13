@@ -23,7 +23,6 @@ body:
       description: "Sélectionnez l'application concernée parmi les fichiers du répertoire declarations/apps/."
       options:
         - "declarations/apps/cat-test03.yaml"
-        - "declarations/apps/icredit.yaml"
     validations:
       required: true
 
@@ -68,7 +67,6 @@ body:
       label: "Checklist de conformité"
       options:
         - "declarations/apps/cat-test03.yaml"
-        - "declarations/apps/icredit.yaml"
           required: true
         - label: "J'ai vérifié la conformité de la structure YAML"
           required: true

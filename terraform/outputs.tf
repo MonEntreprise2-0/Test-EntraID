@@ -11,7 +11,7 @@ output "catalogs" {
     for app_name, id in local.catalog_ids :
     app_name => {
       id           = id
-      display_name = local.apps[app_name].catalog.display_name
+      display_name = try(local.apps[app_name].catalog.display_name, local.apps[app_name].app_name, app_name)
       source = (
         try(local.discovered_catalogs[app_name].exists, false)
         ? "discovered_in_entraid"
@@ -55,9 +55,9 @@ output "assignment_policies" {
 output "summary" {
   description = "Resume du deploiement"
   value = {
-    total_catalogs   = length(local.catalog_ids)
-    total_packages   = length(azuread_access_package.this)
-    total_policies   = length(azuread_access_package_assignment_policy.this)
-    applications     = keys(local.catalog_ids)
+    total_catalogs = length(local.catalog_ids)
+    total_packages = length(azuread_access_package.this)
+    total_policies = length(azuread_access_package_assignment_policy.this)
+    applications   = keys(local.apps)
   }
 }

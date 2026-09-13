@@ -23,7 +23,6 @@ body:
       description: "Sélectionnez le fichier correspondant à l'application à supprimer."
       options:
         - "declarations/apps/cat-test03.yaml"
-        - "declarations/apps/icredit.yaml"
     validations:
       required: true
 
@@ -42,5 +41,4 @@ body:
       label: "Confirmation obligatoire"
       options:
         - "declarations/apps/cat-test03.yaml"
-        - "declarations/apps/icredit.yaml"
           required: true

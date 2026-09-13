@@ -189,7 +189,8 @@ def main():
         # En v2 le nom du catalogue est app_name, en v1 catalog.display_name
         catalog_cfg = app_data.get("catalog", {})
         target_name = (
-            catalog_cfg.get("display_name")
+            app_data.get("catalog_name")
+            or catalog_cfg.get("display_name")
             or app_data.get("app_name")
             or app_name
         ).strip()
