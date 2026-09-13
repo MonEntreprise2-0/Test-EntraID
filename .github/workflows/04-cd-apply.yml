@@ -133,12 +133,14 @@ jobs:
         id: apply
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
+          set -o pipefail
           terraform apply \
             -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
             -var="use_oidc=true" \
             -auto-approve \
             -no-color \
             2>&1 | tee apply_output.txt
+        continue-on-error: true
 
       - name: Generate Deployment Summary
         if: always()
