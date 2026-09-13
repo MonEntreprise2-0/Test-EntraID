@@ -244,20 +244,18 @@ jobs:
             }
 
             const exitCode = '${{ steps.plan.outputs.exit_code }}';
+            const hasChanges = summaryContent.includes('🆕') || summaryContent.includes('✏️') || summaryContent.includes('🗑️');
 
             let status, emoji;
-            switch (exitCode) {
-              case '0':
-                status = 'Aucun changement détecté';
-                emoji = '✅';
-                break;
-              case '2':
-                status = 'Changements détectés';
-                emoji = '📋';
-                break;
-              default:
-                status = 'Erreur lors du plan';
-                emoji = '❌';
+            if (exitCode === '1') {
+              status = 'Erreur lors du plan';
+              emoji = '❌';
+            } else if (hasChanges) {
+              status = 'Changements détectés (prêts pour validation)';
+              emoji = '📋';
+            } else {
+              status = 'Aucun changement détecté';
+              emoji = '✅';
             }
 
             const maxLen = 50000;
