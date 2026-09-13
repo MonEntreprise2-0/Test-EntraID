@@ -51,6 +51,11 @@
           "type": "boolean",
           "description": "Si true, le catalogue est visible par les utilisateurs éligibles."
         },
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+          "description": "ID (UUID) du catalogue existant dans Entra ID."
+        },
         "existing": {
           "type": "boolean",
           "default": false,
