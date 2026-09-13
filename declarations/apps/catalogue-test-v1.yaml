@@ -1,11 +1,11 @@
 # ============================================================================
-# APPLICATION : iCredit
+# APPLICATION : Catalogue-test-v1
 # ============================================================================
 # Fichier généré à partir de la matrice Ardian.
 # 1 fichier = 1 Application = 1 Catalogue Entitlement Management.
 # ============================================================================
 
-app_name: "cataloque-test-v1"
+app_name: "catalogue-test-v1"
 app_description: "Description de mon test avec la nouvelle nomenclature"
 
 access_packages:
@@ -30,7 +30,7 @@ access_packages:
       - resource_type: "EntraID Group"
         group_name: "Group_Test01"
 
-      - resource_type: "Application Role"
+      - resource_type: "EntraID Group"
         enterprise_app: "Group_Test02"
 
   - context_subapp: "SubApp"
@@ -46,5 +46,5 @@ access_packages:
       - resource_type: "EntraID Group"
         group_name: "Group_Test01"
 
-      - resource_type: "Application Role"
+      - resource_type: "EntraID Group"
         enterprise_app: "Group_Test02"
