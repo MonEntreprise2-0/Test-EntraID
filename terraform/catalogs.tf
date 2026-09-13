@@ -3,6 +3,7 @@
 # ============================================================================
 # Mode 1 : Création / Gestion par Terraform (défaut ou existing: false)
 # Mode 2 : Consommation d'un catalogue pré-existant dans Entra ID (existing: true)
+#          Supporte la recherche par display_name OU par id (object_id).
 # ============================================================================
 
 # 1. Catalogues créés et gérés par Terraform
@@ -24,5 +25,6 @@ data "azuread_access_package_catalog" "existing" {
     if try(app.catalog.existing, false) || !try(app.catalog.create, true)
   }
 
-  display_name = each.value.catalog.display_name
+  object_id    = try(each.value.catalog.id, null)
+  display_name = try(each.value.catalog.id, null) == null ? each.value.catalog.display_name : null
 }
