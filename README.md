@@ -67,7 +67,10 @@ flowchart LR
 └── docs/                 # Guides d'architecture et de pré-requis
 ```
 
-## 📋 Pré-requis et documentation technique
+## 📋 Documentation et Guides d'Architecture
 
-- [Guide de rédaction YAML d'exemple](declarations/apps/_example.yaml)
-- [Documentation des pré-requis IAM et Azure](docs/PREREQUISITES.md)
+- 📘 [**Document de Stratégie d'Implémentation (Design Doc — Modèle de Run)**](docs/Design-Doc-Strategie-Implementation-Ardian.md)
+- 📐 [Document d'Architecture Technique (HLD)](docs/HLD_STRATEGIE_IMPLEMENTATION.md)
+- 📝 [Guide de rédaction YAML d'exemple](declarations/apps/_example.yaml)
+- ⚙️ [Documentation des pré-requis IAM et Azure](docs/PREREQUISITES.md)
+- 📖 [Guide Opérationnel](docs/OPERATIONAL_GUIDE.md)
