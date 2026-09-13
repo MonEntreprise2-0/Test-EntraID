@@ -315,17 +315,7 @@ locals {
     {}
   )
 
-  catalogs_to_create = {
-    for app_name, app in local.apps : app_name => app
-    if !try(local.discovered_catalogs[app_name].exists, false) && !try(app.catalog.existing, false)
+  catalog_ids = {
+    for k, c in azuread_access_package_catalog.this : k => c.id
   }
-
-  catalog_ids = merge(
-    { for k, c in azuread_access_package_catalog.this : k => c.id },
-    { for k, c in data.azuread_access_package_catalog.existing : k => c.id },
-    {
-      for k, v in local.discovered_catalogs : k => v.id
-      if try(v.exists, false) && v.id != null
-    }
-  )
 }

@@ -45,11 +45,17 @@ resource "azuread_access_package_assignment_policy" "this" {
   # Workflow d'approbation
   # ---------------------------------------------------------------------------
   approval_settings {
-    approval_required = try(each.value.approval.required, false)
+    approval_required = (
+      try(each.value.approval.required, false) && length(try(each.value.approval.stages, [])) > 0
+    )
 
-    # Etapes d'approbation
+    # Etapes d'approbation (uniquement si au moins 1 etape est declaree)
     dynamic "approval_stage" {
-      for_each = try(each.value.approval.required, false) ? try(each.value.approval.stages, []) : []
+      for_each = (
+        try(each.value.approval.required, false) && length(try(each.value.approval.stages, [])) > 0
+        ? each.value.approval.stages
+        : []
+      )
       content {
         approval_timeout_in_days = approval_stage.value.days_to_decide
 
