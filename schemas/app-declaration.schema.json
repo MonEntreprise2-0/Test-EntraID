@@ -16,6 +16,10 @@
       "pattern": "^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$",
       "description": "Nom du catalogue et identifiant unique de l'application en kebab-case. Doit correspondre au nom du fichier (sans extension)."
     },
+    "catalog_name": {
+      "type": "string",
+      "description": "Nom exact du catalogue Entra ID s'il differe de app_name (utilitaire de mapping Smart Discovery)."
+    },
     "app_description": {
       "type": "string",
       "minLength": 5,
@@ -44,6 +48,10 @@
       ],
       "additionalProperties": false,
       "properties": {
+        "display_name": {
+          "type": "string",
+          "description": "Nom explicite de l'Access Package s'il pre-existe dans Entra ID."
+        },
         "context_subapp": {
           "type": "string",
           "maxLength": 100,
