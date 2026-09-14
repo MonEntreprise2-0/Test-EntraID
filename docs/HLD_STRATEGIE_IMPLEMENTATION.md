@@ -77,19 +77,19 @@ Le diagramme ci-dessous illustre le flux opérationnel standard de bout en bout,
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Demandeur as Demandeur (IT Owner)
-    participant Portail as Portail de Dépôt de Demande
-    participant Moteur as Moteur d'Automatisation GitOps
-    participant CI as Pipeline de Contrôle et de Planification
-    participant EntraID as Annuaire Microsoft Entra ID
-    actor Securite as Responsable Sécurité IAM
-    participant CD as Pipeline de Déploiement Sécurisé
-    actor Collaborateur as Utilisateur Final (Collaborateur)
+    actor Demandeur as "Demandeur (IT Owner)"
+    participant Portail as "Portail de Dépôt de Demande"
+    participant Moteur as "Moteur d'Automatisation GitOps"
+    participant CI as "Pipeline de Contrôle et de Planification"
+    participant EntraID as "Annuaire Microsoft Entra ID"
+    actor Securite as "Responsable Sécurité IAM"
+    participant CD as "Pipeline de Déploiement Sécurisé"
+    actor Collaborateur as "Utilisateur Final (Collaborateur)"
 
     %% Soumission
     Demandeur->>Portail: Soumet le fichier déclaratif via le formulaire unique
     Portail->>Moteur: Transmet l'intention déclarative
-    Moteur->>Moteur: Analyse le fichier et détermine l'opération (Création, Modification ou Suppression)
+    Moteur->>Moteur: Analyse le fichier et détermine l'opération
     Moteur->>Moteur: Isole les modifications dans une branche de travail dédiée
     Moteur->>Portail: Ouvre automatiquement la demande de revue (Pull Request)
 
@@ -206,12 +206,12 @@ Pour garantir que seul un administrateur habilité puisse déclencher ce process
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Admin as Administrateur IAM
-    participant OutilAdmin as Console d'Administration Sécurisée
-    participant MoteurModif as Moteur de Traitement en Masse
-    participant Referentiel as Référentiel Déclaratif des Applications
-    participant CI as Pipeline de Contrôle Global
-    actor ResponsableIAM as Responsable Approbateur IAM
+    actor Admin as "Administrateur IAM"
+    participant OutilAdmin as "Console d'Administration Sécurisée"
+    participant MoteurModif as "Moteur de Traitement en Masse"
+    participant Referentiel as "Référentiel Déclaratif des Applications"
+    participant CI as "Pipeline de Contrôle Global"
+    actor ResponsableIAM as "Responsable Approbateur IAM"
 
     Admin->>OutilAdmin: Fournit les paramètres de modification et la liste des applications
     OutilAdmin->>MoteurModif: Lance la simulation sans altération de fichier
@@ -280,11 +280,11 @@ La rétro-ingénierie est une opération administrative exceptionnelle, exécut�
 ```mermaid
 sequenceDiagram
     autonumber
-    actor AdminIAM as Administrateur IAM
-    participant Console as Interface d'Administration du Pipeline
-    participant Scanner as Moteur d'Introspection de l'Annuaire
-    participant EntraID as Annuaire Microsoft Entra ID
-    participant Referentiel as Référentiel Déclaratif Git
+    actor AdminIAM as "Administrateur IAM"
+    participant Console as "Interface d'Administration du Pipeline"
+    participant Scanner as "Moteur d'Introspection de l'Annuaire"
+    participant EntraID as "Annuaire Microsoft Entra ID"
+    participant Referentiel as "Référentiel Déclaratif Git"
 
     AdminIAM->>Console: Déclenche manuellement la synchronisation initiale de l'annuaire
     Console->>Scanner: Lance la découverte complète des catalogues et paquets d'accès
@@ -311,81 +311,101 @@ sequenceDiagram
 
 ## 6. Stratégie de Gestion des Branches (GitFlow Cible)
 
-### 6.1. Diagramme Fonctionnel du Modèle de Branches
-Le cycle de vie du référentiel repose sur une branche principale protégée représentant l'état de production, alimentée par des branches de travail éphémères et isolées :
+### 6.1. Modèle de Branches GitFlow
+
+Le modèle repose sur la combinaison d'une vue d'architecture fonctionnelle des couloirs de branches et de l'historique linéaire des commits :
 
 ```mermaid
 flowchart LR
-    %% Styles visuels haute lisibilité
-    classDef mainTrack fill:#0f172a,stroke:#3b82f6,stroke-width:2.5px,color:#ffffff,font-weight:bold,rx:8px,ry:8px;
-    classDef userTrack fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#ffffff,rx:8px,ry:8px;
-    classDef adminTrack fill:#78350f,stroke:#f59e0b,stroke-width:2px,color:#ffffff,rx:8px,ry:8px;
-    classDef resyncTrack fill:#4c1d95,stroke:#a855f7,stroke-width:2px,color:#ffffff,rx:8px,ry:8px;
-    classDef gateNode fill:#7f1d1d,stroke:#ef4444,stroke-width:2.5px,color:#ffffff,font-weight:bold,rx:8px,ry:8px;
-    classDef cleanNode fill:#1f2937,stroke:#6b7280,stroke-width:1.5px,color:#9ca3af,stroke-dasharray: 4 4,rx:6px,ry:6px;
+    %% Définition des classes de style universelles
+    classDef mainTrack fill:#0f172a,stroke:#3b82f6,stroke-width:2px,color:#ffffff;
+    classDef userTrack fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#ffffff;
+    classDef adminTrack fill:#78350f,stroke:#f59e0b,stroke-width:2px,color:#ffffff;
+    classDef resyncTrack fill:#4c1d95,stroke:#a855f7,stroke-width:2px,color:#ffffff;
+    classDef gateNode fill:#7f1d1d,stroke:#ef4444,stroke-width:2px,color:#ffffff;
+    classDef cleanNode fill:#1f2937,stroke:#6b7280,stroke-width:1px,color:#9ca3af,stroke-dasharray: 4 4;
 
-    %% Rail Principal
-    subgraph COULOIR_PROD["🔵 BRANCHE DE PRODUCTION PROTÉGÉE (RÉFÉRENTIEL PERMANENT)"]
-        direction LR
-        P1["● État Stable Initial<br>(Configuration Actuelle)"]
-        P2["🔀 Intégration Demande Unitaire<br>(Approbation Métier & IAM)"]
-        P3["🔀 Intégration Modification Masse<br>(Approbation Globale IAM)"]
-        P4["🔄 Alignement Initial T0<br>(Synchronisation Annuaire)"]
-        P5["🚀 Déploiement Entra ID<br>(Exécution Sécurisée OIDC)"]
+    %% Couloir 1 : Production
+    subgraph COULOIR_PROD["Branche Principale de Production (main)"]
+        P1["Configuration Initiale"]
+        P2["Fusion Demande Unitaire"]
+        P3["Fusion Changement Masse"]
+        P4["Alignement Initial T0"]
+        P5["Déploiement Entra ID (Apply)"]
         P1 --> P2 --> P3 --> P4 --> P5
     end
 
-    %% Rail Utilisateurs Métiers
-    subgraph COULOIR_USER["🌿 BRANCHES ÉPHÉMÈRES UNITAIRES (GESTION DES CATALOGUES)"]
-        direction LR
-        U1["Soumission du Formulaire Unique<br>(Création / Mise à jour / Suppression)"]
-        U2["Génération de la branche de travail<br>et application des changements"]
-        U3["Contrôle de syntaxe et<br>vérification des dépendances annuaire"]
-        U4{"Sas de Double Approbation<br>IT Owner + Équipe IAM"}
+    %% Couloir 2 : Branches éphémères utilisateurs
+    subgraph COULOIR_USER["Branches Éphémères Unitaires (entitlement/*)"]
+        U1["Formulaire Unique (Omni-Form)"]
+        U2["Création Branche et Commit"]
+        U3["Validation CI et Plan d'Impact"]
+        U4{"Double Approbation (Métier et IAM)"}
         U1 --> U2 --> U3 --> U4
     end
 
-    %% Rail Modifications en Masse
-    subgraph COULOIR_ADMIN["⚡ BRANCHE ADMINISTRATIVE (MODIFICATIONS EN MASSE)"]
-        direction LR
-        A1["Déclaration du changement transverse<br>et analyse d'impact prévisionnelle"]
-        A2{"Auto-validation explicite<br>de l'administrateur"}
-        A3["Application contrôlée et ouverture<br>d'une demande de revue consolidée"]
+    %% Couloir 3 : Branche administrative
+    subgraph COULOIR_ADMIN["Branche Administrative (admin/bulk-*)"]
+        A1["Déclaration Modification Masse"]
+        A2{"Simulation et Confirmation"}
+        A3["Application et Revue Consolidée"]
         A1 --> A2
-        A2 -->|Confirmé| A3
-        A2 -.->|Annulé| A_STOP["Interruption sans modification"]
+        A2 -->|"Confirmé"| A3
+        A2 -.->|"Annulé"| A_STOP["Interruption sans changement"]
     end
 
-    %% Rail Rétro-Ingénierie
-    subgraph COULOIR_RESYNC["🔄 CANAL DE SYNCHRONISATION INITIALE (RÉTRO-INGÉNIERIE T0)"]
-        direction LR
-        R1["Introspection de l'annuaire réel<br>et extraction des configurations"]
-        R2{"Contrôle strict du nommage<br>et rapport d'audit préalable"}
-        R3["Purge et réécriture complète<br>des fichiers déclaratifs conformes"]
+    %% Couloir 4 : Synchronisation T0
+    subgraph COULOIR_RESYNC["Canal Rétro-Ingénierie (import/t0-resync)"]
+        R1["Extraction Annuaire Réel"]
+        R2{"Contrôle Qualité Nomenclature"}
+        R3["Purge et Réécriture Complète"]
         R1 --> R2
-        R2 -->|Conforme| R3
-        R2 -.->|Non-conforme| R_REJET["Exclusion des applications non conformes"]
+        R2 -->|"Conforme"| R3
+        R2 -.->|"Rejet"| R_REJET["Exclusion Applications Non Conformes"]
     end
 
-    %% Raccordements
-    P1 -.->|Déclenchement unitaire| U1
-    U4 == Validation conjointe accordée ==> P2
-    P2 -.->|Suppression après fusion| SUPPR_U["Suppression branche éphémère"]
+    %% Liaisons inter-couloirs
+    P1 -.->|"Déclenchement unitaire"| U1
+    U4 == "Approbation conjointe accordée" ==> P2
+    P2 -.->|"Suppression automatique"| SUPPR_U["Destruction branche éphémère"]
 
-    P2 -.->|Déclenchement changement en masse| A1
-    A3 == Approbation globale IAM ==> P3
-    P3 -.->|Suppression après fusion| SUPPR_A["Suppression branche éphémère"]
+    P2 -.->|"Déclenchement admin"| A1
+    A3 == "Validation globale IAM" ==> P3
+    P3 -.->|"Suppression automatique"| SUPPR_A["Destruction branche éphémère"]
 
-    P3 -.->|Déclenchement exceptionnel T0| R1
-    R3 == Validation finale de l'administrateur ==> P4
+    P3 -.->|"Déclenchement manuel T0"| R1
+    R3 == "Validation finale admin" ==> P4
 
-    %% Affectation des styles
-    class P1,P2,P3,P4,P5 COULOIR_PROD mainTrack;
-    class U1,U2,U3 COULOIR_USER userTrack;
-    class A1,A3 COULOIR_ADMIN adminTrack;
-    class R1,R3 COULOIR_RESYNC resyncTrack;
+    %% Application stricte des classes
+    class P1,P2,P3,P4,P5 mainTrack;
+    class U1,U2,U3 userTrack;
+    class A1,A3 adminTrack;
+    class R1,R3 resyncTrack;
     class U4,A2,R2 gateNode;
     class SUPPR_U,SUPPR_A,A_STOP,R_REJET cleanNode;
+```
+
+#### Arbre des Commits (Format GitGraph Natif)
+
+```mermaid
+gitGraph
+    commit id: "Initialisation (main)"
+    
+    %% Scénario 1 : Demande unitaire
+    branch "entitlement/app-crm"
+    checkout "entitlement/app-crm"
+    commit id: "Commit declaratif"
+    commit id: "Validation CI OK"
+    checkout main
+    merge "entitlement/app-crm" id: "PR Unitaire Fusionnee" tag: "Deploiement CD"
+    
+    %% Scénario 2 : Modification transverse en masse
+    branch "admin/bulk-update"
+    checkout "admin/bulk-update"
+    commit id: "Changements transverses"
+    commit id: "Validation CI Globale OK"
+    checkout main
+    merge "admin/bulk-update" id: "PR Bulk Fusionnee" tag: "Deploiement CD"
 ```
 
 ---
