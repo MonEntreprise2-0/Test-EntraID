@@ -1,209 +1,422 @@
-# Document d'Architecture Technique (HLD) & Stratégie d'Implémentation
-## Industrialisation GitOps de l'Entitlement Management Entra ID — Ardian
+# Document de Stratégie d'Implémentation GitOps (High-Level Design — HLD)
+## Automatisation & Gouvernance de l'Entitlement Management Microsoft Entra ID
+### Ardian — Architecture Cloud IAM & Sécurité des Accès
 
 ---
-
-### Informations Générales
 
 | Métadonnée | Valeur |
-|---|---|
+|:---|:---|
 | **Client** | Ardian |
-| **Projet** | Automatisation & Gouvernance des Accès Entra ID (Identity Governance) |
-| **Document** | High-Level Design (HLD) & Stratégie de Déploiement Cible |
-| **Auteur** | Équipe Architecture IAM / Cloud Platform |
-| **Statut** | En attente de validation client (Architecture Review Board) |
-| **Version** | 1.0 — Post-POC & Validation Lab |
+| **Projet** | Industrialisation & Automatisation de l'Identity Governance (Entra ID) |
+| **Document** | High-Level Design (HLD) — Stratégie d'Implémentation du Modèle de "Run" |
+| **Rôle / Auteur** | Architecte Cloud IAM & DevOps Platform |
+| **Destinataires** | Architecture Review Board, Équipe IAM, Responsables Sécurité Cloud & Audit |
+| **Statut** | **Pour Arbitrage et Validation Formelle** |
+| **Version** | 2.0 (Intégration du Modèle Omni-Form, Bulk Operations & 3 Niveaux de Contrôle) |
 
 ---
 
-## 1. Contexte & Enjeux Métier Ardian
+## 1. Synthèse Exécutive
 
-Ardian gère un écosystème complexe d'applications d'entreprise (CRM, ERP, solutions d'investissement, outils collaboratifs). L'octroi et la révocation des accès doivent répondre à de fortes exigences réglementaires (SOX, RGPD, ISO 27001) imposant :
-1. **Le principe du moindre privilège** et l'accès juste-à-temps (*Just-in-Time*).
-2. **La séparation stricte des rôles** entre les propriétaires des données (*Data Owners*) et les équipes d'administration IAM.
-3. **Une auditabilité totale** : chaque demande, approbation, attribution et revue périodique d'accès doit être traçable, datée et horodatée.
-4. **Une standardisation sans friction** : simplifier la vie des métiers sans les exposer à la complexité technique de Terraform ou des API Azure.
+Ardian modernise la gouvernance de ses accès en faisant évoluer l'administration de Microsoft Entra ID Identity Governance d'un modèle manuel vers une approche **GitOps Déclarative et Zero-Trust**. Ce projet répond aux exigences réglementaires et de sécurité les plus strictes (ISO 27001, SOX, séparation des tâches), en garantissant que chaque création, modification ou décommissionnement de droits applicatifs soit entièrement tracé, audité et validé formellement avant tout déploiement.
 
-La solution conçue lors du lab implémente un modèle **GitOps Déclaratif** : un simple fichier YAML par application pilote automatiquement les **Catalogues**, **Access Packages**, **Ressources** et **Politiques d'assignation** dans Microsoft Entra ID.
+L'architecture proposée positionne **Microsoft Entra ID comme la Source Unique de Vérité (SSoT)** absolue du système d'information, tandis que le référentiel Git héberge l'expression des intentions fonctionnelles sous forme de spécifications YAML simplifiées. Grâce à une chaîne d'automatisation sécurisée par fédération d'identité sans secret statique (OIDC), le modèle réconcilie l'autonomie des propriétaires d'applications métiers (*IT Owners / Data Owners*) avec le contrôle rigoureux et centralisé de l'équipe Sécurité IAM.
 
 ---
 
-## 2. Principes d'Architecture & Décisions Clés
+## 2. Principes d'Architecture
 
-Ce tableau résume les choix d'ingénierie soumis à l'approbation du client Ardian :
+Les choix d'ingénierie présentés ci-dessous constituent le socle technique et opérationnel soumis à la validation d'Ardian :
 
-| Réf | Sujet | Choix retenu | Justification & Bénéfice client |
-|:---|:---|:---|:---|
-| **AD-01** | **Approche de modélisation** | `1 Application = 1 Fichier YAML = 1 Catalogue` | Isolation totale des périmètres applicatifs. Pas d'effet de bord entre applications lors des déploiements. |
-| **AD-02** | **Source Unique de Vérité (SSoT)** | **Entra ID est la SSoT absolue**, Git est le référentiel d'intentions | Terraform n'essaie jamais de réinventer l'existant. Si un groupe manque dans Entra ID, le déploiement échoue immédiatement. |
-| **AD-03** | **Mode Consommateur Strict** | Consommation passive via `data` sources | Évite que Terraform ne crée ou ne modifie des groupes de sécurité ou des Enterprise Apps hors de son scope de gouvernance. |
-| **AD-04** | **Authentification CI/CD** | **Zero-Secret : OIDC (Workload Identity Federation)** | Aucun secret client (mot de passe ou certificat) stocké dans GitHub. Conforme aux standards ANSSI / CIS Benchmark. |
-| **AD-05** | **Gestion des Catalogues Existants** | **Smart Discovery & Auto-Import dynamique** | Détection automatique des catalogues existants via Graph API, évitant aux métiers d'avoir à spécifier des flags techniques (`existing: true`) ou des UUIDs. |
-| **AD-06** | **Expérience Métier (UX)** | GitHub Issue Forms + Drag & Drop de fichier YAML | L'utilisateur n'écrit pas de code brut dans le formulaire, il glisse-dépose son YAML. Les formulaires sont automatiquement mis à jour. |
-| **AD-07** | **Stockage du State Terraform** | Azure Blob Storage avec verrouillage OIDC natif | State chiffré au repos (SSE/CMK), accès réseau restreint, protection contre les concurrences d'accès (Blob Lease). |
+| Choix d'Architecture | Justification et Bénéfices pour Ardian |
+|:---|:---|
+| **1 Fichier YAML = 1 Application = 1 Branche** | **Isolation stricte des risques et du périmètre de changement (*Blast Radius*)**.<br>Une modification apportée aux accès d'une application (ex: CRM) est encapsulée dans sa propre branche et son propre fichier, rendant techniquement impossible tout effet de bord sur les autres catalogues de l'entreprise (ex: ERP). La revue de code est unitaire, lisible et parfaitement auditable. |
+| **Modèle de Consommateur Strict** | **Respect fondamental de la séparation des responsabilités système**.<br>Le pipeline GitOps est un consommateur pur : il ne provisionne jamais les ressources cibles sous-jacentes (Groupes de sécurité, Enterprise Applications, Rôles applicatifs, Sites SharePoint). Ces objets relèvent d'autres processus d'infrastructure ou de packaging. Si une ressource déclarée n'existe pas dans Entra ID, le déploiement est interrompu. |
+| **Entra ID comme Single Source of Truth (SSoT)** | **Alignement permanent avec la réalité opérationnelle de l'annuaire d'entreprise**.<br>Le référentiel Git n'exprime que l'intention ; l'état réel dans le tenant Entra ID fait foi. Ce principe est garanti par deux mécanismes clés :<br>1. **Le sas d'alignement préalable (*Smart Discovery*)** qui inspecte le tenant avant chaque planification pour détecter l'existant, générer les adoptions dynamiques et éliminer les conflits HTTP 409.<br>2. **Le scénario exceptionnel de Rétro-Ingénierie (*Reverse Engineering*)** permettant d'aspirer l'existant Entra ID pour réinitialiser le référentiel Git à $T_0$. |
+| **Fédération d'Identité OIDC (Zero-Secret)** | **Sécurité maximale du pipeline CI/CD sans stockage d'identifiants sensibles**.<br>Aucun secret client, mot de passe de compte de service ou certificat statique n'est stocké dans GitHub. L'authentification repose sur des jetons cryptographiques éphémères émis par GitHub et validés par Entra ID (*Workload Identity Federation*), répondant aux standards ANSSI et CIS Benchmarks. |
+| **Modifications en Masse Réservées aux Administrateurs** | **Protection contre les dérives massives tout en offrant la vélocité nécessaire au Run**.<br>Les utilisateurs métiers sont cantonnés à des modifications unitaires encadrées. Seuls les administrateurs IAM habilités peuvent initier des changements transverses (ex: mise à jour d'un approbateur commun), sous réserve d'une phase obligatoire de simulation préalable et d'une validation explicite d'impact. |
 
 ---
 
-## 3. Implémentation d'Entra ID en tant que SSoT (Single Source of Truth)
+### 2.1. Gouvernance, Sécurité et Étapes de Validation
 
-L'un des défis majeurs dans l'automatisation d'Entra ID Identity Governance est d'éviter les collisions entre la réalité du tenant et le référentiel de code. Dans notre architecture, **Entra ID fait toujours autorité**.
+Pour concilier automatisation et contrôle des risques, le modèle repose sur une gouvernance d'approbation à **trois niveaux stricts** :
 
-```mermaid
-flowchart TD
-    subgraph "1. Référentiel Git (Intentions de configuration)"
-        YAML["Fichier Déclaratif<br>(declarations/apps/salesforce.yaml)"]
-    end
-
-    subgraph "2. Validation SSoT pré-déploiement (CI)"
-        DISCO["Smart Discovery (Graph API)<br>- Recherche insensible à la casse<br>- Détection ressources pré-associées"]
-        IMPORT["Génération dynamique<br>terraform/imports.tf"]
-        DATA["Blocs Terraform Data<br>(azuread_group / service_principal)"]
-    end
-
-    subgraph "3. Tenant Microsoft Entra ID (SSoT Absolue)"
-        CAT["Catalogue Existant ou Nouveau"]
-        GRP["Groupes de Sécurité / Rôles"]
-        AP["Access Packages & Politiques"]
-    end
-
-    YAML --> DISCO
-    DISCO -->|Interroge en lecture| CAT
-    DISCO --> IMPORT
-    YAML --> DATA
-    DATA -->|Vérifie existence stricte| GRP
-    
-    DATA -.->|Ressource manquante = Échec immédiat| FAIL["❌ Arrêt Pipeline (GroupNotFound)"]
-    IMPORT --> PLAN["Terraform Plan Réconcilié"]
-    PLAN --> APPLY["Terraform Apply (CD)"]
-    APPLY -->|Crée / Associe / Révise| AP
+```
+┌─────────────────────────────────┐
+│          VALIDATION 1           │  Automatique (Pipeline CI)
+│  Syntaxe & Conformité Schéma v2 │  Bloquant technique immédiat
+└────────────────┬────────────────┘
+                 │
+                 ▼
+┌─────────────────────────────────┐
+│          VALIDATION 2           │  IT Owner (Demandeur Métier)
+│   Détection Dépendances SSoT    │  Vérification de l'existence des actifs cibles
+│ (Groupes, App Roles, SP Sites)  │  Bloquant strict si ressource manquante
+└────────────────┬────────────────┘
+                 │
+                 ▼
+┌─────────────────────────────────┐
+│          VALIDATION 3           │  IT Owner + Responsable Sécurité IAM
+│     Double Approbation Merge    │  Double validation formelle (SoD) avant exécution
+└─────────────────────────────────┘
 ```
 
-### 3.1. Le "Mode Consommateur Strict"
-- **Principe** : Terraform ne provisionne ni les utilisateurs, ni les groupes de sécurité, ni les Enterprise Apps. Ces objets relèvent d'autres processus IAM (ex: synchronisation HR/Workday, provisioning SCIM).
-- **Implémentation technique** : Toutes les références aux groupes dans les fichiers YAML sont résolues via des blocs Terraform `data "azuread_group" "all"`.
-- **Garantie SSoT** : Si un Data Owner référence dans son YAML un groupe `GRP-APP-Salesforce-Users` qui n'a pas été préalablement créé et validé dans Entra ID, la phase `terraform plan` de la CI s'interrompt instantanément avec une erreur explicite. **Aucun état corrompu ne peut être poussé.**
-
-### 3.2. Le mécanisme "Smart Discovery" & Imports Dynamiques
-- **Problématique constatée sur le terrain** : Si un catalogue (ex: `Cat_Test01`) existe déjà dans Entra ID (créé manuellement ou hérité), ou si un groupe y a déjà été ajouté en tant que ressource, l'API Entra ID rejette la création avec une erreur HTTP 409 (`already exists`).
-- **Solution mise en œuvre** :
-  1. Avant le `terraform plan`, un script d'introspection ([`discover-catalogs.py`](file:///C:/Users/Bayano/Desktop/ardian-entitlement-mgmt/.github/scripts/discover-catalogs.py)) interroge l'API Microsoft Graph (`/v1.0/identityGovernance/entitlementManagement/catalogs`).
-  2. Le script compare les noms de façon **insensible à la casse** (`cat_test01` == `Cat_Test01`).
-  3. Si le catalogue existe, le script identifie également les ressources déjà rattachées au catalogue (`originId`).
-  4. Il génère à la volée un fichier `terraform/imports.tf` contenant des blocs `import {}` (Terraform 1.5+).
-- **Résultat** : L'infrastructure s'aligne automatiquement sur l'état réel du tenant sans intervention manuelle et sans exiger des utilisateurs qu'ils apprennent des identifiants techniques complexes.
-
-### 3.3. Prévention du Drift (Dérive de configuration)
-Lors de chaque exécution, Terraform compare le state local avec les objets distants dans Entra ID. Si une modification non autorisée est réalisée hors-bande (ex: suppression manuelle d'une politique dans le portail Azure), le prochain run CD la réconcilie automatiquement pour restaurer la configuration déclarée dans Git.
+| Question Fondamentale | Réponse et Proposition d'Architecture |
+|:---|:---|
+| **À quelles étapes la validation humaine intervient-elle ?** | La validation humaine intervient à **deux moments distincts et obligatoires** au niveau de la Pull Request :<br>1. **À la Validation 2 (Revue d'impact SSoT)** : L'IT Owner examine le plan d'exécution calculé par rapport à l'annuaire réel.<br>2. **À la Validation 3 (Autorisation de mise en production)** : Sas formel où le merge et le déploiement sur Entra ID sont bloqués tant que les approbations requises ne sont pas apposées. |
+| **Qui valide ? (Rôles & Ségrégation des Tâches)** | **Une double signature obligatoire (*Segregation of Duties - SoD*)** :<br>• **L'IT Owner / Data Owner** : Valide l'adéquation fonctionnelle du besoin, les profils d'accès demandés et l'éligibilité des approbateurs.<br>• **L'équipe Sécurité IAM** : Valide la conformité aux politiques de sécurité d'Ardian, le respect du moindre privilège, les durées de rétention des accès et l'absence de droits excessifs. |
+| **Quelles informations sont restituées aux validateurs à chaque étape ?** | Le pipeline publie automatiquement un **Tableau de Bord d'Impact Clair et Structuré** directement dans la Pull Request :<br>• **En Validation 1 & 2** : Synthèse des modifications prévues, détails des approbateurs et politiques d'expiration, et surtout la section d'alerte rouge **`🚫 Assets bloquants à créer avant de lancer le merge`** listant précisément les groupes ou rôles absents d'Entra ID.<br>• **En Validation 3** : Confirmation du statut vert (0 ressource bloquante) et récapitulatif définitif des ajouts, modifications ou révocations avant accord de déploiement. |
 
 ---
 
-## 4. Architecture Fonctionnelle & Cycle de Vie GitOps
+## 3. Architecture Fonctionnelle et Cycle de Vie GitOps
 
-Le cycle de vie complet repose sur une expérience simplifiée pour les équipes métier et un contrôle rigoureux pour les équipes de sécurité.
+Le diagramme ci-dessous illustre le flux opérationnel standard de bout en bout, depuis la formalisation du besoin par le demandeur jusqu'à la disponibilité effective des habilitations dans le portail utilisateur :
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor DO as Data Owner (Métier)
-    participant GH as GitHub (Issues / PR)
-    participant CI as GitHub Actions (CI)
-    actor IAM as Responsable IAM (Ardian)
-    participant CD as GitHub Actions (CD)
-    participant EID as Microsoft Entra ID
+    actor Demandeur as Demandeur (IT Owner)
+    participant Portail as Portail de Dépôt de Demande
+    participant Moteur as Moteur d'Automatisation GitOps
+    participant CI as Pipeline de Contrôle et de Planification
+    participant EntraID as Annuaire Microsoft Entra ID
+    actor Securite as Responsable Sécurité IAM
+    participant CD as Pipeline de Déploiement Sécurisé
+    actor Collaborateur as Utilisateur Final (Collaborateur)
 
-    DO->>GH: Dépose son YAML via le formulaire d'Issue (Création / Modif / Suppr)
-    GH->>GH: Déclenche 01-issue-to-pr (Extraction YAML, création de branche)
-    GH->>GH: Ouverture automatique d'une Pull Request
-    GH->>CI: Déclenche 03-ci-validate-and-plan
-    CI->>CI: Validation syntaxique & conformité JSON Schema
-    CI->>EID: OIDC Login & Smart Discovery (Graph API)
-    CI->>EID: Terraform Plan (Contrôle d'existence SSoT)
-    CI->>GH: Publication du compte-rendu clair en commentaire de PR
-    IAM->>GH: Revue métier et approbation formelle de la PR
-    IAM->>GH: Merge sur la branche main
-    GH->>CD: Déclenche 04-cd-apply
-    CD->>EID: Terraform Apply (Déploiement / Mise à jour / Révocation)
-    CD->>GH: Synchronisation automatique des listes déroulantes (sync-dropdowns)
+    %% Soumission
+    Demandeur->>Portail: Soumet le fichier déclaratif via le formulaire unique
+    Portail->>Moteur: Transmet l'intention déclarative
+    Moteur->>Moteur: Analyse le fichier et détermine l'opération (Création, Modification ou Suppression)
+    Moteur->>Moteur: Isole les modifications dans une branche de travail dédiée
+    Moteur->>Portail: Ouvre automatiquement la demande de revue (Pull Request)
+
+    %% Validation 1 : Contrôle Automatique
+    Portail->>CI: Déclenche la validation automatique de premier niveau
+    CI->>CI: Vérifie la syntaxe et la conformité au standard déclaratif
+    
+    %% Validation 2 : Détection SSoT & Ressources
+    CI->>EntraID: Interroge l'annuaire pour vérifier les dépendances réelles
+    CI->>EntraID: Calcule le différentiel précis par rapport à l'existant
+
+    alt Détection de ressources manquantes dans l'annuaire (Cas Bloquant)
+        CI-->>Portail: Affiche l'alerte des dépendances bloquantes à créer
+        CI-->>Portail: Verrouille techniquement la demande de revue
+        Demandeur->>EntraID: Fait créer les groupes ou rôles par l'administrateur
+        Demandeur->>Portail: Demande une nouvelle vérification par commande simple
+        Portail->>CI: Réinterroge l'annuaire en direct
+    end
+
+    CI-->>Portail: Affiche le tableau de bord d'impact validé (0 élément bloquant)
+
+    %% Validation 3 : Double Approbation Formelle
+    Demandeur->>Portail: Appose la première validation fonctionnelle
+    Securite->>Portail: Appose la seconde validation de conformité sécurité
+    Securite->>Portail: Autorise la fusion sur la branche de référence
+
+    %% Déploiement
+    Portail->>CD: Déclenche le déploiement sur l'annuaire
+    CD->>EntraID: Applique les configurations déclarées avec jeton éphémère
+    EntraID-->>CD: Confirme l'activation des catalogues et paquets d'accès
+    CD->>Moteur: Supprime la branche de travail temporaire
+    EntraID->>Collaborateur: Met à disposition les paquets d'accès sur le portail utilisateur
 ```
 
-### 4.1. Parcours Utilisateur Dédiés
+---
 
-1. **Création d'une application** :
-   - Le demandeur utilise le formulaire **🆕 Créer un Access Package**.
-   - Il dispose d'un mini-tutoriel et d'un lien vers le modèle [`_example.yaml`](file:///C:/Users/Bayano/Desktop/ardian-entitlement-mgmt/declarations/apps/_example.yaml).
-   - Il renseigne le nom d'application et glisse-dépose son fichier YAML (aucun copier/coller de code source).
-   - Il fournit une justification métier et valide la checklist de conformité.
-2. **Modification d'une application** :
-   - Le demandeur utilise le formulaire **✏️ Modifier un Access Package**.
-   - Un **menu déroulant dynamique** lui permet de sélectionner l'application cible parmi celles existantes.
-   - Il glisse-dépose la version révisée de son fichier YAML et décrit les changements.
-3. **Suppression / Décommissionnement** :
-   - Le formulaire **🗑️ Supprimer un Access Package** permet de sélectionner l'application à retirer.
-   - Une confirmation explicite est requise.
-   - Le workflow supprime le fichier dans Git (`git rm`), et Terraform détruit proprement les ressources associées dans Entra ID lors du merge.
+## 4. Scénarios d'Opération (Le Run)
+
+### A. Le Workflow Utilisateur (Création, Modification, Suppression)
+
+#### 1. Le Concept de Formulaire Unique (*Omni-Form*)
+Pour éliminer toute friction et éviter les erreurs d'aiguillage, les trois anciens formulaires séparés sont unifiés en **un seul point d'entrée didactique** :
+* **Suppression de la saisie manuelle redondante** : L'utilisateur n'a plus à saisir manuellement le nom de son application. Le système extrait automatiquement l'identifiant technique à partir du contenu du fichier déposé.
+* **Contenu du formulaire** :
+  * Un guide visuel rappelant les conventions et pointant vers le modèle de référence.
+  * Un champ unique de dépôt de fichier (glisser-déposer ou saisie directe).
+  * Une explication claire de la détection automatique :
+    * *Fichier d'une nouvelle application* ➔ Déclenchement automatique du flux de **Création**.
+    * *Fichier d'une application existante* ➔ Déclenchement automatique du flux de **Mise à jour**.
+    * *Fichier portant l'instruction de décommissionnement* ➔ Déclenchement du flux de **Suppression**.
+
+#### 2. Gestion des Erreurs et Robustesse
+* **Erreur de syntaxe ou structure invalide** : Rejet immédiat dès la phase de contrôle automatique. Aucun appel n'est émis vers Microsoft Entra ID.
+* **Ressources cibles manquantes dans l'annuaire (Groupes, Rôles)** : Le système identifie précisément les éléments absents et marque la demande comme **bloquée**. Le bouton de fusion reste physiquement verrouillé. Dès que l'administrateur a créé la ressource dans Entra ID, le demandeur peut relancer la vérification **sans renvoyer son fichier**, par un simple commentaire de réévaluation sur la demande.
+* **Modification non autorisée** : Le mécanisme de gouvernance par fichier empêche tout demandeur de modifier la configuration d'une application dont il n'est pas le propriétaire attitré.
+
+#### 3. Cas Particulier du Décommissionnement (Suppression d'un Catalogue)
+Pour garantir une suppression maîtrisée et sécurisée d'un catalogue applicatif :
+* L'utilisateur dépose un fichier **volontairement épuré de tout rôle ou ressource**, comportant uniquement le nom de l'application et l'instruction explicite de décommissionnement :
+  ```yaml
+  app_name: "catalogue-test-v1"
+  action: "delete_application"
+  ```
+* **Processus d'orchestration sécurisé** : Le moteur d'exécution procède selon un ordre strict :
+  1. Il supprime et révoque d'abord l'ensemble des paquets d'accès (*Access Packages*) et leurs politiques associées.
+  2. Il détache les ressources du catalogue.
+  3. Il procède enfin à la suppression du catalogue lui-même.
+* **Garde-fou Consommateur** : Les groupes de sécurité et les applications d'entreprise sous-jacents **ne sont jamais supprimés** dans Entra ID. Seules les règles d'attribution d'accès sont retirées.
 
 ---
 
-## 5. Architecture de Sécurité & Conformité
+### B. Le Workflow de Modification en Masse (Usage Administrateurs IAM)
 
-### 5.1. Authentification Zero-Trust via GitHub OIDC
-L'authentification entre GitHub Actions et le tenant Entra ID d'Ardian n'utilise **aucun secret longue durée** :
-- Une **Federated Identity Credential** (App Registration) est configurée dans Entra ID.
-- GitHub Actions émet un jeton OIDC signé cryptographiquement (`ACTIONS_ID_TOKEN_REQUEST_URL`).
-- Azure valide l'émetteur (`https://token.actions.githubusercontent.com`), le subject (`repo:Ardian/<repo>:ref:refs/heads/main` ou `pull_request`) et l'audience (`api://AzureADTokenExchange`).
-- Aucun risque de fuite d'identifiants dans les logs ou les repositories.
+#### 1. Justification et Périmètre Fonctionnel
+Lors de changements transverses (ex: départ d'un responsable nécessitant la mise à jour de son email d'approbateur sur 20 catalogues applicatifs), le traitement fichier par fichier est fastidieux et générateur d'erreurs. Le mode de modification en masse permet d'appliquer un changement ciblé à l'ensemble des fichiers concernés en **une seule opération coordonnée**.
 
-### 5.2. Moindre Privilège & Rôles Requis
-L'App Registration dédiée à l'automatisation GitOps ne dispose que des permissions strictement nécessaires à la gestion de la gouvernance des accès :
-- **Rôle applicatif Microsoft Graph** : `EntitlementManagement.ReadWrite.All`
-- **Lecture d'annuaire (Directory Read)** : `Group.Read.All`, `Application.Read.All`
-- **Séparation des tâches** : L'application de déploiement ne peut pas créer d'utilisateurs ni modifier des stratégies d'accès conditionnel globales.
+#### 2. Périmètre des Modifications Autorisées vs Interdites
 
-### 5.3. Sécurisation du State Terraform
-- **Backend distant** : Azure Storage Account dédié (`stardiantfstate`), isolé dans un Resource Group réservé à l'équipe plateforme (`rg-terraform-state`).
-- **Contrôle d'accès** : Rôle RBAC Azure `Storage Blob Data Contributor` restreint à l'identité managée / OIDC du pipeline.
-- **Chiffrement** : Chiffrement AES-256 natif au repos (avec option Customer-Managed Keys si exigé par la politique de sécurité Ardian).
+| Catégorie | Éléments Autorisés en Masse | Éléments Strictement Interdits en Masse |
+|:---|:---|:---|
+| **Champs concernés** | • Remplacement d'une adresse email d'approbateur.<br>• Harmonisation d'un libellé d'environnement.<br>• Mise à jour d'un niveau de privilège unitaire. | • Restructuration complète de ressources d'un catalogue.<br>• Ajout d'associations complexes de groupes ou de rôles.<br>• Décommissionnement massif de catalogues. |
+| **Raison d'ingénierie** | Modifications scalaires, atomiques et vérifiables par comparaison simple. | Risque de déstabilisation de la gouvernance globale. Les associations complexes doivent rester traitées de manière unitaire. |
+
+#### 3. Structure du Fichier de Déclaration en Masse
+L'administrateur décrit son intention dans un fichier dédié permettant de cibler les applications individuellement ou via une liste séparée par des virgules :
+
+```yaml
+# ==============================================================================
+# DÉCLARATION DE MODIFICATION EN MASSE — USAGE ADMINISTRATEURS IAM
+# ==============================================================================
+bulk_change:
+  description: "Remplacement du responsable d'approbation suite à un départ"
+  
+  # Applications concernées (séparées par une virgule, ou mot-clé "all") :
+  target_apps: "catalogue-test-v1, catalogue-test-v2, salesforce-crm"
+  
+  # Propriété unitaire ciblée :
+  target_field: "authorization_owners"
+  
+  # Règle de substitution :
+  old_value: "ancien.responsable@ardian.com"
+  new_value: "nouveau.responsable@ardian.com"
+```
+
+#### 4. Mécanisme de Contrôle Technique & Sas d'Auto-Validation
+Pour garantir que seul un administrateur habilité puisse déclencher ce processus :
+* **Verrouillage des droits d'exécution** : Le déclenchement est réservé exclusivement aux membres du groupe de sécurité central IAM via les contrôles d'accès basés sur les rôles (RBAC) de la plateforme.
+* **Processus obligatoire en deux étapes (Dry-Run & Confirmation)** :
+  1. **Phase de Simulation (Dry-Run)** : Le moteur analyse tous les fichiers déclaratifs, compte les occurrences trouvées, identifie les applications sans correspondance, et dresse un rapport de prévisualisation sans modifier aucun fichier.
+  2. **Confirmation Explicite d'Impact** : Le moteur interroge formellement l'administrateur (*"Confirmez-vous la mise à jour de X fichiers pour Y occurrences ?"*). En l'absence d'accord explicite, l'opération s'interrompt immédiatement sans impact sur le disque.
+  3. **Application & Revue Consolidée** : Après accord, les fichiers sont mis à jour et soumis dans **une unique demande de revue consolidée**, permettant à l'équipe IAM d'approuver l'ensemble des changements en un seul point de contrôle.
+
+#### 5. Diagramme de Séquence — Scénario de Modification en Masse
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin as Administrateur IAM
+    participant OutilAdmin as Console d'Administration Sécurisée
+    participant MoteurModif as Moteur de Traitement en Masse
+    participant Referentiel as Référentiel Déclaratif des Applications
+    participant CI as Pipeline de Contrôle Global
+    actor ResponsableIAM as Responsable Approbateur IAM
+
+    Admin->>OutilAdmin: Fournit les paramètres de modification et la liste des applications
+    OutilAdmin->>MoteurModif: Lance la simulation sans altération de fichier
+    MoteurModif->>Referentiel: Analyse les fichiers cibles et calcule les occurrences
+    MoteurModif-->>OutilAdmin: Restitue le rapport d'impact prévisionnel
+    
+    OutilAdmin->>Admin: Demande confirmation formelle d'application
+    
+    alt Annulation par l'administrateur
+        Admin->>OutilAdmin: Refuse l'opération
+        OutilAdmin-->>Admin: Opération annulée (aucun fichier modifié)
+    else Validation par l'administrateur
+        Admin->>OutilAdmin: Confirme formellement l'exécution
+        OutilAdmin->>Referentiel: Applique les modifications sur les fichiers concernés
+        OutilAdmin->>Referentiel: Crée une branche administrative et enregistre les changements
+        OutilAdmin->>CI: Ouvre une demande de revue unique pour l'ensemble des applications
+        CI-->>ResponsableIAM: Présente le différentiel consolidé
+        ResponsableIAM->>Referentiel: Approuve et valide la mise en production globale
+    end
+```
 
 ---
 
-## 6. Stratégie d'Implémentation chez Ardian (Roadmap)
+### C. Gouvernance des Fichiers Déclaratifs via `CODEOWNERS`
 
-Le déploiement industriel sur les environnements Ardian est structuré en 4 phases progressives :
+La fonctionnalité `CODEOWNERS` permet d'attribuer formellement la responsabilité de chaque dossier ou fichier du référentiel à des équipes désignées. Lorsqu'une demande modifie un fichier protégé, la plateforme exige impérativement l'approbation du propriétaire avant toute mise en production.
 
-### Phase 1 : Cadrage & Préparation des Pré-requis Azure (Semaine 1)
-- [ ] Création du Resource Group et du Storage Account pour le state Terraform distant.
-- [ ] Création de l'App Registration Azure AD et configuration de la fédération d'identité OIDC avec le repository GitHub de production d'Ardian.
-- [ ] Attribution des privilèges Microsoft Graph (`EntitlementManagement.ReadWrite.All`, `Group.Read.All`).
-- [ ] Revue par l'équipe Sécurité/Cloud Platform d'Ardian.
+Dans le cadre d'Ardian, deux options d'implémentation sont soumises à arbitrage :
 
-### Phase 2 : Déploiement de l'Usine GitOps (Semaine 2)
-- [ ] Initialisation du repository GitHub Enterprise / Organisation Ardian.
-- [ ] Configuration des secrets d'environnement OIDC (`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, etc.).
-- [ ] Mise en place des règles de protection de branche (`main` : revue obligatoire, merge restreint, passage de CI requis).
-- [ ] Déploiement des workflows GitHub Actions et des formulaires d'Issues validés lors du lab.
-
-### Phase 3 : Applications Pilotes & Recette Fonctionnelle (Semaines 3 - 4)
-- [ ] Sélection de 2 ou 3 applications pilotes représentatives chez Ardian (ex: 1 catalogue existant avec groupes pré-associés, 1 nouveau catalogue simple, 1 catalogue avec double approbation).
-- [ ] Rédaction des fichiers YAML correspondants avec les Data Owners concernés.
-- [ ] Validation du cycle complet de demande (Issue ➔ PR ➔ Approbation Data Owner ➔ Apply).
-- [ ] Vérification de l'expérience utilisateur finale sur le portail [MyAccess](https://myaccess.microsoft.com).
-
-### Phase 4 : Généralisation & Gouvernance du Run (Semaine 5+)
-- [ ] Publication du guide opérationnel et formation des Data Owners.
-- [ ] Onboarding progressif des autres applications de l'entreprise.
-- [ ] Activation des revues d'accès automatiques dans Entra ID.
+> [!NOTE]
+> ### 📌 Proposition à valider avec Ardian (Arbitrage 1) : Modèle de Responsabilité CODEOWNERS
+>
+> * **Option 1 : Gouvernance Déléguée (Co-Validation IT Owner + Équipe IAM)**
+>   * *Fonctionnement* : Chaque fichier d'application a pour propriétaires obligatoires l'équipe métier référente ET l'équipe IAM.
+>   * *Bénéfice* : Séparation absolue des pouvoirs. Un gestionnaire de l'application CRM ne peut en aucun cas approuver les modifications du catalogue ERP.
+>   * *Contrainte* : Nécessite la gestion et le maintien de groupes d'utilisateurs distincts pour chaque domaine applicatif.
+>
+> * **Option 2 : Gouvernance Centralisée (Équipe IAM Exclusive)**
+>   * *Fonctionnement* : L'équipe centrale IAM est déclarée propriétaire unique de l'ensemble des fichiers applicatifs.
+>   * *Bénéfice* : Simplicité opérationnelle maximale pour le démarrage du Run, pas de dépendance envers la maturité technique des équipes métiers sur l'outil. L'équipe IAM agit comme guichet unique de validation technique et sécurité.
+>   * *Recommandation de l'Architecte* : Démarrer en **Option 2** lors de la phase d'onboarding initial, puis activer l'**Option 1** application par application au fur et à mesure de la montée en maturité des IT Owners.
 
 ---
 
-## 7. Matrice de Validation Client (Checklist Ardian)
+## 5. Rétro-Ingénierie (Récupération de l'Existant à $T_0$)
 
-Ce document est soumis pour arbitrage aux différentes parties prenantes :
+### 5.1. Contexte & Déclenchement Exceptionnel
+La rétro-ingénierie est une opération administrative exceptionnelle, exécutée manuellement par l'équipe IAM. Elle a pour vocation d'aspirer la configuration réelle présente dans Microsoft Entra ID pour initialiser ou réaligner intégralement le référentiel déclaratif à $T_0$.
 
-| Sujet soumis à validation | Interlocuteur Ardian | Statut | Commentaire / Décision |
-|---|---|:---:|---|
-| **Architecture GitOps Déclarative (1 YAML = 1 App)** | Enterprise Architect | 🟡 En attente | Validation du découpage applicatif |
-| **Principe SSoT & Mode Consommateur** | Lead IAM | 🟡 En attente | Confirmation que les groupes sont gérés en amont |
-| **Authentification OIDC sans secret** | RSSI / Sécurité Cloud | 🟡 En attente | Validation de la fédération OIDC GitHub-Azure |
-| **Périmètre des droits Graph API** | Administrateur Global Entra | 🟡 En attente | Octroi du rôle `EntitlementManagement.ReadWrite.All` |
-| **Emplacement du State Backend** | Responsable Azure Platform | 🟡 En attente | Choix du Storage Account et de la région Azure |
-| **Workflow d'approbation des PRs** | Responsables Métiers / Data Owners | 🟡 En attente | Validation de la gouvernance par pull request |
+### 5.2. Règles d'Ingénierie & Principe de Synchronisation Totale (*Full Resync*)
+* **Respect strict de la règle unitaire** : Le moteur génère un fichier par catalogue respectant rigoureusement le standard déclaratif Ardian.
+* **Absence de demandes multiples** : Le processus ne génère pas de multiples demandes de revue dispersées ; il aligne directement l'ensemble des fichiers sur la branche de référence.
+* **Principe de purge et de réinitialisation complète** : Pour prévenir tout risque d'incohérence si des fichiers préexistent dans le référentiel (ex: si Entra ID comporte les applications A, B et C alors que Git ne contient que l'application A ou des fichiers obsolètes), le workflow vide le répertoire applicatif (en conservant les modèles de référence) et réécrit l'intégralité du parc découvert.
+
+### 5.3. Contrôle Bloquant de Conformité de Nomenclature (*Fail-Safe*)
+* Pour être importé, chaque paquet d'accès au sein d'un catalogue doit respecter rigoureusement la convention de nommage Ardian : `[Sous-Domaine / Contexte] [Niveau de Privilège] - [Environnement]`.
+* **Règle bloquante au niveau applicatif** : Si un seul paquet d'accès au sein d'un catalogue ne respecte pas cette nomenclature (ex: nommage hérité libre) :
+  * **Le chargement de l'application entière échoue immédiatement**.
+  * L'application est exclue de l'exportation vers le référentiel.
+* **Rapport d'Audit Préalable** : Avant toute écriture définitive dans Git, le moteur génère un compte-rendu exhaustif listant :
+  * Les applications conformes validées pour l'importation.
+  * Les applications rejetées avec la mention précise du paquet d'accès non conforme.
+  * L'administrateur doit corriger le libellé dans le portail Entra ID avant de relancer l'extraction.
+
+### 5.4. Diagramme de Séquence — Scénario de Rétro-Ingénierie ($T_0$)
+```mermaid
+sequenceDiagram
+    autonumber
+    actor AdminIAM as Administrateur IAM
+    participant Console as Interface d'Administration du Pipeline
+    participant Scanner as Moteur d'Introspection de l'Annuaire
+    participant EntraID as Annuaire Microsoft Entra ID
+    participant Referentiel as Référentiel Déclaratif Git
+
+    AdminIAM->>Console: Déclenche manuellement la synchronisation initiale de l'annuaire
+    Console->>Scanner: Lance la découverte complète des catalogues et paquets d'accès
+    Scanner->>EntraID: Interroge l'ensemble des catalogues et règles d'assignation
+    EntraID-->>Scanner: Transmet les données brutes des actifs et dépendances
+
+    Scanner->>Scanner: Analyse la conformité du nommage des paquets d'accès
+
+    alt Présence d'applications avec nomenclature non conforme
+        Scanner-->>Console: Dresse la liste des applications rejetées avec le motif précis
+        Console-->>AdminIAM: Présente le rapport d'audit et suspend l'intégration des applications non conformes
+        AdminIAM->>EntraID: Corrige les libellés non conformes dans l'annuaire
+    end
+
+    Scanner-->>Console: Valide l'export des applications rigoureusement conformes
+    Console->>AdminIAM: Sollicite la validation finale avant écriture
+    AdminIAM->>Console: Valide l'alignement définitif
+    Console->>Referentiel: Purge les configurations antérieures du référentiel
+    Console->>Referentiel: Écrit l'intégralité des fichiers déclaratifs conformes
+    Referentiel-->>AdminIAM: Confirme la synchronisation intégrale du parc applicatif à T0
+```
+
+---
+
+## 6. Stratégie de Gestion des Branches (GitFlow Cible)
+
+### 6.1. Diagramme Fonctionnel du Modèle de Branches
+Le cycle de vie du référentiel repose sur une branche principale protégée représentant l'état de production, alimentée par des branches de travail éphémères et isolées :
+
+```mermaid
+flowchart LR
+    %% Styles visuels haute lisibilité
+    classDef mainTrack fill:#0f172a,stroke:#3b82f6,stroke-width:2.5px,color:#ffffff,font-weight:bold,rx:8px,ry:8px;
+    classDef userTrack fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#ffffff,rx:8px,ry:8px;
+    classDef adminTrack fill:#78350f,stroke:#f59e0b,stroke-width:2px,color:#ffffff,rx:8px,ry:8px;
+    classDef resyncTrack fill:#4c1d95,stroke:#a855f7,stroke-width:2px,color:#ffffff,rx:8px,ry:8px;
+    classDef gateNode fill:#7f1d1d,stroke:#ef4444,stroke-width:2.5px,color:#ffffff,font-weight:bold,rx:8px,ry:8px;
+    classDef cleanNode fill:#1f2937,stroke:#6b7280,stroke-width:1.5px,color:#9ca3af,stroke-dasharray: 4 4,rx:6px,ry:6px;
+
+    %% Rail Principal
+    subgraph COULOIR_PROD["🔵 BRANCHE DE PRODUCTION PROTÉGÉE (RÉFÉRENTIEL PERMANENT)"]
+        direction LR
+        P1["● État Stable Initial<br>(Configuration Actuelle)"]
+        P2["🔀 Intégration Demande Unitaire<br>(Approbation Métier & IAM)"]
+        P3["🔀 Intégration Modification Masse<br>(Approbation Globale IAM)"]
+        P4["🔄 Alignement Initial T0<br>(Synchronisation Annuaire)"]
+        P5["🚀 Déploiement Entra ID<br>(Exécution Sécurisée OIDC)"]
+        P1 --> P2 --> P3 --> P4 --> P5
+    end
+
+    %% Rail Utilisateurs Métiers
+    subgraph COULOIR_USER["🌿 BRANCHES ÉPHÉMÈRES UNITAIRES (GESTION DES CATALOGUES)"]
+        direction LR
+        U1["Soumission du Formulaire Unique<br>(Création / Mise à jour / Suppression)"]
+        U2["Génération de la branche de travail<br>et application des changements"]
+        U3["Contrôle de syntaxe et<br>vérification des dépendances annuaire"]
+        U4{"Sas de Double Approbation<br>IT Owner + Équipe IAM"}
+        U1 --> U2 --> U3 --> U4
+    end
+
+    %% Rail Modifications en Masse
+    subgraph COULOIR_ADMIN["⚡ BRANCHE ADMINISTRATIVE (MODIFICATIONS EN MASSE)"]
+        direction LR
+        A1["Déclaration du changement transverse<br>et analyse d'impact prévisionnelle"]
+        A2{"Auto-validation explicite<br>de l'administrateur"}
+        A3["Application contrôlée et ouverture<br>d'une demande de revue consolidée"]
+        A1 --> A2
+        A2 -->|Confirmé| A3
+        A2 -.->|Annulé| A_STOP["Interruption sans modification"]
+    end
+
+    %% Rail Rétro-Ingénierie
+    subgraph COULOIR_RESYNC["🔄 CANAL DE SYNCHRONISATION INITIALE (RÉTRO-INGÉNIERIE T0)"]
+        direction LR
+        R1["Introspection de l'annuaire réel<br>et extraction des configurations"]
+        R2{"Contrôle strict du nommage<br>et rapport d'audit préalable"}
+        R3["Purge et réécriture complète<br>des fichiers déclaratifs conformes"]
+        R1 --> R2
+        R2 -->|Conforme| R3
+        R2 -.->|Non-conforme| R_REJET["Exclusion des applications non conformes"]
+    end
+
+    %% Raccordements
+    P1 -.->|Déclenchement unitaire| U1
+    U4 == Validation conjointe accordée ==> P2
+    P2 -.->|Suppression après fusion| SUPPR_U["Suppression branche éphémère"]
+
+    P2 -.->|Déclenchement changement en masse| A1
+    A3 == Approbation globale IAM ==> P3
+    P3 -.->|Suppression après fusion| SUPPR_A["Suppression branche éphémère"]
+
+    P3 -.->|Déclenchement exceptionnel T0| R1
+    R3 == Validation finale de l'administrateur ==> P4
+
+    %% Affectation des styles
+    class P1,P2,P3,P4,P5 COULOIR_PROD mainTrack;
+    class U1,U2,U3 COULOIR_USER userTrack;
+    class A1,A3 COULOIR_ADMIN adminTrack;
+    class R1,R3 COULOIR_RESYNC resyncTrack;
+    class U4,A2,R2 gateNode;
+    class SUPPR_U,SUPPR_A,A_STOP,R_REJET cleanNode;
+```
+
+---
+
+### 6.2. Règles de Gouvernance et de Protection des Branches
+
+Pour garantir l'intégrité de la branche de référence (production), les règles de protection suivantes sont appliquées de manière infranchissable :
+
+1. **Interdiction Formelle des Écritures Directes (*Direct Push Block*)** :
+   * Aucun utilisateur, y compris les administrateurs globaux, ne peut pousser directement du code sur la branche principale. Toute modification transite obligatoirement par une demande de revue (*Pull Request*).
+2. **Exigence de Contrôles Automatiques Valides (*Required Status Checks*)** :
+   * Le passage au vert de la vérification de conformité syntaxique et du calcul de différentiel annuaire est un pré-requis absolu. La détection d'une ressource manquante bloque physiquement la fusion.
+3. **Exigence de Double Revue Humaine Formelle (*Enforced Approvals*)** :
+   * La fusion requiert obligatoirement deux approbations distinctes pour les demandes applicatives : celle de l'IT Owner désigné et celle d'un membre de l'équipe Sécurité IAM.
+4. **Stratégie de Fusion Linéaire (*Squash and Merge*)** :
+   * Les branches de travail éphémères sont compactées lors de la fusion afin de préserver un historique Git linéaire, clair et facilement auditable (1 déploiement = 1 commit horodaté et documenté).
+5. **Suppression Automatique des Branches Éphémères (*Auto-Deletion*)** :
+   * Dès la fusion validée, la branche de travail temporaire est automatiquement détruite pour éviter l'encombrement du référentiel.
+
+---
+
+## 7. Tableau de Synthèse des Décisions Soumises à Validation
+
+| Référence | Objet de la Décision | Option Recommandée | Statut Soumis à Ardian |
+|:---|:---|:---|:---:|
+| **DEC-01** | **Modèle Déclaratif Unitaire** | Adoption stricte de la règle `1 Application = 1 Fichier = 1 Branche`. | 🟡 Pour Accord |
+| **DEC-02** | **Formulaire Unique (Omni-Form)** | Remplacement des formulaires multiples par un point d'entrée unique didactique. | 🟡 Pour Accord |
+| **DEC-03** | **Workflow de Validation à 3 Niveaux** | Validation CI ➔ Détection bloquante des ressources avec relance simplifiée ➔ Double approbation formelle. | 🟡 Pour Accord |
+| **DEC-04** | **Gouvernance `CODEOWNERS`** | Démarrage en Option 2 (Gouvernance centralisée IAM) puis transition progressive vers l'Option 1 (Co-validation déléguée). | 🟡 Pour Arbitrage |
+| **DEC-05** | **Modifications en Masse Sécurisées** | Déclenchement réservé aux administrateurs avec sas obligatoire de simulation (Dry-Run) et d'auto-validation. | 🟡 Pour Accord |
+| **DEC-06** | **Rétro-Ingénierie ($T_0$) & Fail-Safe** | Processus exceptionnel d'aspiration avec rejet strict des applications non conformes à la nomenclature Ardian. | 🟡 Pour Accord |
+
+---
+*Ce document de design d'architecture constitue le cadre de référence pour engager les travaux d'implémentation opérationnelle de la plateforme d'Entitlement Management.*
