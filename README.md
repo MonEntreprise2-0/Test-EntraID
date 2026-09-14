@@ -69,7 +69,8 @@ flowchart LR
 
 ## 📋 Documentation et Guides d'Architecture
 
-- 📋 [**Spécifications Techniques V1 (Nouveaux Scénarios de Design)**](docs/SPECIFICATIONS_V1.md)
+- 🚀 [**Spécifications Techniques V2 (Orientations Validées — Run Cible)**](docs/SPECIFICATIONS_V2.md)
+- 📋 [Spécifications Techniques V1 (Historique Initial)](docs/SPECIFICATIONS_V1.md)
 - 📘 [Document de Stratégie d'Implémentation (Design Doc — Modèle de Run)](docs/Design-Doc-Strategie-Implementation-Ardian.md)
 - 📐 [Document d'Architecture Technique (HLD)](docs/HLD_STRATEGIE_IMPLEMENTATION.md)
 - 📝 [Guide de rédaction YAML d'exemple](declarations/apps/_example.yaml)
