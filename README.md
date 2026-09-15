@@ -69,10 +69,10 @@ flowchart LR
 
 ## 📋 Documentation et Guides d'Architecture
 
-- 🚀 [**Spécifications Techniques V2 (Orientations Validées — Run Cible)**](docs/SPECIFICATIONS_V2.md)
-- 📋 [Spécifications Techniques V1 (Historique Initial)](docs/SPECIFICATIONS_V1.md)
+- ⚡ [**HLD Modification en Masse (Import ZIP & Double Validation)**](docs/MODIFICATION_DE_MASSE.md)
+- 🚀 [Spécifications Techniques V2 (Orientations Validées — Run Cible)](docs/SPECIFICATIONS_V2.md)
 - 📘 [Document de Stratégie d'Implémentation (Design Doc — Modèle de Run)](docs/Design-Doc-Strategie-Implementation-Ardian.md)
-- 📐 [Document d'Architecture Technique (HLD)](docs/HLD_STRATEGIE_IMPLEMENTATION.md)
+- 📐 [Document d'Architecture Technique (HLD Global)](docs/HLD_STRATEGIE_IMPLEMENTATION.md)
 - 📝 [Guide de rédaction YAML d'exemple](declarations/apps/_example.yaml)
 - ⚙️ [Documentation des pré-requis IAM et Azure](docs/PREREQUISITES.md)
 - 📖 [Guide Opérationnel](docs/OPERATIONAL_GUIDE.md)
