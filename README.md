@@ -69,6 +69,7 @@ flowchart LR
 
 ## 📋 Documentation et Guides d'Architecture
 
+- 🔄 [**Plan d'Implémentation Technique : Récupération de l'Existant (Reverse Engineering)**](docs/scenario_de_recuperation_existant.md)
 - ⚡ [**HLD Modification en Masse (Import ZIP & Double Validation)**](docs/MODIFICATION_DE_MASSE.md)
 - 🚀 [Spécifications Techniques V2 (Orientations Validées — Run Cible)](docs/SPECIFICATIONS_V2.md)
 - 📘 [Document de Stratégie d'Implémentation (Design Doc — Modèle de Run)](docs/Design-Doc-Strategie-Implementation-Ardian.md)
