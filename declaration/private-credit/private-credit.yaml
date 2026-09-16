@@ -1,0 +1,40 @@
+app_name: "private credit"
+app_description: "private credit"
+
+access_packages:
+
+  # ==========================================================================
+  # AP 1 : "Private Credit Read Only - UAT"
+  # ==========================================================================
+
+  - context_subapp: "Credit"
+    privilege_level: "Read Only"
+    env: "UAT"
+    description: "Access Package Credit Read Only - UAT"
+    authorization_owners:
+      - "gorlainel_gmail.com#EXT#@monentreprise123.onmicrosoft.com"
+      - "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
+
+    resources:
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test01"
+
+
+  # ==========================================================================
+  # AP 2 : "Private Credit User - UAT"
+  # ==========================================================================
+
+  - context_subapp: "Credit"
+    privilege_level: "Write"
+    env: "UAT"
+    description: "Access Package Credit Write - UAT"
+    authorization_owners:
+      - "gorlainel_gmail.com#EXT#@monentreprise123.onmicrosoft.com"
+      - "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
+
+    resources:
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test01"
+
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test02"
