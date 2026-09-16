@@ -255,21 +255,26 @@ jobs:
           APP="${{ steps.parse.outputs.app_name }}"
           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 
+          # Slugification pour garantir un nom de branche Git valide (minuscules, tirets au lieu d'espaces)
+          APP_SLUG=$(echo "$APP" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd 'a-z0-9-_')
+          [ -z "$APP_SLUG" ] && APP_SLUG="app"
+
           case "$OP" in
-            user_modify)  BRANCH="entitlement/modify-${APP}-${TIMESTAMP}" ;;
-            admin_create) BRANCH="admin/create-${APP}-${TIMESTAMP}" ;;
+            user_modify)  BRANCH="entitlement/modify-${APP_SLUG}-${TIMESTAMP}" ;;
+            admin_create) BRANCH="admin/create-${APP_SLUG}-${TIMESTAMP}" ;;
             admin_bulk)   BRANCH="admin/bulk-${TIMESTAMP}" ;;
             admin_import) BRANCH="admin/import-entra-${TIMESTAMP}" ;;
             *)            BRANCH="entitlement/change-${TIMESTAMP}" ;;
           esac
 
           echo "name=$BRANCH" >> $GITHUB_OUTPUT
+          echo "app_slug=$APP_SLUG" >> $GITHUB_OUTPUT
 
       - name: Appliquer les modifications Git et pusher la branche
         run: |
           BRANCH="${{ steps.branch.outputs.name }}"
           OP="${{ steps.parse.outputs.operation }}"
-          APP="${{ steps.parse.outputs.app_name }}"
+          APP_SLUG="${{ steps.branch.outputs.app_slug }}"
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -277,10 +282,10 @@ jobs:
           git checkout -b "$BRANCH"
 
           if [ "$OP" = "user_modify" ] || [ "$OP" = "admin_create" ]; then
-            mkdir -p "declaration/${APP}"
-            cp ./parsed/app.yaml "declaration/${APP}/${APP}.yaml"
-            git add "declaration/${APP}/${APP}.yaml"
-            git commit -m "feat(entitlement): [${OP}] ${APP} — via Issue #${{ github.event.issue.number }}"
+            mkdir -p "declaration/${APP_SLUG}"
+            cp ./parsed/app.yaml "declaration/${APP_SLUG}/${APP_SLUG}.yaml"
+            git add "declaration/${APP_SLUG}/${APP_SLUG}.yaml"
+            git commit -m "feat(entitlement): [${OP}] ${APP_SLUG} — via Issue #${{ github.event.issue.number }}"
           elif [ "$OP" = "admin_bulk" ] || [ "$OP" = "admin_import" ]; then
             git add declaration/
             git commit -m "feat(entitlement): [${OP}] mise à jour déclarative — via Issue #${{ github.event.issue.number }}"
