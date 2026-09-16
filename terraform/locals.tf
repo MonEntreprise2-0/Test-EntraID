@@ -15,8 +15,8 @@ locals {
 
   # Decouvrir tous les fichiers YAML (exclure les fichiers prefixes par _)
   yaml_files = [
-    for f in fileset("${path.module}/${var.declarations_path}", "*.yaml") :
-    f if !startswith(f, "_")
+    for f in fileset("${path.module}/${var.declarations_path}", "**/*.yaml") :
+    f if !startswith(basename(f), "_")
   ]
 
   # Parser chaque YAML en une map indexee par nom d'application
@@ -246,7 +246,7 @@ locals {
             }
           ],
           # Schema v2
-          contains(keys(ap), "owner_only") ? [
+          contains(keys(ap), "privilege_level") ? [
             {
               key = "${app_name}|${try(
                 ap.display_name,
@@ -261,15 +261,14 @@ locals {
                 ap.display_name,
                 trimspace("${try(ap.context_subapp, "")} ${ap.privilege_level} - ${ap.env}")
               )}"
-              owner_only           = ap.owner_only
               authorization_owners = try(ap.authorization_owners, [])
               assignment           = { type = "expiring", duration_in_days = 365 }
               requestor = {
-                scope_type = ap.owner_only ? "none" : "all_members"
+                scope_type = "all_members"
                 groups     = []
               }
               approval = {
-                required = !ap.owner_only
+                required = true
                 stages   = []
               }
               review = { enabled = false }

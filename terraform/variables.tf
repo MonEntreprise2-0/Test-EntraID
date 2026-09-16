@@ -20,6 +20,6 @@ variable "use_oidc" {
 
 variable "declarations_path" {
   type        = string
-  default     = "../declarations/apps"
+  default     = "../declaration"
   description = "Chemin relatif vers le dossier contenant les fichiers YAML declaratifs."
 }

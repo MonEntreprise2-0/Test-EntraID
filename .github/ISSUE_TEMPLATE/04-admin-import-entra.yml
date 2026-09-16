@@ -1,0 +1,49 @@
+name: "🔄 [ADMIN ONLY] Import depuis Entra ID (Reverse Engineering)"
+description: "Aspirer des applications existantes dans Entra ID et générer leurs fichiers déclaratifs (Réservé aux Administrateurs)"
+title: "[Import Entra ID] Import d'applications existantes"
+labels:
+  - "entitlement-request"
+  - "admin-reverse-engineering"
+body:
+
+  - type: markdown
+    attributes:
+      value: |
+        ## 🔄 Import Déclaratif depuis Microsoft Entra ID (Reverse Engineering)
+
+        > ⛔ **RESTRICTION DE SÉCURITÉ ADMIN :**
+        > Ce formulaire est **strictement réservé aux administrateurs IAM**.
+        >
+        > Ce scénario permet d'exporter l'état réel des catalogues Entra ID vers le référentiel Git.
+        > Le système créera l'arborescence normalisée `declaration/<nomapplication>/<nomapplication>.yaml`.
+        >
+        > ⚠️ **Règle d'écrasement (*Overwrite*) :**
+        > Si certaines des applications saisies sont déjà présentes dans GitHub, leurs fichiers existants seront **automatiquement écrasés** par l'état réel extrait d'Entra ID.
+
+  - type: textarea
+    id: target_applications
+    attributes:
+      label: "Noms exacts des applications à importer"
+      description: "Saisissez les noms des catalogues Entra ID séparés par des virgules (insensible à la casse). Exemple : Cat_Test01, Salesforce CRM, Icredit"
+      placeholder: "appli1, appli2, appli3..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: justification
+    attributes:
+      label: "Justification de l'import"
+      description: "Précisez la raison de cet import (rattrapage T0, synchronisation après modification manuelle, audit)."
+      placeholder: "Alignement initial T0 des applications historiques..."
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: "Checklist de vérification"
+      options:
+        - label: "Je confirme être administrateur IAM habilité"
+          required: true
+        - label: "J'accepte l'écrasement des fichiers YAML existants pour ces applications"
+          required: true

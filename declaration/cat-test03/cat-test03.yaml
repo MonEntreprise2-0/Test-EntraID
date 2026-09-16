@@ -10,7 +10,6 @@ access_packages:
     description: "Access Package AP_Test03 gere dans Cat_Test01"
     authorization_owners:
       - "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
-    owner_only: false
 
     resources:
       - resource_type: "EntraID Group"

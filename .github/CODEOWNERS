@@ -1,0 +1,17 @@
+# ============================================================================
+# POLITIQUE DE GOUVERNANCE — CODEOWNERS
+# ============================================================================
+# Ce fichier définit les équipes GitHub propriétaires de chaque répertoire.
+# Toute modification d'un répertoire requiert obligatoirement l'approbation
+# d'un membre de l'équipe associée avant merge.
+# ============================================================================
+
+# Règle globale par défaut (Administrateurs de l'Organisation)
+* @MonEntreprise2-0/admins
+
+# ----------------------------------------------------------------------------
+# Propriétaires par Application (Mise à jour automatique par le Scénario B)
+# ----------------------------------------------------------------------------
+/declaration/catalogue-test-v1/ @MonEntreprise2-0/admins
+/declaration/catalogue-test-v2/ @MonEntreprise2-0/admins
+/declaration/cat-test03/ @MonEntreprise2-0/admins

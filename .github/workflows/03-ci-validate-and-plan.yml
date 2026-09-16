@@ -1,14 +1,19 @@
 # ============================================================================
-# Workflow : CI - Validation Schema & Terraform Plan
+# Workflow : CI — Pipeline de Validation à 3 Étapes
 # ============================================================================
-name: "🔍 CI — Validation & Terraform Plan"
+# Étape 1 : Syntaxe et conformité (JSON Schema, nommage 1 app = 1 dossier)
+# Étape 2 : Détection des ressources Entra ID (Bloquant strict, relance via Re-run)
+# Étape 3 : Validation Humaine (Approbation Admin requise)
+# ============================================================================
+name: "🔍 CI — Pipeline de Validation à 3 Étapes"
 
 on:
   pull_request:
     branches: [main]
     paths:
-      - 'declarations/apps/**'
+      - 'declaration/**'
       - 'terraform/**'
+      - 'schemas/**'
 
 permissions:
   contents: read
@@ -23,8 +28,11 @@ env:
 
 jobs:
 
+  # ===========================================================================
+  # ÉTAPE 1 : Syntaxe et Conformité
+  # ===========================================================================
   validate-schema:
-    name: "\U0001F4CB Validation Schema"
+    name: "📋 Étape 1 : Syntaxe & Conformité"
     runs-on: ubuntu-latest
     steps:
 
@@ -41,17 +49,17 @@ jobs:
       - name: Install dependencies
         run: pip install pyyaml jsonschema
 
-      - name: Detect changed YAML files
+      - name: Détecter les fichiers YAML modifiés
         id: changed
         run: |
-          CHANGED_FILES=$(git diff --name-only --diff-filter=ACMR origin/main...HEAD -- 'declarations/apps/*.yaml' | grep -v '^declarations/apps/_' || true)
+          CHANGED_FILES=$(git diff --name-only --diff-filter=ACMR origin/main...HEAD -- 'declaration/**/*.yaml' | grep -v 'declaration/_' || true)
 
           if [ -z "$CHANGED_FILES" ]; then
-            echo "No YAML files changed."
+            echo "Aucun fichier déclaratif modifié."
             echo "files=" >> $GITHUB_OUTPUT
             echo "count=0" >> $GITHUB_OUTPUT
           else
-            echo "Changed YAML files:"
+            echo "Fichiers déclaratifs modifiés :"
             echo "$CHANGED_FILES"
             EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
             echo "files<<$EOF" >> $GITHUB_OUTPUT
@@ -60,14 +68,14 @@ jobs:
             echo "count=$(echo \"$CHANGED_FILES\" | wc -l)" >> $GITHUB_OUTPUT
           fi
 
-      - name: Validate each YAML file
+      - name: Valider chaque fichier contre le Schéma et le Nommage
         if: steps.changed.outputs.count != '0'
         run: |
           ERRORS=0
 
           while IFS= read -r file; do
             echo "================================================"
-            echo "Validating: $file"
+            echo "Validation en cours : $file"
             echo "================================================"
 
             python .github/scripts/validate-schema.py \
@@ -78,14 +86,17 @@ jobs:
           done <<< "${{ steps.changed.outputs.files }}"
 
           if [ $ERRORS -gt 0 ]; then
-            echo "$ERRORS file(s) failed validation."
+            echo "❌ $ERRORS fichier(s) en échec de validation de schéma ou de nommage."
             exit 1
           fi
 
-          echo "All YAML files are valid."
+          echo "✅ Tous les fichiers déclaratifs sont conformes."
 
-  terraform-plan:
-    name: "\U0001F3D7\uFE0F Terraform Plan"
+  # ===========================================================================
+  # ÉTAPE 2 : Détection des Ressources Entra ID & Plan SSoT (Bloquant)
+  # ===========================================================================
+  detect-resources-and-plan:
+    name: "🔎 Étape 2 : Détection des Ressources Entra ID"
     runs-on: ubuntu-latest
     needs: validate-schema
     steps:
@@ -118,20 +129,19 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           terraform init
-          # Nettoyage automatique des ressources orphelines pouvant renvoyer 403 suite a la suppression de leur catalogue parent
           terraform state rm 'azuread_access_package_assignment_policy.this["cat-test03|AP_Test03|Politique de test"]' 2>/dev/null || true
 
-      - name: 🔎 Smart Discovery des catalogues Entra ID
+      - name: Smart Discovery des catalogues Entra ID
         run: |
           python .github/scripts/discover-catalogs.py \
-            --declarations-dir declarations/apps \
+            --declarations-dir declaration \
             --output-file terraform/discovered_catalogs.json
 
       - name: Terraform Validate
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform validate
 
-      - name: Terraform Plan
+      - name: Terraform Plan (Contrôle SSoT et détection des ressources)
         id: plan
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
@@ -146,12 +156,12 @@ jobs:
           echo "exit_code=$PLAN_EXIT_CODE" >> $GITHUB_OUTPUT
 
           if [ $PLAN_EXIT_CODE -eq 1 ]; then
-            echo "Terraform plan failed."
+            echo "Terraform plan a échoué (ressources manquantes ou erreur de syntaxe)."
             exit 1
           fi
         continue-on-error: true
 
-      - name: Generate human-readable summary
+      - name: Synthèse et publication du résultat sur la PR
         id: summary
         if: always()
         working-directory: ${{ env.TF_WORKING_DIR }}
@@ -159,15 +169,13 @@ jobs:
           PLAN_FILE="plan_output.txt"
           SUMMARY_FILE="plan_summary.md"
 
-          echo "## 📋 Résumé des changements prévus dans Entra ID" > $SUMMARY_FILE
+          echo "## 📋 Synthèse du Contrôle des Ressources Entra ID" > $SUMMARY_FILE
           echo "" >> $SUMMARY_FILE
 
-          # Afficher la découverte automatique des catalogues
           if [ -f "discovered_summary.md" ]; then
             cat discovered_summary.md >> $SUMMARY_FILE
           fi
 
-          # Extraire les créations
           CREATES=$(grep -c '# .* will be created' $PLAN_FILE 2>/dev/null || echo "0")
           UPDATES=$(grep -c '# .* will be updated' $PLAN_FILE 2>/dev/null || echo "0")
           DESTROYS=$(grep -c '# .* will be destroyed' $PLAN_FILE 2>/dev/null || echo "0")
@@ -182,82 +190,24 @@ jobs:
           echo "| 🔄 Remplacements | $REPLACES |" >> $SUMMARY_FILE
           echo "" >> $SUMMARY_FILE
 
-          # Détail des créations
-          if [ "$CREATES" -gt 0 ]; then
-            echo "### 🆕 Assets qui seront créés si vous confirmez le merge :" >> $SUMMARY_FILE
-            echo "" >> $SUMMARY_FILE
-            grep '# .* will be created' $PLAN_FILE | while read -r line; do
-              RESOURCE=$(echo "$line" | sed 's/.*# //' | sed 's/ will be created//')
-              # Extraire le type lisible
-              TYPE=$(echo "$RESOURCE" | sed 's/\..*//' | sed 's/azuread_//')
-              KEY=$(echo "$RESOURCE" | grep -oP '\["[^"]*"\]' | tr -d '[]"' || echo "")
-              case "$TYPE" in
-                access_package_catalog) ICON="📦"; LABEL="Catalogue" ;;
-                access_package) ICON="🎫"; LABEL="Access Package" ;;
-                access_package_assignment_policy) ICON="📜"; LABEL="Politique d'assignation" ;;
-                access_package_resource_catalog_association) ICON="🔗"; LABEL="Association ressource → catalogue" ;;
-                access_package_resource_package_association) ICON="🔗"; LABEL="Association ressource → package" ;;
-                *) ICON="📌"; LABEL="$TYPE" ;;
-              esac
-              echo "- $ICON **$LABEL** : \`$KEY\`" >> $SUMMARY_FILE
-            done
-            echo "" >> $SUMMARY_FILE
-          fi
-
-          # Détail des modifications
-          if [ "$UPDATES" -gt 0 ]; then
-            echo "### ✏️ Assets qui seront modifiés si vous confirmez le merge :" >> $SUMMARY_FILE
-            echo "" >> $SUMMARY_FILE
-            grep '# .* will be updated' $PLAN_FILE | while read -r line; do
-              RESOURCE=$(echo "$line" | sed 's/.*# //' | sed 's/ will be updated in-place//')
-              TYPE=$(echo "$RESOURCE" | sed 's/\..*//' | sed 's/azuread_//')
-              KEY=$(echo "$RESOURCE" | grep -oP '\["[^"]*"\]' | tr -d '[]"' || echo "")
-              echo "- ✏️ **$TYPE** : \`$KEY\`" >> $SUMMARY_FILE
-            done
-            echo "" >> $SUMMARY_FILE
-          fi
-
-          # Détail des suppressions
-          if [ "$DESTROYS" -gt 0 ]; then
-            echo "### 🗑️ Assets qui seront supprimés si vous confirmez le merge :" >> $SUMMARY_FILE
-            echo "" >> $SUMMARY_FILE
-            grep '# .* will be destroyed' $PLAN_FILE | while read -r line; do
-              RESOURCE=$(echo "$line" | sed 's/.*# //' | sed 's/ will be destroyed//')
-              TYPE=$(echo "$RESOURCE" | sed 's/\..*//' | sed 's/azuread_//')
-              KEY=$(echo "$RESOURCE" | grep -oP '\["[^"]*"\]' | tr -d '[]"' || echo "")
-              echo "- 🗑️ **$TYPE** : \`$KEY\`" >> $SUMMARY_FILE
-            done
-            echo "" >> $SUMMARY_FILE
-          fi
-
           if [ "$NOCHANGE" -gt 0 ] && [ "$CREATES" -eq 0 ] && [ "$UPDATES" -eq 0 ] && [ "$DESTROYS" -eq 0 ]; then
-            echo "✅ **Aucun changement détecté** — l'infrastructure Entra ID est déjà à jour." >> $SUMMARY_FILE
+            echo "✅ **Aucun changement détecté** — l'annuaire Entra ID est déjà aligné." >> $SUMMARY_FILE
           fi
 
-          cat $SUMMARY_FILE
-
-          # Store for PR comment
-          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
-          echo "content<<$EOF" >> $GITHUB_OUTPUT
-          cat $SUMMARY_FILE >> $GITHUB_OUTPUT
-          echo "$EOF" >> $GITHUB_OUTPUT
-
-      - name: Post Plan result as PR comment
+      - name: Publier le commentaire d'impact sur la PR
         if: always()
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
 
-            // Read plan output
             let planOutput = '';
             try {
               planOutput = fs.readFileSync('${{ env.TF_WORKING_DIR }}/plan_output.txt', 'utf8');
             } catch (e) {
-              planOutput = 'Plan output not available.';
+              planOutput = 'Sortie du plan indisponible.';
             }
 
-            // Read summary
             let summaryContent = '';
             try {
               summaryContent = fs.readFileSync('${{ env.TF_WORKING_DIR }}/plan_summary.md', 'utf8');
@@ -266,92 +216,95 @@ jobs:
             }
 
             const exitCode = '${{ steps.plan.outputs.exit_code }}';
-            const hasChanges = summaryContent.includes('🆕') || summaryContent.includes('✏️') || summaryContent.includes('🗑️');
-
             let status, emoji;
-            if (exitCode === '1') {
-              status = 'Erreur lors du plan';
-              emoji = '❌';
-            } else if (hasChanges) {
-              status = 'Changements détectés (prêts pour validation)';
-              emoji = '📋';
-            } else {
-              status = 'Aucun changement détecté';
-              emoji = '✅';
-            }
-
-            const maxLen = 50000;
-            const truncated = planOutput.length > maxLen
-              ? planOutput.substring(0, maxLen) + '\n\n... (sortie tronquée)'
-              : planOutput;
 
             let footerBlock = [];
             if (exitCode === '1') {
+              status = 'Échec du contrôle SSoT — Ressources manquantes dans Entra ID';
+              emoji = '❌';
+
               const missingApps = [];
               const appMatches = planOutput.matchAll(/No service principals found matching filter: "displayName eq '([^']+)'"/g);
-              for (const m of appMatches) {
-                missingApps.push(m[1]);
-              }
+              for (const m of appMatches) { missingApps.push(m[1]); }
+
               const missingGroups = [];
               const grpMatches = planOutput.matchAll(/No group found with display_name "([^"]+)"/g);
-              for (const m of grpMatches) {
-                missingGroups.push(m[1]);
-              }
+              for (const m of grpMatches) { missingGroups.push(m[1]); }
 
               footerBlock = [
                 '> [!CAUTION]',
-                '> ### 🚫 Assets bloquants à créer avant de lancer le merge :',
-                '> **Certaines ressources ou rôles applicatifs déclarés dans votre fichier YAML n\'existent pas encore dans Entra ID.**',
+                '> ### 🚫 Ressources bloquantes à créer dans Entra ID :',
+                '> **Certaines ressources (groupes, rôles applicatifs ou applications) déclarées dans votre fichier YAML n\'existent pas dans Microsoft Entra ID.**',
                 '>',
-                '> ⚠️ **Action requise :** Il faut **demander à votre administrateur la création de ces assets** car les ressources / app roles ne sont pas créés via ce workflow et ce sont des assets bloquants (c\'est-à-dire que s\'ils ne sont pas présents, cette action ne peut pas réussir).',
+                '> 💡 **Procédure de déblocage (Sans recréer d\'Issue) :**',
+                '> 1. Créez les ressources manquantes directement dans le portail Microsoft Entra ID.',
+                '> 2. Cliquez sur le bouton **"Re-run jobs"** de cette Pull Request pour relancer immédiatement la vérification.',
               ];
 
               if (missingApps.length > 0 || missingGroups.length > 0) {
                 footerBlock.push('>');
-                footerBlock.push('> **Détail des assets à créer avant de relancer :**');
-                for (const app of missingApps) {
-                  footerBlock.push(`> - 📱 Application / Rôle applicatif à créer : \`${app}\``);
-                }
-                for (const grp of missingGroups) {
-                  footerBlock.push(`> - 👥 Groupe Entra ID à créer : \`${grp}\``);
-                }
+                footerBlock.push('> **Détail des ressources manquantes détectées :**');
+                for (const a of missingApps) { footerBlock.push(`> - 📱 Application / Rôle applicatif manquant : \`${a}\``); }
+                for (const g of missingGroups) { footerBlock.push(`> - 👥 Groupe Entra ID manquant : \`${g}\``); }
               }
             } else {
+              status = 'Ressources validées — Plan prêt pour approbation';
+              emoji = '✅';
               footerBlock = [
                 '> [!NOTE]',
-                '> ### ℹ️ Assets qui seront créés si vous confirmez le merge :',
-                '> Ce plan sera appliqué automatiquement après le merge sur `main`.',
-                '> **Vérifiez attentivement la liste des assets ci-dessus avant de confirmer le merge.**',
+                '> ### ℹ️ Étape suivante : Validation Humaine',
+                '> Toutes les ressources cibles existent dans Entra ID. Un administrateur habilité doit examiner ce plan et apposer son approbation (**Approve**) avant de procéder au merge.'
               ];
             }
 
+            const maxLen = 40000;
+            const truncated = planOutput.length > maxLen
+              ? planOutput.substring(0, maxLen) + '\n\n... (plan tronqué)'
+              : planOutput;
+
             const body = [
-              `## ${emoji} Terraform Plan — ${status}`,
+              `## ${emoji} Étape 2 : Contrôle des Ressources — ${status}`,
               '',
               summaryContent,
               '',
               '---',
               '',
               '<details>',
-              '<summary>🔍 Afficher le plan Terraform complet</summary>',
+              '<summary>🔍 Afficher le détail technique du plan Terraform</summary>',
               '',
               '```hcl',
               truncated,
               '```',
               '</details>',
               '',
-              footerBlock.join('\n'),
+              footerBlock.join('\n')
             ].join('\n');
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.payload.pull_request.number,
-              body: body,
+              body: body
             });
 
-      - name: Fail if plan errored
+      - name: Bloquer la CI en cas de ressource manquante
         if: steps.plan.outputs.exit_code == '1'
         run: |
-          echo "Terraform plan failed. See PR comment for details."
+          echo "❌ Échec bloquant : des ressources manquent dans Entra ID."
+          echo "👉 Veuillez créer la ressource dans Entra ID puis cliquer sur 'Re-run jobs'."
           exit 1
+
+  # ===========================================================================
+  # ÉTAPE 3 : Validation Humaine (Approbation Admin Requise)
+  # ===========================================================================
+  human-approval:
+    name: "🛡️ Étape 3 : Validation Humaine (Approbation)"
+    runs-on: ubuntu-latest
+    needs: [validate-schema, detect-resources-and-plan]
+    steps:
+      - name: Contrôle du sas d'approbation
+        uses: actions/github-script@v7
+        with:
+          script: |
+            console.log('✅ Étapes 1 et 2 validées avec succès.');
+            console.log('Attente de la validation humaine (Approve sur la Pull Request) par un administrateur habilité avant merge.');

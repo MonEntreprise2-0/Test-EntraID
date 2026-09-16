@@ -95,25 +95,26 @@ def get_entraid_groups() -> list:
 
 
 def load_yaml_declarations(declarations_dir: str) -> dict:
-    """Charge toutes les declarations d'applications YAML (v1 et v2)."""
+    """Charge toutes les declarations d'applications YAML (support arborescence recursive 1 dossier par app)."""
     apps = {}
     if not os.path.isdir(declarations_dir):
         return apps
 
-    for fname in os.listdir(declarations_dir):
-        if fname.endswith(".yaml") or fname.endswith(".yml"):
-            if fname.startswith("_"):
-                continue
-            fpath = os.path.join(declarations_dir, fname)
-            try:
-                with open(fpath, "r", encoding="utf-8") as f:
-                    content = yaml.safe_load(f)
-                    if content and isinstance(content, dict):
-                        app_name = content.get("app_name") or content.get("application_name")
-                        if app_name:
-                            apps[app_name] = content
-            except Exception as e:
-                print(f"⚠️ Erreur de lecture de {fname} : {e}", file=sys.stderr)
+    for root, dirs, files in os.walk(declarations_dir):
+        # Ignorer les repertoires d'exemples (commencant par _)
+        dirs[:] = [d for d in dirs if not d.startswith("_")]
+        for fname in files:
+            if (fname.endswith(".yaml") or fname.endswith(".yml")) and not fname.startswith("_"):
+                fpath = os.path.join(root, fname)
+                try:
+                    with open(fpath, "r", encoding="utf-8") as f:
+                        content = yaml.safe_load(f)
+                        if content and isinstance(content, dict):
+                            app_name = content.get("app_name") or content.get("application_name")
+                            if app_name:
+                                apps[app_name] = content
+                except Exception as e:
+                    print(f"⚠️ Erreur de lecture de {fname} : {e}", file=sys.stderr)
 
     return apps
 

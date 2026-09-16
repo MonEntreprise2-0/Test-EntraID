@@ -1,0 +1,62 @@
+name: "✏️ [Utilisateur] Modification d'une application existante"
+description: "Créer, modifier ou supprimer des Access Packages dans une application existante"
+title: "[Modification] <nom-application>"
+labels:
+  - "entitlement-request"
+  - "user-modification"
+body:
+
+  - type: markdown
+    attributes:
+      value: |
+        ## ✏️ Modification d'une application existante (Entitlement Management)
+
+        Ce formulaire vous permet de mettre à jour les Access Packages, rôles et politiques d'accès d'une application déjà existante dans Entra ID.
+
+        > 📘 **Tutoriel & Guide de rédaction :**
+        > Déposez ci-dessous le fichier YAML complet de votre application. Le système se chargera de synchroniser Entra ID avec votre fichier.
+        > Si vous avez besoin d'aide, vous trouverez le tutoriel détaillé et le modèle de fichier YAML de référence dans :
+        > - 📁 Modèle documenté : [`declaration/_example/_example.yaml`](../blob/main/declaration/_example/_example.yaml)
+        > - 📖 Guide opérationnel : [`docs/OPERATIONAL_GUIDE.md`](../blob/main/docs/OPERATIONAL_GUIDE.md)
+        >
+        > ⚠️ **NB : L'application doit impérativement être existante dans le référentiel.**
+        > Pour une création de nouvelle application, veuillez contacter un administrateur IAM.
+
+  - type: input
+    id: app_name
+    attributes:
+      label: "Nom de l'application"
+      description: "Identifiant unique de l'application en minuscules (kebab-case). L'application doit déjà exister dans `declaration/<nomapplication>/`."
+      placeholder: "ex: catalogue-test-v1"
+    validations:
+      required: true
+
+  - type: textarea
+    id: yaml_file
+    attributes:
+      label: "Fichier YAML déclaratif (Glisser-déposer ou coller)"
+      description: "Glissez-déposez votre fichier `.yaml` directement dans cette zone, ou collez son contenu intégral."
+      placeholder: "Glissez et déposez votre fichier .yaml ici..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: justification
+    attributes:
+      label: "Justification métier"
+      description: "Expliquez la raison de cette modification (onboarding équipe, ajustement de droits, etc.)."
+      placeholder: "Mise à jour des approbateurs et ajout d'un rôle..."
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: "Checklist de vérification"
+      options:
+        - label: "L'application existe déjà dans le référentiel (`declaration/<app_name>/`)"
+          required: true
+        - label: "Le champ `app_name` dans le YAML correspond exactement au nom du fichier et du dossier"
+          required: true
+        - label: "Les groupes et applications cibles pré-existent dans Entra ID (Mode Consommateur)"
+          required: true

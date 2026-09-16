@@ -1,0 +1,70 @@
+name: "🆕 [ADMIN ONLY] Création d'une application"
+description: "Déclarer une toute nouvelle application et assigner une Team GitHub Owner (Réservé aux Administrateurs)"
+title: "[Création Admin] <nom-application>"
+labels:
+  - "entitlement-request"
+  - "admin-creation"
+body:
+
+  - type: markdown
+    attributes:
+      value: |
+        ## 🆕 Déclaration d'une nouvelle application (Réservé Administrateurs IAM)
+
+        > ⛔ **RESTRICTION DE SÉCURITÉ :**
+        > Ce formulaire est **strictement réservé aux administrateurs**. Si vous êtes un utilisateur standard, cette demande sera automatiquement clôturée.
+
+        Ce formulaire permet d'enregistrer une nouvelle application dans le référentiel GitOps, de créer son dossier `declaration/<nomapplication>/<nomapplication>.yaml`, et d'assigner automatiquement la **Team GitHub Owner** dans le fichier `CODEOWNERS` dès la fusion de la Pull Request.
+
+        ### 👥 Mini-tutoriel : Comment trouver le nom de votre Team GitHub ?
+        1. Rendez-vous sur l'onglet **Teams** de l'organisation : [`https://github.com/orgs/MonEntreprise2-0/teams`](https://github.com/orgs/MonEntreprise2-0/teams).
+        2. Repérez le nom (ou slug) de l'équipe responsable (ex: `team-salesforce`, `cloud-iam-team`, `data-owners`).
+        3. Copiez ce nom exact dans le champ ci-dessous. Le workflow vérifiera automatiquement son existence dans GitHub.
+
+  - type: input
+    id: app_name
+    attributes:
+      label: "Nom de l'application"
+      description: "Identifiant unique en kebab-case minuscules (ex: salesforce-crm, sap-s4hana). L'application NE doit PAS déjà exister."
+      placeholder: "ex: nouvelle-application"
+    validations:
+      required: true
+
+  - type: input
+    id: github_team
+    attributes:
+      label: "Nom de la Team GitHub (Owner)"
+      description: "Nom exact ou slug de l'équipe GitHub de l'organisation MonEntreprise2-0 qui sera déclarée propriétaire dans CODEOWNERS."
+      placeholder: "ex: team-salesforce"
+    validations:
+      required: true
+
+  - type: textarea
+    id: yaml_file
+    attributes:
+      label: "Fichier YAML déclaratif (Glisser-déposer ou coller)"
+      description: "Glissez-déposez le fichier `.yaml` de la nouvelle application ou collez son contenu."
+      placeholder: "Glissez et déposez votre fichier .yaml ici..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: justification
+    attributes:
+      label: "Justification administrative"
+      description: "Contexte d'onboarding de cette nouvelle application."
+      placeholder: "Initialisation des accès pour le nouveau projet..."
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: "Checklist de vérification Admin"
+      options:
+        - label: "Je confirme être membre de l'équipe d'administration IAM"
+          required: true
+        - label: "L'équipe GitHub renseignée existe bien dans l'organisation MonEntreprise2-0"
+          required: true
+        - label: "Le fichier respecte le schéma contractuel (aucun champ owner_only)"
+          required: true

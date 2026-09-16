@@ -1,0 +1,48 @@
+# ============================================================================
+# APPLICATION : Catalogue-test-v2
+# ============================================================================
+# Fichier généré à partir de la matrice Ardian.
+# 1 fichier = 1 Application = 1 Catalogue Entitlement Management.
+# Emplacement : declaration/catalogue-test-v2/catalogue-test-v2.yaml
+# ============================================================================
+
+app_name: "catalogue-test-v2"
+app_description: "Description de mon test avec la nouvelle nomenclature"
+
+access_packages:
+
+  # ==========================================================================
+  # AP 1 : "SubApp Read Only - Dev"
+  # ==========================================================================
+  # Nom construit : [SubApp] [Read Only] - [Dev]
+  # ==========================================================================
+
+  - context_subapp: "SubApp"
+    privilege_level: "Read Only"
+    env: "Dev"
+    description: "SubApp Read Only Dev"
+    authorization_owners:
+      - "marcell@monentreprise123.onmicrosoft.com"
+      - "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
+
+    resources:
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test01"
+
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test02"
+
+  - context_subapp: "SubApp"
+    privilege_level: "Admin"
+    env: "Dev"
+    description: "SubApp Admin Dev"
+    authorization_owners:
+      - "marcell@monentreprise123.onmicrosoft.com"
+      - "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
+
+    resources:
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test01"
+
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test02"

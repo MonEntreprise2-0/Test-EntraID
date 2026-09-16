@@ -36,33 +36,34 @@ ardian-entitlement-mgmt/
 ├── .github/                                  # ⚙️ GOUVERNANCE, FORMULAIRES & AUTOMATISATION CI/CD
 │   ├── CODEOWNERS                            # Sécurité : Matrice des approbateurs obligatoires par périmètre
 │   │
-│   ├── ISSUE_TEMPLATE/                       # 📋 Formulaires GitHub (Points d'entrée utilisateurs & admins)
-│   │   ├── 01-entitlement-request.yml        # Omni-Form : Formulaire unique utilisateur (Création / Modif / Décommissionnement)
-│   │   └── 02-admin-bulk-import.yml          # [ADMIN ONLY] Formulaire de dépôt d'archive ZIP pour modification de masse
+│   ├── ISSUE_TEMPLATE/                       # 📋 Formulaires GitHub (Points d'entrée déclaratifs)
+│   │   ├── 01-user-modify-app.yml            # Scénario A (User)  : Modification d'une application existante
+│   │   ├── 02-admin-create-app.yml           # Scénario B (Admin) : Création d'application + Team GitHub Owner
+│   │   ├── 03-admin-bulk-modify.yml          # Scénario C (Admin) : Modification de masse (Import ZIP)
+│   │   └── 04-admin-import-entra.yml         # Scénario D (Admin) : Import depuis Entra ID (Reverse Engineering)
 │   │
 │   ├── workflows/                            # 🚀 Orchestration des pipelines GitHub Actions
-│   │   ├── 01-issue-to-pr.yml                # Ingestion : Transforme l'Issue utilisateur en branche et PR unitaire
-│   │   ├── 02-download-yaml.yml              # Libre-service : Télécharge le YAML actuel d'une application pour édition
-│   │   ├── 03-ci-validate-and-plan.yml       # Intégration Continue : Validation schéma, Smart Discovery & Plan consolidé
-│   │   ├── 04-cd-apply.yml                   # Déploiement Continu : Application dans Entra ID au merge sur main (OIDC)
-│   │   ├── 05-reverse-engineering.yml        # [ADMIN ONLY] Rétro-Ingénierie manuelle : Aspiration d'Entra ID vers YAML
-│   │   └── 06-admin-bulk-zip.yml             # [ADMIN ONLY] Traitement du lot ZIP de masse & ouverture de PR consolidée
+│   │   ├── 01-issue-to-pr.yml                # Ingestion & Routage : Transforme l'Issue en PR selon le scénario (A, B, C, D)
+│   │   ├── 02-download-yaml.yml              # Libre-service : Télécharge le YAML actuel d'une application
+│   │   ├── 03-ci-validate-and-plan.yml       # Intégration Continue : Pipeline à 3 étapes (Syntaxe, SSoT, Approbation)
+│   │   └── 04-cd-apply.yml                   # Déploiement Continu : Application Entra ID & mise à jour CODEOWNERS
 │   │
 │   └── scripts/                              # 🐍 Moteur d'automatisation exécuté dans les runners GitHub Actions
-│       ├── parse-issue-body.py               # Extraction et décodage du YAML soumis dans les formulaires d'Issues
-│       ├── process-bulk-zip.py               # Inspection anti-malware, extraction sécurisée anti-traversée et filtrage .yaml
-│       ├── validate-schema.py                # Contrôle de conformité formelle au contrat JSON Schema v2
-│       ├── discover-catalogs.py              # Smart Discovery : Détection des catalogues préexistants et génération imports.tf
-│       ├── reverse-engineer-entra.py         # Moteur d'aspiration Graph API et conversion déclarative avec règle fail-safe
-│       └── format-pr-comment.py              # Génération du tableau de bord d'impact lisible pour les approbateurs
+│       ├── parse-issue-body.py               # Extraction et routage des 4 formulaires d'Issues
+│       ├── process-bulk-zip.py               # Inspection, extraction anti zip-slip et contrôle de pré-existence
+│       ├── validate-schema.py                # Validation formelle JSON Schema et cohérence nom/répertoire
+│       ├── discover-catalogs.py              # Smart Discovery : Scan récursif et résolution insensible à la casse
+│       └── reverse-engineer-entra.py         # Moteur d'aspiration Graph API et génération déclarative 1 app = 1 dossier
 │
-├── declarations/                             # 📄 RÉFÉRENTIEL DÉCLARATIF (INTENTIONS MÉTIER)
-│   └── apps/                                 # 1 fichier = 1 catalogue applicatif Entra ID
-│       ├── _example.yaml                     # Fichier modèle documenté de référence (ignoré par l'IaC via préfixe _)
-│       ├── catalogue-test-v1.yaml            # Exemple de déclaration d'accès (Catalogue Test 1)
-│       ├── catalogue-test-v2.yaml            # Exemple de déclaration d'accès (Catalogue Test 2)
-│       ├── salesforce-crm.yaml               # Exemple d'application métier en production
-│       └── sap-s4hana.yaml                   # Exemple d'application critique à double niveau de validation
+├── declaration/                              # 📄 RÉFÉRENTIEL DÉCLARATIF (1 DOSSIER = 1 FICHIER YAML)
+│   ├── _example/                             # Dossier modèle de référence documenté
+│   │   └── _example.yaml                     # Fichier modèle documenté (ignoré par Terraform)
+│   ├── catalogue-test-v1/
+│   │   └── catalogue-test-v1.yaml
+│   ├── catalogue-test-v2/
+│   │   └── catalogue-test-v2.yaml
+│   └── cat-test03/
+│       └── cat-test03.yaml
 │
 ├── schemas/                                  # 🛡️ CONTRATS D'INTERFACE & VALIDATION SYNTAXIQUE
 │   └── app-declaration.schema.json           # Contrat formel JSON Schema (Draft-07) pour les fichiers YAML v2

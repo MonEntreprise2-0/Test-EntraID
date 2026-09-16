@@ -1,5 +1,5 @@
 # ============================================================================
-# Workflow : Telecharger un YAML existant (Cas 2 - Modification)
+# Workflow : Télécharger un YAML existant (Libre-service)
 # ============================================================================
 name: "📥 Télécharger un YAML existant"
 
@@ -35,16 +35,17 @@ jobs:
 
           # --- CAS 1 : Aucun nom fourni → lister les applications ---
           if [ -z "$APP_NAME" ]; then
-            echo "## 📋 Applications disponibles" >> $GITHUB_STEP_SUMMARY
+            echo "## 📋 Applications disponibles dans \`declaration/\`" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
 
             found=false
-            for file in declarations/apps/*.yaml; do
-              basename=$(basename "$file" .yaml)
+            for dir in declaration/*/; do
+              basename=$(basename "$dir")
               if [[ "$basename" == _* ]]; then continue; fi
-              if [ -f "$file" ]; then
+              yaml_file="${dir}${basename}.yaml"
+              if [ -f "$yaml_file" ]; then
                 found=true
-                echo "| \`$basename\` | [📄 Voir le fichier](https://github.com/$REPO/blob/$BRANCH/$file) | [📥 Télécharger](https://raw.githubusercontent.com/$REPO/$BRANCH/$file) |" >> /tmp/table.md
+                echo "| \`$basename\` | [📄 Voir le fichier](https://github.com/$REPO/blob/$BRANCH/$yaml_file) | [📥 Télécharger](https://raw.githubusercontent.com/$REPO/$BRANCH/$yaml_file) |" >> /tmp/table.md
               fi
             done
 
@@ -58,18 +59,17 @@ jobs:
               echo "" >> $GITHUB_STEP_SUMMARY
               echo "1. Cliquez sur **📥 Télécharger** pour récupérer le fichier YAML" >> $GITHUB_STEP_SUMMARY
               echo "2. Modifiez-le localement selon vos besoins" >> $GITHUB_STEP_SUMMARY
-              echo "3. Soumettez-le via **Issues** → **📦 Demande Entitlement Management** en choisissant **✏️ Modification**" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-              echo "Ou relancez ce workflow en saisissant le nom de l'application dans le champ **app_name** pour afficher le contenu directement." >> $GITHUB_STEP_SUMMARY
+              echo "3. Soumettez-le via **Issues** → **✏️ [Utilisateur] Modification d'une application existante**" >> $GITHUB_STEP_SUMMARY
             else
-              echo "⚠️ Aucune application trouvée dans \`declarations/apps/\`." >> $GITHUB_STEP_SUMMARY
+              echo "⚠️ Aucune application trouvée dans \`declaration/\`." >> $GITHUB_STEP_SUMMARY
             fi
 
             exit 0
           fi
 
           # --- CAS 2 : Nom fourni → afficher le contenu + télécharger ---
-          FILE_PATH="declarations/apps/${APP_NAME}.yaml"
+          APP_NAME_LOWER=$(echo "$APP_NAME" | tr '[:upper:]' '[:lower:]')
+          FILE_PATH="declaration/${APP_NAME_LOWER}/${APP_NAME_LOWER}.yaml"
 
           if [ ! -f "$FILE_PATH" ]; then
             echo "## ❌ Application introuvable" >> $GITHUB_STEP_SUMMARY
@@ -77,16 +77,16 @@ jobs:
             echo "Le fichier \`${FILE_PATH}\` n'existe pas." >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### Applications disponibles :" >> $GITHUB_STEP_SUMMARY
-            for file in declarations/apps/*.yaml; do
-              basename=$(basename "$file" .yaml)
-              if [[ "$basename" != _* ]] && [ -f "$file" ]; then
+            for dir in declaration/*/; do
+              basename=$(basename "$dir")
+              if [[ "$basename" != _* ]] && [ -f "${dir}${basename}.yaml" ]; then
                 echo "- \`$basename\`" >> $GITHUB_STEP_SUMMARY
               fi
             done
             exit 1
           fi
 
-          echo "## ✅ Fichier trouvé : \`${APP_NAME}.yaml\`" >> $GITHUB_STEP_SUMMARY
+          echo "## ✅ Fichier trouvé : \`${APP_NAME_LOWER}.yaml\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "📥 **[Télécharger le fichier](https://raw.githubusercontent.com/$REPO/$BRANCH/$FILE_PATH)**" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -99,15 +99,12 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "📝 Pour modifier, téléchargez le fichier, éditez-le, puis soumettez via **Issues** → **📦 Demande Entitlement Management** (type: ✏️ Modification)." >> $GITHUB_STEP_SUMMARY
+          echo "📥 Téléchargez ce fichier, modifiez-le, puis déposez-le dans le formulaire **✏️ [Utilisateur] Modification d'une application existante**." >> $GITHUB_STEP_SUMMARY
 
-          echo "file_path=$FILE_PATH" >> $GITHUB_OUTPUT
-          echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
-
-      - name: Uploader le YAML en artefact
-        if: ${{ github.event.inputs.app_name != '' && success() }}
+      - name: Uploader l'artefact YAML
+        if: success() && github.event.inputs.app_name != ''
         uses: actions/upload-artifact@v4
         with:
-          name: "${{ steps.process.outputs.app_name }}-yaml"
-          path: "${{ steps.process.outputs.file_path }}"
+          name: "${{ github.event.inputs.app_name }}-yaml"
+          path: "declaration/${{ github.event.inputs.app_name }}/${{ github.event.inputs.app_name }}.yaml"
           retention-days: 7

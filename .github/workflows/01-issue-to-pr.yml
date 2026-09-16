@@ -1,5 +1,5 @@
 # ============================================================================
-# Workflow : Issue -> Pull Request (Création, Modification, Suppression)
+# Workflow : Issue -> Pull Request (Routage des 4 Scénarios)
 # ============================================================================
 name: "🔄 Issue → Pull Request"
 
@@ -11,10 +11,11 @@ permissions:
   contents: write
   issues: write
   pull-requests: write
+  id-token: write
 
 jobs:
-  process-issue:
-    name: "📝 Traiter l'Issue"
+  route-and-process-issue:
+    name: "📝 Traiter et Router l'Issue"
     runs-on: ubuntu-latest
     if: contains(github.event.issue.labels.*.name, 'entitlement-request')
 
@@ -24,6 +25,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -33,6 +35,9 @@ jobs:
       - name: Install dependencies
         run: pip install pyyaml
 
+      # -----------------------------------------------------------------------
+      # 1. Parsing du formulaire d'Issue
+      # -----------------------------------------------------------------------
       - name: Parse Issue body
         id: parse
         env:
@@ -42,180 +47,308 @@ jobs:
             --body "$ISSUE_BODY" \
             --output-dir ./parsed
 
-          APP_NAME=$(cat ./parsed/app_name.txt)
           OPERATION=$(cat ./parsed/operation_type.txt)
-
-          echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
           echo "operation=$OPERATION" >> $GITHUB_OUTPUT
 
-      - name: Determine branch name
+          if [ -f ./parsed/app_name.txt ]; then
+            APP_NAME=$(cat ./parsed/app_name.txt)
+            echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
+          fi
+
+          if [ -f ./parsed/github_team.txt ]; then
+            GITHUB_TEAM=$(cat ./parsed/github_team.txt)
+            echo "github_team=$GITHUB_TEAM" >> $GITHUB_OUTPUT
+          fi
+
+          if [ -f ./parsed/zip_url.txt ]; then
+            ZIP_URL=$(cat ./parsed/zip_url.txt)
+            echo "zip_url=$ZIP_URL" >> $GITHUB_OUTPUT
+          fi
+
+          if [ -f ./parsed/target_applications.txt ]; then
+            TARGET_APPS=$(cat ./parsed/target_applications.txt)
+            echo "target_applications=$TARGET_APPS" >> $GITHUB_OUTPUT
+          fi
+
+      # -----------------------------------------------------------------------
+      # 2. Contrôle d'Accès RBAC pour les scénarios réservés aux Admins
+      # -----------------------------------------------------------------------
+      - name: Vérifier les privilèges d'administration
+        id: rbac
+        if: steps.parse.outputs.operation != 'user_modify'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const author = context.payload.issue.user.login;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            let isAdmin = false;
+            try {
+              const perm = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: owner,
+                repo: repo,
+                username: author,
+              });
+              const level = perm.data.permission;
+              isAdmin = (level === 'admin' || level === 'write');
+            } catch (e) {
+              console.log('Erreur permission repo:', e.message);
+            }
+
+            if (!isAdmin) {
+              await github.rest.issues.createComment({
+                owner: owner,
+                repo: repo,
+                issue_number: context.payload.issue.number,
+                body: `⛔ **Accès refusé** : L'utilisateur @${author} n'est pas autorisé à exécuter ce scénario réservé aux administrateurs.\n\nL'Issue est automatiquement clôturée.`
+              });
+              await github.rest.issues.update({
+                owner: owner,
+                repo: repo,
+                issue_number: context.payload.issue.number,
+                state: 'closed'
+              });
+              core.setFailed(`Utilisateur non-admin : ${author}`);
+            }
+
+      # -----------------------------------------------------------------------
+      # 3. Traitement Scénario A : Modification d'application existante (User)
+      # -----------------------------------------------------------------------
+      - name: "[Scénario A] Valider existence préalable de l'application"
+        if: steps.parse.outputs.operation == 'user_modify'
+        uses: actions/github-script@v7
+        env:
+          APP_NAME: ${{ steps.parse.outputs.app_name }}
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const appName = process.env.APP_NAME.toLowerCase();
+            const appDir = path.join('declaration', appName);
+
+            if (!fs.existsSync(appDir)) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                body: `❌ **Erreur bloquante** : L'application \`${appName}\` n'existe pas dans \`declaration/\`.\n\nLe formulaire utilisateur est strictement réservé à la **modification d'applications existantes**.\nPour créer une nouvelle application, veuillez contacter un administrateur IAM.`
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                state: 'closed'
+              });
+              core.setFailed(`L'application ${appName} n'existe pas.`);
+            }
+
+      # -----------------------------------------------------------------------
+      # 4. Traitement Scénario B : Création d'application (Admin)
+      # -----------------------------------------------------------------------
+      - name: "[Scénario B] Valider absence d'application et existence de la Team"
+        id: validate-team
+        if: steps.parse.outputs.operation == 'admin_create'
+        uses: actions/github-script@v7
+        env:
+          APP_NAME: ${{ steps.parse.outputs.app_name }}
+          GITHUB_TEAM: ${{ steps.parse.outputs.github_team }}
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const appName = process.env.APP_NAME.toLowerCase();
+            const teamInput = process.env.GITHUB_TEAM.trim();
+            const owner = context.repo.owner;
+
+            // 1. Vérifier qu'elle n'existe pas encore
+            const appDir = path.join('declaration', appName);
+            if (fs.existsSync(appDir)) {
+              await github.rest.issues.createComment({
+                owner: owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                body: `❌ **Erreur bloquante** : L'application \`${appName}\` existe déjà dans \`declaration/\`.\n\nPour la modifier, veuillez utiliser le formulaire de modification.`
+              });
+              core.setFailed(`L'application ${appName} existe déjà.`);
+              return;
+            }
+
+            // 2. Vérifier l'existence de la Team GitHub dans l'organisation (insensible à la casse)
+            let matchedSlug = null;
+            try {
+              const teamsRes = await github.rest.teams.list({ org: owner, per_page: 100 });
+              const match = teamsRes.data.find(t => 
+                t.slug.toLowerCase() === teamInput.toLowerCase() || 
+                t.name.toLowerCase() === teamInput.toLowerCase()
+              );
+              if (match) {
+                matchedSlug = match.slug;
+              }
+            } catch (e) {
+              console.log('Erreur requête teams:', e.message);
+              // Fallback si token n'a pas accès à la lecture globale d'org : accepter le slug fourni
+              matchedSlug = teamInput.toLowerCase();
+            }
+
+            if (!matchedSlug) {
+              await github.rest.issues.createComment({
+                owner: owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                body: `❌ **Erreur bloquante** : La Team GitHub \`${teamInput}\` est introuvable dans l'organisation \`${owner}\`.\n\nVeuillez vérifier le nom exact de l'équipe sur [Teams ${owner}](https://github.com/orgs/${owner}/teams).`
+              });
+              core.setFailed(`Team ${teamInput} introuvable dans l'organisation.`);
+            } else {
+              core.setOutput('team_slug', matchedSlug);
+            }
+
+      # -----------------------------------------------------------------------
+      # 5. Traitement Scénario C : Décompression du ZIP de masse (Admin)
+      # -----------------------------------------------------------------------
+      - name: "[Scénario C] Télécharger et traiter l'archive ZIP"
+        if: steps.parse.outputs.operation == 'admin_bulk'
+        env:
+          ZIP_URL: ${{ steps.parse.outputs.zip_url }}
+        run: |
+          if [ -z "$ZIP_URL" ]; then
+            echo "❌ Erreur : Aucune URL d'archive ZIP détectée dans l'Issue."
+            exit 1
+          fi
+
+          echo "📥 Téléchargement de l'archive ZIP : $ZIP_URL"
+          curl -sL -H "User-Agent: GitHub-Actions" "$ZIP_URL" -o bulk_update.zip
+
+          python .github/scripts/process-bulk-zip.py \
+            --zip-file bulk_update.zip \
+            --declaration-dir declaration \
+            --output-list ./parsed/modified_apps.txt
+
+      # -----------------------------------------------------------------------
+      # 6. Traitement Scénario D : Aspiration Entra ID (Reverse Engineering)
+      # -----------------------------------------------------------------------
+      - name: "[Scénario D] Azure Login (OIDC) & Extraction Graph API"
+        if: steps.parse.outputs.operation == 'admin_import'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: "[Scénario D] Exécuter le Reverse Engineering"
+        if: steps.parse.outputs.operation == 'admin_import'
+        env:
+          TARGET_APPS: ${{ steps.parse.outputs.target_applications }}
+        run: |
+          python .github/scripts/reverse-engineer-entra.py \
+            --applications "$TARGET_APPS" \
+            --declaration-dir declaration \
+            --output-list ./parsed/imported_apps.txt
+
+      # -----------------------------------------------------------------------
+      # 7. Création de la Branche Git & Commit des fichiers
+      # -----------------------------------------------------------------------
+      - name: Déterminer le nom de branche
         id: branch
         run: |
-          APP_NAME="${{ steps.parse.outputs.app_name }}"
-          OPERATION="${{ steps.parse.outputs.operation }}"
+          OP="${{ steps.parse.outputs.operation }}"
+          APP="${{ steps.parse.outputs.app_name }}"
           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-          BRANCH="entitlement/${OPERATION}-${APP_NAME}-${TIMESTAMP}"
+
+          case "$OP" in
+            user_modify)  BRANCH="entitlement/modify-${APP}-${TIMESTAMP}" ;;
+            admin_create) BRANCH="admin/create-${APP}-${TIMESTAMP}" ;;
+            admin_bulk)   BRANCH="admin/bulk-${TIMESTAMP}" ;;
+            admin_import) BRANCH="admin/import-entra-${TIMESTAMP}" ;;
+            *)            BRANCH="entitlement/change-${TIMESTAMP}" ;;
+          esac
+
           echo "name=$BRANCH" >> $GITHUB_OUTPUT
 
-      - name: Create branch and apply Git changes
+      - name: Appliquer les modifications Git et pusher la branche
         run: |
-          APP_NAME="${{ steps.parse.outputs.app_name }}"
-          OPERATION="${{ steps.parse.outputs.operation }}"
           BRANCH="${{ steps.branch.outputs.name }}"
+          OP="${{ steps.parse.outputs.operation }}"
+          APP="${{ steps.parse.outputs.app_name }}"
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           git checkout -b "$BRANCH"
 
-          if [ "$OPERATION" = "suppression" ]; then
-            TARGET_FILE="declarations/apps/${APP_NAME}.yaml"
-            if [ -f "$TARGET_FILE" ]; then
-              git rm "$TARGET_FILE"
-              git commit -m "feat(entitlement): suppression de ${APP_NAME} — via Issue #${{ github.event.issue.number }}"
-            else
-              echo "⚠️ Fichier ${TARGET_FILE} introuvable pour suppression."
-              exit 1
-            fi
-          else
-            cp ./parsed/app.yaml "declarations/apps/${APP_NAME}.yaml"
-            git add "declarations/apps/${APP_NAME}.yaml"
-            git commit -m "feat(entitlement): ${OPERATION} de ${APP_NAME} — via Issue #${{ github.event.issue.number }}"
+          if [ "$OP" = "user_modify" ] || [ "$OP" = "admin_create" ]; then
+            mkdir -p "declaration/${APP}"
+            cp ./parsed/app.yaml "declaration/${APP}/${APP}.yaml"
+            git add "declaration/${APP}/${APP}.yaml"
+            git commit -m "feat(entitlement): [${OP}] ${APP} — via Issue #${{ github.event.issue.number }}"
+          elif [ "$OP" = "admin_bulk" ] || [ "$OP" = "admin_import" ]; then
+            git add declaration/
+            git commit -m "feat(entitlement): [${OP}] mise à jour déclarative — via Issue #${{ github.event.issue.number }}"
           fi
 
           git push origin "$BRANCH"
 
-      - name: Create Pull Request
+      # -----------------------------------------------------------------------
+      # 8. Ouverture de la Pull Request Consolidée
+      # -----------------------------------------------------------------------
+      - name: Créer la Pull Request
         id: create-pr
         uses: actions/github-script@v7
         env:
-          APP_NAME: ${{ steps.parse.outputs.app_name }}
           OPERATION: ${{ steps.parse.outputs.operation }}
+          APP_NAME: ${{ steps.parse.outputs.app_name }}
+          GITHUB_TEAM: ${{ steps.validate-team.outputs.team_slug }}
           BRANCH: ${{ steps.branch.outputs.name }}
           ISSUE_NUM: ${{ github.event.issue.number }}
         with:
           script: |
-            const appName = process.env.APP_NAME;
-            const operation = process.env.OPERATION;
+            const op = process.env.OPERATION;
+            const app = process.env.APP_NAME || '';
+            const team = process.env.GITHUB_TEAM || '';
             const branch = process.env.BRANCH;
-            const issueNumber = process.env.ISSUE_NUM;
+            const issueNum = process.env.ISSUE_NUM;
 
-            let operationTitle = '';
-            let operationDesc = '';
-            switch (operation) {
-              case 'suppression':
-                operationTitle = '🗑️ Suppression';
-                operationDesc = `⚠️ Cette Pull Request **supprime** le fichier déclaratif de l'application \`${appName}\`.\nLors du merge sur \`main\`, Terraform supprimera automatiquement le catalogue, les Access Packages et les politiques associées dans **Entra ID**.`;
-                break;
-              case 'modification':
-                operationTitle = '✏️ Modification';
-                operationDesc = `Cette Pull Request met à jour la configuration déclarative de l'application \`${appName}\`.`;
-                break;
-              default:
-                operationTitle = '🆕 Création';
-                operationDesc = `Cette Pull Request déclare la nouvelle application \`${appName}\` dans le référentiel.`;
+            let title = '';
+            let desc = '';
+
+            if (op === 'user_modify') {
+              title = `✏️ [Modification] ${app} (Issue #${issueNum})`;
+              desc = `Modification de l'application déclarative **${app}** soumise via l'Issue #${issueNum}.`;
+            } else if (op === 'admin_create') {
+              title = `🆕 [Création Admin] ${app} (Issue #${issueNum})`;
+              desc = `Création de la nouvelle application **${app}**.\n\n<!-- GITHUB_TEAM: ${team} -->\n**Team GitHub Owner assignée :** \`@${context.repo.owner}/${team}\` (sera enregistrée dans \`CODEOWNERS\` lors du merge).`;
+            } else if (op === 'admin_bulk') {
+              title = `⚡ [Masse Admin] Modification groupée (Issue #${issueNum})`;
+              desc = `Modification en masse de plusieurs fichiers YAML via archive ZIP (Issue #${issueNum}).`;
+            } else if (op === 'admin_import') {
+              title = `🔄 [Import Entra ID] Reverse Engineering (Issue #${issueNum})`;
+              desc = `Import déclaratif d'applications depuis Microsoft Entra ID (Issue #${issueNum}).`;
             }
+
+            const body = [
+              `## ${title}`,
+              '',
+              desc,
+              '',
+              '---',
+              `Closes #${issueNum}`,
+              '',
+              '> ℹ️ Le pipeline CI va valider le schéma, inspecter les ressources dans Entra ID et calculer le plan Terraform.'
+            ].join('\n');
 
             const pr = await github.rest.pulls.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: `[Entitlement] ${appName} — ${operationTitle}`,
+              title: title,
               head: branch,
               base: 'main',
-              body: [
-                `## 📦 Entitlement Management — ${appName}`,
-                '',
-                `**Opération** : ${operationTitle}`,
-                `**Issue source** : #${issueNumber}`,
-                `**Fichier** : \`declarations/apps/${appName}.yaml\``,
-                '',
-                operationDesc,
-                '',
-                '---',
-                '',
-                '### ✅ Checklist de validation automatique',
-                '',
-                '- [ ] Validation JSON Schema',
-                '- [ ] Terraform Plan (contrôle SSoT Entra ID)',
-                '',
-                '### 👥 Approbations requises',
-                '',
-                '- [ ] Data Owner / Métier',
-                '- [ ] Équipe IAM',
-                '',
-                '---',
-                `> 🤖 PR créée automatiquement à partir de l'Issue #${issueNumber}`,
-              ].join('\n'),
+              body: body
             });
 
-            core.setOutput('pr_number', pr.data.number);
-            core.setOutput('pr_url', pr.data.html_url);
-
-      - name: Comment on Issue and close
-        uses: actions/github-script@v7
-        env:
-          PR_NUMBER: ${{ steps.create-pr.outputs.pr_number }}
-          PR_URL: ${{ steps.create-pr.outputs.pr_url }}
-          APP_NAME: ${{ steps.parse.outputs.app_name }}
-          OPERATION: ${{ steps.parse.outputs.operation }}
-        with:
-          script: |
-            const prNumber = process.env.PR_NUMBER;
-            const prUrl = process.env.PR_URL;
-            const appName = process.env.APP_NAME;
-            const operation = process.env.OPERATION;
-
+            // Commenter sur l'Issue avec lien vers la PR
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: [
-                '## ✅ Demande prise en charge avec succès',
-                '',
-                `La Pull Request **#${prNumber}** a été créée automatiquement :`,
-                `👉 ${prUrl}`,
-                '',
-                '**Prochaines étapes** :',
-                '1. La CI valide le schéma et calcule le plan d\'impact Terraform',
-                '2. Le résumé prévisionnel des actions dans Entra ID est notifié dans la PR',
-                '3. Après approbation et merge sur `main`, les changements sont appliqués automatiquement à Entra ID',
-                '',
-                `> 📄 Application : \`${appName}\` (${operation})`,
-              ].join('\n'),
-            });
-
-            await github.rest.issues.update({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              state: 'closed',
-              state_reason: 'completed',
-            });
-
-      - name: Handle errors
-        if: failure()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: [
-                '## ❌ Erreur lors du traitement de votre demande',
-                '',
-                'Une erreur s\'est produite lors de l\'analyse du formulaire ou de la création de la Pull Request.',
-                `Consultez les [logs du workflow](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) pour plus de détails.`,
-                '',
-                '**Vérifications conseillées** :',
-                '- Assurez-vous d\'avoir bien glissé-déposé un fichier `.yaml` valide',
-                '- Vérifiez que le nom de l\'application correspond à celui dans le fichier YAML',
-              ].join('\n'),
-            });
-
-            await github.rest.issues.addLabels({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              labels: ['error'],
+              issue_number: issueNum,
+              body: `🚀 **Pull Request créée avec succès !**\n\n👉 Suivez l'avancement et les vérifications sur la PR : #${pr.data.number} (${pr.data.html_url})`
             });

@@ -1,0 +1,55 @@
+name: "⚡ [ADMIN ONLY] Modification de masse (Import ZIP)"
+description: "Mettre à jour simultanément plusieurs fichiers YAML existants via une archive ZIP (Réservé aux Administrateurs)"
+title: "[Masse Admin] Import ZIP de mise à jour"
+labels:
+  - "entitlement-request"
+  - "admin-bulk"
+body:
+
+  - type: markdown
+    attributes:
+      value: |
+        ## ⚡ Modification en Masse par Archive ZIP (Administrateurs IAM)
+
+        > ⛔ **RESTRICTION DE SÉCURITÉ ADMIN :**
+        > Ce formulaire est **strictement réservé aux administrateurs IAM**.
+        >
+        > ⚠️ **RÈGLE CRITIQUE : Ce scénario NE PERMET PAS de créer de nouvelles applications.**
+        > Il sert exclusivement à mettre à jour des applications déjà existantes dans le référentiel `declaration/`.
+        > Si l'archive ZIP contient une application absente du dépôt, le pipeline échouera automatiquement.
+
+        ### 📦 Préparation de votre archive ZIP locale :
+        1. Modifiez les fichiers YAML sur votre poste (ou utilisez l'utilitaire `python tools/bulk_yaml_editor.py`).
+        2. Compressez l'ensemble des fichiers `.yaml` modifiés dans une archive `.zip`.
+        3. Glissez-déposez le fichier `.zip` dans la zone ci-dessous.
+        4. Le workflow extraira l'archive, vérifiera la pré-existence de chaque application, et ouvrira une Pull Request consolidée avec plan global.
+
+  - type: textarea
+    id: zip_file
+    attributes:
+      label: "Archive ZIP contenant les fichiers YAML (Glisser-déposer)"
+      description: "Glissez et déposez votre fichier `.zip` ici (ou cliquez en bas de la zone pour le joindre)."
+      placeholder: "Glissez et déposez votre archive .zip ici..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: justification
+    attributes:
+      label: "Justification administrative & contexte du lot"
+      description: "Expliquez la nature de cette mise à jour transversale (ex: départ d'un responsable, revue globale, changement d'environnement)."
+      placeholder: "Mise à jour transversale des approbateurs sur 15 catalogues..."
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: "Checklist de conformité"
+      options:
+        - label: "Je confirme être administrateur IAM habilité"
+          required: true
+        - label: "Toutes les applications présentes dans le ZIP existent déjà dans le dépôt"
+          required: true
+        - label: "L'archive ne contient que des fichiers .yaml valides"
+          required: true

@@ -43,7 +43,6 @@
         "env",
         "description",
         "authorization_owners",
-        "owner_only",
         "resources"
       ],
       "additionalProperties": false,
@@ -83,10 +82,6 @@
             "format": "email"
           },
           "description": "Liste des emails des approbateurs / proprietaires de l'autorisation."
-        },
-        "owner_only": {
-          "type": "boolean",
-          "description": "True = Assignation directe par admin (pas de self-service) / False = Self-service avec approbation."
         },
         "resources": {
           "type": "array",

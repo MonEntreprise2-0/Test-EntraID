@@ -1,5 +1,5 @@
 # ============================================================================
-# Workflow : CD - Terraform Apply (Deploiement automatique)
+# Workflow : CD - Terraform Apply (Déploiement automatique & CODEOWNERS)
 # ============================================================================
 name: "🚀 CD — Terraform Apply"
 
@@ -7,12 +7,13 @@ on:
   push:
     branches: [main]
     paths:
-      - 'declarations/apps/**'
+      - 'declaration/**'
       - 'terraform/**'
 
 permissions:
   contents: write
   id-token: write
+  pull-requests: read
 
 env:
   TF_WORKING_DIR: terraform
@@ -22,13 +23,15 @@ env:
 
 jobs:
   terraform-apply:
-    name: "\u26A1 Déploiement Entra ID"
+    name: "⚡ Déploiement Entra ID"
     runs-on: ubuntu-latest
 
     steps:
 
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 5
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -57,7 +60,7 @@ jobs:
       - name: 🔎 Smart Discovery des catalogues Entra ID
         run: |
           python .github/scripts/discover-catalogs.py \
-            --declarations-dir declarations/apps \
+            --declarations-dir declaration \
             --output-file terraform/discovered_catalogs.json
 
       - name: Terraform Plan (pre-apply review)
@@ -78,7 +81,6 @@ jobs:
 
           PLAN_FILE="plan_output.txt"
 
-          # Compter les actions
           CREATES=$(grep -c '# .* will be created' $PLAN_FILE 2>/dev/null || echo "0")
           UPDATES=$(grep -c '# .* will be updated' $PLAN_FILE 2>/dev/null || echo "0")
           DESTROYS=$(grep -c '# .* will be destroyed' $PLAN_FILE 2>/dev/null || echo "0")
@@ -91,140 +93,94 @@ jobs:
           echo "| 🗑️ Suppressions | $DESTROYS |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          # Détail des créations
-          if [ "$CREATES" -gt 0 ]; then
-            echo "### 🆕 Ressources à créer" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            grep '# .* will be created' $PLAN_FILE | while read -r line; do
-              RESOURCE=$(echo "$line" | sed 's/.*# //' | sed 's/ will be created//')
-              TYPE=$(echo "$RESOURCE" | sed 's/\..*//' | sed 's/azuread_//')
-              KEY=$(echo "$RESOURCE" | grep -oP '\["[^"]*"\]' | tr -d '[]"' || echo "")
-              case "$TYPE" in
-                access_package_catalog) ICON="📦"; LABEL="Catalogue" ;;
-                access_package) ICON="🎫"; LABEL="Access Package" ;;
-                access_package_assignment_policy) ICON="📜"; LABEL="Politique d'assignation" ;;
-                access_package_resource_catalog_association) ICON="🔗"; LABEL="Association ressource → catalogue" ;;
-                access_package_resource_package_association) ICON="🔗"; LABEL="Association ressource → package" ;;
-                *) ICON="📌"; LABEL="$TYPE" ;;
-              esac
-              echo "- $ICON **$LABEL** : \`$KEY\`" >> $GITHUB_STEP_SUMMARY
-            done
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          # Détail des modifications
-          if [ "$UPDATES" -gt 0 ]; then
-            echo "### ✏️ Ressources à modifier" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            grep '# .* will be updated' $PLAN_FILE | while read -r line; do
-              RESOURCE=$(echo "$line" | sed 's/.*# //' | sed 's/ will be updated in-place//')
-              TYPE=$(echo "$RESOURCE" | sed 's/\..*//' | sed 's/azuread_//')
-              KEY=$(echo "$RESOURCE" | grep -oP '\["[^"]*"\]' | tr -d '[]"' || echo "")
-              echo "- ✏️ **$TYPE** : \`$KEY\`" >> $GITHUB_STEP_SUMMARY
-            done
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          # Détail des suppressions
-          if [ "$DESTROYS" -gt 0 ]; then
-            echo "### 🗑️ Ressources à supprimer" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            grep '# .* will be destroyed' $PLAN_FILE | while read -r line; do
-              RESOURCE=$(echo "$line" | sed 's/.*# //' | sed 's/ will be destroyed//')
-              TYPE=$(echo "$RESOURCE" | sed 's/\..*//' | sed 's/azuread_//')
-              KEY=$(echo "$RESOURCE" | grep -oP '\["[^"]*"\]' | tr -d '[]"' || echo "")
-              echo "- 🗑️ **$TYPE** : \`$KEY\`" >> $GITHUB_STEP_SUMMARY
-            done
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          if [ "$NOCHANGE" -gt 0 ] && [ "$CREATES" -eq 0 ] && [ "$UPDATES" -eq 0 ] && [ "$DESTROYS" -eq 0 ]; then
-            echo "✅ **Aucun changement** — Entra ID est déjà à jour." >> $GITHUB_STEP_SUMMARY
-          fi
-
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
       - name: Terraform Apply
         id: apply
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
-          set -o pipefail
           terraform apply \
             -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
             -var="use_oidc=true" \
             -auto-approve \
             -no-color \
             2>&1 | tee apply_output.txt
-        continue-on-error: true
 
-      - name: Generate Deployment Summary
-        if: always()
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        run: |
-          echo "## 🚀 Résultat du déploiement" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Statut** : ${{ steps.apply.outcome == 'success' && '✅ Succès' || '❌ Échec' }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Date** : $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
-          echo "**Commit** : \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          APPLY_EXIT_CODE=${PIPESTATUS[0]}
+          echo "exit_code=$APPLY_EXIT_CODE" >> $GITHUB_OUTPUT
 
-          if [ "${{ steps.apply.outcome }}" = "success" ]; then
-            # Compter les actions dans apply
-            APPLY_FILE="apply_output.txt"
-            ADDED=$(grep -c 'Creation complete' $APPLY_FILE 2>/dev/null || echo "0")
-            MODIFIED=$(grep -c 'Modifications complete' $APPLY_FILE 2>/dev/null || echo "0")
-            DESTROYED=$(grep -c 'Destruction complete' $APPLY_FILE 2>/dev/null || echo "0")
-
-            echo "### ✅ Assets créés ou mis à jour dans Entra ID suite au merge" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "| Action | Nombre |" >> $GITHUB_STEP_SUMMARY
-            echo "|--------|--------|" >> $GITHUB_STEP_SUMMARY
-            echo "| 🆕 Assets créés | $ADDED |" >> $GITHUB_STEP_SUMMARY
-            echo "| ✏️ Assets modifiés | $MODIFIED |" >> $GITHUB_STEP_SUMMARY
-            echo "| 🗑️ Assets supprimés | $DESTROYED |" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-
-            # Lister les ressources créées
-            if [ "$ADDED" -gt 0 ]; then
-              echo "### Détail des assets créés dans Entra ID" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-              grep 'Creation complete' $APPLY_FILE | while read -r line; do
-                RESOURCE=$(echo "$line" | grep -oP 'azuread_[^:]+' || echo "$line")
-                echo "- ✅ \`$RESOURCE\`" >> $GITHUB_STEP_SUMMARY
-              done
-              echo "" >> $GITHUB_STEP_SUMMARY
-            fi
-
-            echo "<details>" >> $GITHUB_STEP_SUMMARY
-            echo "<summary>📊 Outputs Terraform</summary>" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo '```json' >> $GITHUB_STEP_SUMMARY
-            terraform output -json summary 2>/dev/null | jq . >> $GITHUB_STEP_SUMMARY 2>&1 || echo "Outputs non disponibles" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            echo "</details>" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "### ❌ Erreurs" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            tail -n 30 apply_output.txt >> $GITHUB_STEP_SUMMARY 2>&1 || true
-            echo '```' >> $GITHUB_STEP_SUMMARY
+          if [ $APPLY_EXIT_CODE -ne 0 ]; then
+            echo "Terraform apply a échoué."
+            exit 1
           fi
 
-      - name: 🔄 Synchroniser les listes déroulantes des formulaires d'Issues
+      - name: 📝 Mettre à jour automatiquement le fichier CODEOWNERS
+        if: steps.apply.outcome == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const owner = context.repo.owner;
+            const codeownersPath = path.join('.github', 'CODEOWNERS');
+
+            let codeownersContent = '';
+            if (fs.existsSync(codeownersPath)) {
+              codeownersContent = fs.readFileSync(codeownersPath, 'utf8');
+            } else {
+              codeownersContent = `# CODEOWNERS\n* @${owner}/admins\n`;
+            }
+
+            // Détecter les applications dans declaration/
+            const decDir = 'declaration';
+            let changed = false;
+
+            if (fs.existsSync(decDir)) {
+              const entries = fs.readdirSync(decDir, { withFileTypes: true });
+
+              for (const dirent of entries) {
+                if (dirent.isDirectory() && !dirent.name.startsWith('_')) {
+                  const appName = dirent.name.toLowerCase();
+                  const rulePrefix = `/declaration/${appName}/`;
+
+                  if (!codeownersContent.includes(rulePrefix)) {
+                    console.log(`Nouvelle application détectée sans règle CODEOWNERS : ${appName}`);
+
+                    // Vérifier si un message de commit ou PR référence une team
+                    let teamSlug = 'admins';
+                    try {
+                      const log = child_process.execSync('git log -1 --pretty=%B').toString();
+                      const match = log.match(/GITHUB_TEAM:\s*([a-zA-Z0-9_-]+)/);
+                      if (match) {
+                        teamSlug = match[1];
+                      }
+                    } catch (e) {}
+
+                    const newRule = `${rulePrefix} @${owner}/${teamSlug}`;
+                    codeownersContent += `\n${newRule}`;
+                    changed = true;
+                    console.log(`Ajout de la règle : ${newRule}`);
+                  }
+                }
+              }
+            }
+
+            if (changed) {
+              fs.writeFileSync(codeownersPath, codeownersContent.trim() + '\n', 'utf8');
+              console.log('Fichier CODEOWNERS actualisé.');
+            }
+
+      - name: Commiter la mise à jour de CODEOWNERS
         if: steps.apply.outcome == 'success'
         run: |
-          python .github/scripts/sync-dropdowns.py
-          if [ -n "$(git status --porcelain .github/ISSUE_TEMPLATE)" ]; then
+          if [ -n "$(git status --porcelain .github/CODEOWNERS)" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add .github/ISSUE_TEMPLATE/
-            git commit -m "chore: synchronisation automatique des formulaires d'issues [skip ci]"
+            git add .github/CODEOWNERS
+            git commit -m "chore(governance): mise à jour automatique de CODEOWNERS [skip ci]"
             git push origin main
           fi
 
       - name: Fail workflow if Apply failed
         if: steps.apply.outcome != 'success'
         run: |
-          echo "::error::Terraform apply a échoué. Consultez les erreurs dans le résumé ci-dessus."
+          echo "::error::Terraform apply a échoué."
           exit 1

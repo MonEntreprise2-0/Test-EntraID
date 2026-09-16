@@ -1,0 +1,74 @@
+# ============================================================================
+# FICHIER DÉCLARATIF — Entitlement Management Entra ID (Format Ardian v2)
+# ============================================================================
+# Ce fichier est un EXEMPLE commenté. Il est ignoré par Terraform (préfixe _).
+#
+# Convention Ardian :
+#   1 répertoire = 1 fichier YAML = 1 Application = 1 Catalogue Entitlement Management
+#   Emplacement : declaration/<nomapplication>/<nomapplication>.yaml
+#
+# Rappel "Mode Consommateur" :
+#   Ce pipeline ne crée AUCUNE ressource cible (groupes, apps, sites SharePoint).
+#   Si une ressource référencée n'existe pas dans Entra ID, la CI bloquera
+#   automatiquement le merge.
+# ============================================================================
+
+# ============================================================================
+# NIVEAU 1 : LE CATALOGUE (APPLICATION)
+# ============================================================================
+# Ces champs décrivent l'application et son catalogue dans Entra ID.
+# Le catalogue sera créé automatiquement s'il n'existe pas déjà (Smart Discovery).
+
+app_name: "mon-application"                   # [OBLIGATOIRE] Nom du catalogue / de l'application
+                                              #   Doit correspondre EXACTEMENT au nom du dossier et du fichier (kebab-case).
+
+app_description: "Description fonctionnelle de l'application"
+                                              # [OBLIGATOIRE] Description du catalogue.
+
+# ============================================================================
+# NIVEAU 2 : LES ACCESS PACKAGES (LISTE)
+# ============================================================================
+# Chaque élément de cette liste crée un Access Package dans le catalogue.
+#
+# IMPORTANT — Nommage automatique :
+#   Le nom de l'Access Package est CONSTRUIT automatiquement par le pipeline :
+#   Formule : [Context/Subapp] [Privilege Level] - [Env]
+#   Si "context_subapp" est vide, il est omis du nom.
+#   Exemples :
+#     - context_subapp: "SubApp", privilege_level: "Read Only", env: "Prod"
+#       → Nom généré : "SubApp Read Only - Prod"
+#     - context_subapp: "", privilege_level: "Admin", env: "UAT"
+#       → Nom généré : "Admin - UAT"
+# ============================================================================
+
+access_packages:
+
+  # ==========================================================================
+  # EXEMPLE 1 : Access Package avec Groupes Entra ID
+  # ==========================================================================
+  - context_subapp: "SubApp"          # [FACULTATIF] Notion métier / sous-application.
+    privilege_level: "Read Only"      # [OBLIGATOIRE] Intention métier de l'accès.
+    env: "Prod"                       # [OBLIGATOIRE] Environnement cible (Dev, UAT, Prod).
+    description: "Accès en lecture seule aux modules SubApp en production"
+    authorization_owners:             # [OBLIGATOIRE] Emails des approbateurs / propriétaires.
+      - "data-owner@ardian.com"
+      - "backup-owner@ardian.com"
+
+    resources:
+      - resource_type: "EntraID Group" # [OBLIGATOIRE] "EntraID Group", "Application Role", "Sharepoint Group"
+        group_name: "GRP-APP-SubApp-ReadOnly-Prod"
+
+  # ==========================================================================
+  # EXEMPLE 2 : Access Package avec Application Roles
+  # ==========================================================================
+  - context_subapp: ""
+    privilege_level: "Admin"
+    env: "Prod"
+    description: "Accès administrateur complet"
+    authorization_owners:
+      - "admin-owner@ardian.com"
+
+    resources:
+      - resource_type: "Application Role"
+        enterprise_app: "app-backend"
+        app_role: "SubApp Admin"

@@ -45,23 +45,35 @@ def load_schema(file_path: str) -> dict:
 
 
 def validate_filename_consistency(yaml_data: dict, yaml_file_path: str) -> list:
-    """Verifie que app_name correspond au nom du fichier."""
+    """Verifie que app_name correspond au nom du fichier et au nom du dossier parent (insensible a la casse)."""
     errors = []
-    basename = os.path.splitext(os.path.basename(yaml_file_path))[0]
-    app_name = yaml_data.get("app_name") or yaml_data.get("application_name", "")
+    abs_path = os.path.abspath(yaml_file_path)
+    basename = os.path.splitext(os.path.basename(abs_path))[0]
+    parent_dir = os.path.basename(os.path.dirname(abs_path))
+    app_name = str(yaml_data.get("app_name") or yaml_data.get("application_name", "")).strip()
 
-    if basename != app_name and not basename.startswith("_"):
-        errors.append(
-            f"Incoherence : app_name='{app_name}' ne correspond pas "
-            f"au nom du fichier '{basename}.yaml'. "
-            f"Renommez le fichier en '{app_name}.yaml'."
-        )
+    if not basename.startswith("_"):
+        # 1. Verification du nom de fichier vs app_name (insensible a la casse)
+        if basename.lower() != app_name.lower():
+            errors.append(
+                f"Incoherence de nommage : app_name='{app_name}' ne correspond pas "
+                f"au nom du fichier '{basename}.yaml'. "
+                f"Renommez le fichier en '{app_name}.yaml'."
+            )
+
+        # 2. Verification de l'arborescence declaration/<nomapplication>/<nomapplication>.yaml
+        if parent_dir and parent_dir.lower() != app_name.lower() and parent_dir.lower() != "declaration":
+            errors.append(
+                f"Incoherence d'arborescence : la convention impose 1 dossier par application "
+                f"('declaration/<nomapplication>/<nomapplication>.yaml'). "
+                f"Le dossier parent actuel '{parent_dir}' ne correspond pas a app_name='{app_name}'."
+            )
 
     return errors
 
 
 def validate_access_packages_consistency(yaml_data: dict) -> list:
-    """Verifie l'unicite des noms calcules des Access Packages et la coherence des ressources."""
+    """Verifie l'unicite des noms calcules des Access Packages et la coherence des ressources (insensible a la casse)."""
     errors = []
     seen_ap_names = set()
 
@@ -76,17 +88,18 @@ def validate_access_packages_consistency(yaml_data: dict) -> list:
         else:
             computed_name = f"{privilege} - {env}"
 
-        if computed_name in seen_ap_names:
+        normalized_ap_name = computed_name.lower()
+        if normalized_ap_name in seen_ap_names:
             errors.append(
                 f"Doublon d'Access Package detecte : le nom calcule '{computed_name}' "
                 f"est genere plusieurs fois dans le fichier (AP #{idx})."
             )
-        seen_ap_names.add(computed_name)
+        seen_ap_names.add(normalized_ap_name)
 
         # Verification des emails
         email_regex = r"^[^@]+@[^@]+\.[^@]+$"
         for email in ap.get("authorization_owners", []):
-            if not re.match(email_regex, email.strip()):
+            if not re.match(email_regex, str(email).strip()):
                 errors.append(
                     f"Access Package '{computed_name}' : l'adresse email '{email}' "
                     f"dans authorization_owners est invalide."
