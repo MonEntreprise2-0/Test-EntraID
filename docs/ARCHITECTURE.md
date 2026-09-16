@@ -217,3 +217,71 @@ Pour garantir l'intégrité de la branche de référence (`main`), les règles d
 3. **Workflow `03-ci-validate-and-plan.yml`** : Valide la conformité du fichier avec le schéma JSON v2, lance la Smart Discovery pour détecter les catalogues et ressources existants, puis exécute `terraform plan` via OIDC pour valider les dépendances SSoT dans Entra ID. Restitue le plan dans un commentaire formaté. En cas de ressources manquantes, bloque la PR et permet la relance par ChatOps (`/replan`).
 4. **Sas d'Approbation** : Le Data Owner métier et le responsable IAM / Sécurité Cloud examinent le plan d'impact et approuvent formellement la PR.
 5. **Workflow `04-cd-apply.yml`** : Au merge sur `main`, exécute `terraform apply -auto-approve` pour déployer dans Entra ID, met à jour les formulaires de sélection et supprime la branche de travail.
+
+---
+
+## 6. 🔄 Diagramme de Séquence : Import depuis Entra ID (Reverse Engineering)
+
+Ce scénario permet d'exporter la configuration réelle des habilitations existantes dans **Microsoft Entra ID** vers le référentiel GitHub sous forme de fichiers déclaratifs YAML conformes au schéma de la plateforme.
+
+### 6.1. Fonctionnement & Règles de Gestion
+* **Formulaire d'Issue Dédié** : Le demandeur ouvre une Issue spécifique dans laquelle il renseigne, dans un champ dédié, la liste des applications cibles séparées par des virgules (ex: `appli1, appli2, Appli3...`).
+* **Insensibilité à la Casse** : Les noms saisis sont normalisés et recherchés dans Entra ID indépendamment des majuscules ou minuscules.
+* **Topologie Déclarative Cible** : Chaque application importée est structurée selon la convention **1 application = 1 dossier contenant 1 fichier YAML** (ex: `declarations/apps/<nom-application>/<nom-application>.yaml`).
+* **Règle d'Écrasement (*Overwrite*)** : Si une application importée est déjà présente dans le référentiel Git, ses fichiers existants sont automatiquement remplacés et écrasés par l'état extrait de Microsoft Entra ID.
+* **Validation & Déploiement** : Une Pull Request est créée automatiquement avec un rapport d'import, soumise à la vérification d'un validateur habilité, puis réconciliée en continu lors du merge.
+
+### 6.2. Diagramme de Séquence Détaillé (Mermaid.js)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Demandeur as "Demandeur"
+    participant GH as "GitHub issues/pr"
+    participant CI as "GitHub actions (CI)"
+    actor Validateur as "validateur"
+    participant CD as "GitHub action (CD)"
+    participant EntraID as "Microsoft entraID"
+
+    %% Déclenchement via Issue
+    Demandeur->>GH: Ouvre un formulaire d'import et renseigne la liste des applications cibles
+    Note over Demandeur,GH: Liste déclarée (non sensible à la casse, ex: appli1, appli2)
+    GH->>CI: Déclenche automatiquement le pipeline d'importation et d'extraction
+
+    %% Authentification et Aspiration Entra ID
+    CI->>CI: Normalise les noms d'applications (découpage virgules, minuscules)
+    CI->>EntraID: S'authentifie de manière sécurisée (jeton éphémère OIDC)
+    EntraID-->>CI: Valide l'accès en lecture aux catalogues d'habilitations
+    CI->>EntraID: Interroge les catalogues, paquets d'accès, politiques et rôles cibles
+    EntraID-->>CI: Transmet les données brutes de configuration pour chaque application
+
+    %% Génération déclarative et règle d'écrasement
+    loop Pour chaque application extraite
+        CI->>CI: Traduit les données brutes au format déclaré selon le schéma YAML
+        CI->>CI: Crée le dossier dédié de l'application (1 application = 1 dossier)
+        alt Application déjà existante dans le référentiel
+            CI->>CI: Écrase le fichier existant avec la nouvelle version extraite
+        else Nouvelle application
+            CI->>CI: Crée le nouveau fichier déclaratif dans le dossier applicatif
+        end
+        CI->>CI: Valide formellement la conformité du fichier contre le schéma contractuel
+    end
+
+    %% Création de la PR et Plan de contrôle
+    CI->>GH: Crée une branche dédiée et ouvre la Pull Request consolidée
+    GH->>CI: Déclenche le pipeline de contrôle d'intégration continue
+    CI->>CI: Calcule le plan de réconciliation et vérifie l'absence d'erreurs
+    CI-->>GH: Publie le compte-rendu d'import et le résumé des impacts dans la PR
+
+    %% Revue et Validation Humaine
+    Validateur->>GH: Examine le rapport d'import et inspecte les fichiers générés
+    Validateur->>GH: Approuve formellement la Pull Request
+    Validateur->>GH: Déclenche la fusion sur la branche principale de production
+
+    %% Déploiement CD et Clôture
+    GH->>CD: Déclenche le workflow de déploiement continu lors du merge
+    CD->>EntraID: Réconcilie et confirme l'alignement strict du référentiel avec l'annuaire
+    EntraID-->>CD: Confirme la synchronisation opérationnelle
+    CD->>GH: Supprime la branche temporaire et clôture l'Issue d'origine avec succès
+```
+
