@@ -69,6 +69,7 @@ flowchart LR
 
 ## 📋 Documentation et Guides d'Architecture
 
+- 🗂️ [**Structure & Cartographie Cible du Référentiel GitHub**](docs/repo_git.md)
 - 🔄 [**Plan d'Implémentation Technique : Récupération de l'Existant (Reverse Engineering)**](docs/scenario_de_recuperation_existant.md)
 - ⚡ [**HLD Modification en Masse (Import ZIP & Double Validation)**](docs/MODIFICATION_DE_MASSE.md)
 - 🚀 [Spécifications Techniques V2 (Orientations Validées — Run Cible)](docs/SPECIFICATIONS_V2.md)
