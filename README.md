@@ -40,11 +40,11 @@ Ce repository implémente une chaîne CI/CD déclarative où chaque application 
 ## 🚀 Fonctionnement du cycle de vie CI/CD
 
 ```mermaid
-flowchart LR
-    A["1. Formulaire Issue<br>(Scénarios A, B, C, D)"] --> B["2. PR Automatique<br>(Branche dédiée)"]
-    B --> C["3. Validation CI 3 Étapes<br>(Syntaxe, SSoT, Approbation)"]
-    C --> D["4. Revue Humaine Admin<br>(Approve obligatoire)"]
-    D --> E["5. Merge sur main<br>(Déploiement CD & CODEOWNERS)"]
+graph LR
+    A["1. Formulaire Issue"] --> B["2. PR Automatique"]
+    B --> C["3. Validation CI (3 Étapes)"]
+    C --> D["4. Revue Humaine Admin"]
+    D --> E["5. Merge sur main (CD)"]
 ```
 
 1. **Demande** : L'utilisateur ou l'administrateur soumet un formulaire d'Issue selon son profil.
