@@ -5,8 +5,8 @@ assign-catalog-owners.py - Assignation automatique des propriétaires de catalog
 Pour chaque application déclarée dans le repository :
 1. Détecte les `authorization_owners` définis dans le fichier YAML.
 2. Interroge Microsoft Graph pour localiser le catalogue correspondant et ses identifiants.
-3. Assigne chaque utilisateur propriétaire au rôle "Catalog owner" sur le catalogue concerné
-   (directoryScopeId = /AccessPackageCatalog/{catalog_id}).
+3. Assigne chaque utilisateur propriétaire au rôle "Catalog owner" (ID: ae79f266-94d4-4dab-b730-feca7e132178)
+   sur le catalogue concerné (directoryScopeId = /AccessPackageCatalog/{catalog_id}).
 """
 
 import json
@@ -24,6 +24,9 @@ try:
 except ImportError:
     print("Module pyyaml requis.")
     sys.exit(0)
+
+# Built-in constant ID pour le rôle "Catalog owner" dans Entitlement Management Entra ID
+CATALOG_OWNER_ROLE_ID = "ae79f266-94d4-4dab-b730-feca7e132178"
 
 
 def az_rest_get(url: str):
@@ -43,8 +46,13 @@ def az_rest_post(url: str, body: dict):
     cmd = ["az", "rest", "--method", "post", "--url", url, "--headers", "Content-Type=application/json", "--body", json.dumps(body)]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True)
-        return proc.returncode == 0
-    except Exception:
+        if proc.returncode == 0:
+            return True
+        else:
+            print(f"  ⚠️ Erreur az rest post: {proc.stderr}", file=sys.stderr)
+            return False
+    except Exception as e:
+        print(f"  ⚠️ Exception az rest post: {e}", file=sys.stderr)
         return False
 
 
@@ -59,23 +67,6 @@ def get_all_catalogs() -> dict:
             if dname:
                 catalogs[dname] = cat
     return catalogs
-
-
-def get_catalog_owner_role_id() -> str:
-    """Récupère l'identifiant du rôle 'Catalog owner' dans Entitlement Management."""
-    url = "https://graph.microsoft.com/v1.0/roleManagement/entitlementManagement/roleDefinitions?$filter=displayName eq 'Catalog owner'"
-    data = az_rest_get(url)
-    if data and "value" in data and len(data["value"]) > 0:
-        return data["value"][0].get("id", "")
-    
-    # Fallback : lister tous les rôles
-    url_all = "https://graph.microsoft.com/v1.0/roleManagement/entitlementManagement/roleDefinitions?$top=99"
-    data_all = az_rest_get(url_all)
-    if data_all and "value" in data_all:
-        for r in data_all["value"]:
-            if r.get("displayName", "").strip().lower() == "catalog owner":
-                return r.get("id", "")
-    return ""
 
 
 def resolve_user_id(email: str) -> str:
@@ -102,14 +93,10 @@ def main():
     print("====================================================")
     print("👑 ASSIGNATION DES PROPRIÉTAIRES DE CATALOGUES (Entra ID)")
     print("====================================================")
+    print(f"🔑 Rôle 'Catalog owner' (built-in ID) : {CATALOG_OWNER_ROLE_ID}")
 
-    role_id = get_catalog_owner_role_id()
-    if not role_id:
-        print("⚠️ Impossible de trouver le rôle 'Catalog owner' dans Entra ID. Poursuite sans assignation.")
-        return
-
-    print(f"🔑 Rôle 'Catalog owner' identifié : {role_id}")
     catalogs = get_all_catalogs()
+    print(f"📊 Catalogues détectés dans Entra ID : {len(catalogs)}")
 
     dec_dir = "declaration"
     if not os.path.isdir(dec_dir):
@@ -134,6 +121,7 @@ def main():
                     # Recherche du catalogue dans Entra ID
                     matched_catalog = catalogs.get(cat_name.lower()) or catalogs.get(app_name.lower())
                     if not matched_catalog:
+                        print(f"  ℹ️ Catalogue '{cat_name}'/'{app_name}' introuvable dans Entra ID.")
                         continue
 
                     catalog_id = matched_catalog.get("id")
@@ -152,7 +140,7 @@ def main():
                     existing_assignments = get_existing_role_assignments(catalog_id)
                     assigned_principals = {
                         a.get("principalId") for a in existing_assignments
-                        if a.get("roleDefinitionId") == role_id
+                        if a.get("roleDefinitionId") == CATALOG_OWNER_ROLE_ID
                     }
 
                     for owner_email in owners:
@@ -166,7 +154,7 @@ def main():
                             continue
 
                         body = {
-                            "roleDefinitionId": role_id,
+                            "roleDefinitionId": CATALOG_OWNER_ROLE_ID,
                             "principalId": user_id,
                             "directoryScopeId": f"/AccessPackageCatalog/{catalog_id}"
                         }
