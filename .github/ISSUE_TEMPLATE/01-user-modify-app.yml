@@ -1,6 +1,6 @@
 name: "✏️ [Utilisateur] Modification d'une application existante"
 description: "Créer, modifier ou supprimer des Access Packages dans une application existante"
-title: "[Modification] <nom-application>"
+title: "[Modification] Demande de mise à jour applicative"
 labels:
   - "entitlement-request"
   - "user-modification"
@@ -21,15 +21,6 @@ body:
         >
         > ⚠️ **NB : L'application doit impérativement être existante dans le référentiel.**
         > Pour une création de nouvelle application, veuillez contacter un administrateur IAM.
-
-  - type: input
-    id: app_name
-    attributes:
-      label: "Nom de l'application"
-      description: "Identifiant unique de l'application en minuscules (kebab-case). L'application doit déjà exister dans `declaration/<nomapplication>/`."
-      placeholder: "ex: catalogue-test-v1"
-    validations:
-      required: true
 
   - type: textarea
     id: yaml_file

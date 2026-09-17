@@ -94,6 +94,62 @@ def get_entraid_groups() -> list:
     return []
 
 
+def get_catalog_access_packages(catalog_id: str) -> list:
+    """Recupere les Access Packages existants d'un catalogue dans Entra ID."""
+    endpoints = [
+        f"https://graph.microsoft.com/v1.0/identityGovernance/entitlementManagement/accessPackages?$filter=catalogId eq '{catalog_id}'&$top=999",
+        f"https://graph.microsoft.com/beta/identityGovernance/entitlementManagement/accessPackages?$filter=catalogId eq '{catalog_id}'&$top=999",
+        f"https://graph.microsoft.com/v1.0/identityGovernance/entitlementManagement/catalogs/{catalog_id}/accessPackages?$top=999",
+    ]
+    for url in endpoints:
+        cmd = ["az", "rest", "--method", "get", "--url", url, "--output", "json"]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and result.stdout:
+                data = json.loads(result.stdout)
+                packages = data.get("value", [])
+                if packages:
+                    return packages
+        except Exception:
+            continue
+    return []
+
+
+def get_access_package_policies(access_package_id: str) -> list:
+    """Recupere les politiques d'assignation existantes d'un Access Package."""
+    endpoints = [
+        f"https://graph.microsoft.com/v1.0/identityGovernance/entitlementManagement/assignmentPolicies?$filter=accessPackage/id eq '{access_package_id}'&$top=999",
+        f"https://graph.microsoft.com/beta/identityGovernance/entitlementManagement/assignmentPolicies?$filter=accessPackage/id eq '{access_package_id}'&$top=999",
+    ]
+    for url in endpoints:
+        cmd = ["az", "rest", "--method", "get", "--url", url, "--output", "json"]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and result.stdout:
+                data = json.loads(result.stdout)
+                policies = data.get("value", [])
+                if policies:
+                    return policies
+        except Exception:
+            continue
+    return []
+
+
+def compute_ap_name(ap: dict) -> str:
+    """Calcule le nom d'affichage de l'Access Package de maniere unifiee."""
+    display_name = ap.get("display_name")
+    if display_name and str(display_name).strip():
+        return str(display_name).strip()
+    context = str(ap.get("context_subapp") or "").strip()
+    privilege = str(ap.get("privilege_level") or "").strip()
+    env = str(ap.get("env") or "").strip()
+    if context:
+        return f"{context} {privilege} - {env}".strip()
+    elif privilege and env:
+        return f"{privilege} - {env}".strip()
+    return privilege or env or "Access Package"
+
+
 def load_yaml_declarations(declarations_dir: str) -> dict:
     """Charge toutes les declarations d'applications YAML (support arborescence recursive 1 dossier par app)."""
     apps = {}
@@ -180,6 +236,7 @@ def main():
     print("----------------------------------------------------")
 
     discovered = {}
+    entraid_catalog_packages = {}
     summary_lines = [
         "### 🔎 Statut des catalogues (Smart Discovery)",
         ""
@@ -226,6 +283,60 @@ def main():
   to = azuread_access_package_catalog.this["{app_name}"]
   id = "{cat_id}"
 }}''')
+
+            # Verifier les Access Packages deja existants dans le catalogue Entra ID
+            existing_packages = get_catalog_access_packages(cat_id)
+            print(f"     -> {len(existing_packages)} Access Package(s) deja present(s) dans le catalogue")
+            entraid_catalog_packages[app_name] = [
+                {
+                    "id": p.get("id"),
+                    "display_name": p.get("displayName"),
+                    "description": p.get("description"),
+                    "is_hidden": p.get("isHidden"),
+                }
+                for p in existing_packages
+            ]
+
+            existing_ap_by_name = {
+                p.get("displayName", "").strip().lower(): p
+                for p in existing_packages
+                if p.get("displayName")
+            }
+
+            # Pour chaque Access Package declare, s'il existe deja, generer l'import automatique
+            for ap in app_data.get("access_packages", []):
+                ap_name = compute_ap_name(ap)
+                ap_match = existing_ap_by_name.get(ap_name.lower())
+                if ap_match:
+                    existing_ap_id = ap_match.get("id")
+                    ap_key = f"{app_name}|{ap_name}"
+                    print(f"     🔄 Access Package '{ap_name}' deja present dans Entra ID -> auto-import genere ({existing_ap_id})")
+                    import_blocks.append(f'''import {{
+  to = azuread_access_package.this["{ap_key}"]
+  id = "{existing_ap_id}"
+}}''')
+
+                    # Interroger les politiques d'assignation pour eviter tout conflit
+                    existing_policies = get_access_package_policies(existing_ap_id)
+                    for pol in ap.get("policies", []):
+                        p_name = pol.get("display_name", "")
+                        for ep in existing_policies:
+                            if ep.get("displayName", "").strip().lower() == p_name.strip().lower():
+                                pol_key = f"{app_name}|{ap_name}|{p_name}"
+                                import_blocks.append(f'''import {{
+  to = azuread_access_package_assignment_policy.this["{pol_key}"]
+  id = "{ep.get('id')}"
+}}''')
+                    if "privilege_level" in ap and not ap.get("policies"):
+                        default_pol_name = f"Politique - {ap_name}"
+                        for ep in existing_policies:
+                            if ep.get("displayName", "").strip().lower() in [default_pol_name.lower(), "politique", "initial policy"]:
+                                pol_key = f"{app_name}|{ap_name}|Politique"
+                                import_blocks.append(f'''import {{
+  to = azuread_access_package_assignment_policy.this["{pol_key}"]
+  id = "{ep.get('id')}"
+}}''')
+                                break
 
             # Verifier les ressources deja associees au catalogue dans Entra ID
             existing_resources = get_catalog_resources(cat_id)
@@ -300,6 +411,10 @@ def main():
     with open(groups_file, "w", encoding="utf-8") as f:
         json.dump(discovered_groups, f, indent=2)
 
+    packages_file = os.path.join(out_dir if out_dir else ".", "entraid_catalog_packages.json")
+    with open(packages_file, "w", encoding="utf-8") as f:
+        json.dump(entraid_catalog_packages, f, indent=2)
+
     summary_file = os.path.join(out_dir if out_dir else ".", "discovered_summary.md")
     with open(summary_file, "w", encoding="utf-8") as f:
         f.write("\n".join(summary_lines) + "\n\n")
@@ -316,7 +431,7 @@ def main():
         if os.path.isfile(imports_file):
             os.remove(imports_file)
 
-    print(f"💾 Fichiers JSON generes : {args.output_file}, {groups_file}")
+    print(f"💾 Fichiers JSON generes : {args.output_file}, {groups_file}, {packages_file}")
     print("====================================================\n")
 
 

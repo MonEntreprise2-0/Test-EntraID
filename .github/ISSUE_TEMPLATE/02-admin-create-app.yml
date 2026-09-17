@@ -1,6 +1,6 @@
 name: "🆕 [ADMIN ONLY] Création d'une application"
 description: "Déclarer une toute nouvelle application et assigner une Team GitHub Owner (Réservé aux Administrateurs)"
-title: "[Création Admin] <nom-application>"
+title: "[Création Admin] Déclaration d'une nouvelle application"
 labels:
   - "entitlement-request"
   - "admin-creation"
@@ -20,15 +20,6 @@ body:
         1. Rendez-vous sur l'onglet **Teams** de l'organisation : [`https://github.com/orgs/MonEntreprise2-0/teams`](https://github.com/orgs/MonEntreprise2-0/teams).
         2. Repérez le nom (ou slug) de l'équipe responsable (ex: `team-salesforce`, `cloud-iam-team`, `data-owners`).
         3. Copiez ce nom exact dans le champ ci-dessous. Le workflow vérifiera automatiquement son existence dans GitHub.
-
-  - type: input
-    id: app_name
-    attributes:
-      label: "Nom de l'application"
-      description: "Identifiant unique en kebab-case minuscules (ex: salesforce-crm, sap-s4hana). L'application NE doit PAS déjà exister."
-      placeholder: "ex: nouvelle-application"
-    validations:
-      required: true
 
   - type: input
     id: github_team

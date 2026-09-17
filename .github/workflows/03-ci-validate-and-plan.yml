@@ -149,11 +149,16 @@ jobs:
             -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
             -var="use_oidc=true" \
             -no-color \
+            -out=tfplan.binary \
             -detailed-exitcode \
             2>&1 | tee plan_output.txt
 
           PLAN_EXIT_CODE=${PIPESTATUS[0]}
           echo "exit_code=$PLAN_EXIT_CODE" >> $GITHUB_OUTPUT
+
+          if [ -f tfplan.binary ]; then
+            terraform show -json tfplan.binary > tfplan.json 2>/dev/null || true
+          fi
 
           if [ $PLAN_EXIT_CODE -eq 1 ]; then
             echo "Terraform plan a échoué (ressources manquantes ou erreur de syntaxe)."
@@ -164,35 +169,16 @@ jobs:
       - name: Synthèse et publication du résultat sur la PR
         id: summary
         if: always()
-        working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
-          PLAN_FILE="plan_output.txt"
-          SUMMARY_FILE="plan_summary.md"
+          CHANGED_FILES=$(git diff --name-only --diff-filter=ACMR origin/main...HEAD -- 'declaration/**/*.yaml' | grep -v 'declaration/_' || true)
 
-          echo "## 📋 Synthèse du Contrôle des Ressources Entra ID" > $SUMMARY_FILE
-          echo "" >> $SUMMARY_FILE
-
-          if [ -f "discovered_summary.md" ]; then
-            cat discovered_summary.md >> $SUMMARY_FILE
-          fi
-
-          CREATES=$(grep -c '# .* will be created' $PLAN_FILE 2>/dev/null || echo "0")
-          UPDATES=$(grep -c '# .* will be updated' $PLAN_FILE 2>/dev/null || echo "0")
-          DESTROYS=$(grep -c '# .* will be destroyed' $PLAN_FILE 2>/dev/null || echo "0")
-          REPLACES=$(grep -c '# .* must be replaced' $PLAN_FILE 2>/dev/null || echo "0")
-          NOCHANGE=$(grep -c 'No changes.' $PLAN_FILE 2>/dev/null || echo "0")
-
-          echo "| Action | Nombre |" >> $SUMMARY_FILE
-          echo "|--------|--------|" >> $SUMMARY_FILE
-          echo "| 🆕 Assets à créer | $CREATES |" >> $SUMMARY_FILE
-          echo "| ✏️ Assets à modifier | $UPDATES |" >> $SUMMARY_FILE
-          echo "| 🗑️ Assets à supprimer | $DESTROYS |" >> $SUMMARY_FILE
-          echo "| 🔄 Remplacements | $REPLACES |" >> $SUMMARY_FILE
-          echo "" >> $SUMMARY_FILE
-
-          if [ "$NOCHANGE" -gt 0 ] && [ "$CREATES" -eq 0 ] && [ "$UPDATES" -eq 0 ] && [ "$DESTROYS" -eq 0 ]; then
-            echo "✅ **Aucun changement détecté** — l'annuaire Entra ID est déjà aligné." >> $SUMMARY_FILE
-          fi
+          python .github/scripts/format-pr-comment.py \
+            --changed-files "$CHANGED_FILES" \
+            --tfplan-json "${{ env.TF_WORKING_DIR }}/tfplan.json" \
+            --catalog-packages-json "${{ env.TF_WORKING_DIR }}/entraid_catalog_packages.json" \
+            --discovered-summary "${{ env.TF_WORKING_DIR }}/discovered_summary.md" \
+            --plan-output "${{ env.TF_WORKING_DIR }}/plan_output.txt" \
+            --output-file "${{ env.TF_WORKING_DIR }}/plan_summary.md"
 
       - name: Publier le commentaire d'impact sur la PR
         if: always()

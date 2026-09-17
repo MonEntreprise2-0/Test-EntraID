@@ -50,8 +50,7 @@ resource "azuread_access_package_resource_package_association" "this" {
     : azuread_access_package_resource_catalog_association.apps[each.value.catalog_assoc_key].id
   )
 
-  # Le role (Member/Owner) est implicitement derive de la resource_origin.
-  # Pour un controle plus fin, utilisez l'API Microsoft Graph directement.
+  access_type = each.value.role == "Owner" ? "Owner" : "Member"
 
   depends_on = [
     azuread_access_package_resource_catalog_association.groups,

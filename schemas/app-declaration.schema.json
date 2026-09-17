@@ -128,6 +128,12 @@
           "type": "string",
           "format": "uri",
           "description": "URL complete du site SharePoint."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["Member", "Owner"],
+          "default": "Member",
+          "description": "Rôle attribué sur le groupe (Member ou Owner)."
         }
       },
       "allOf": [
@@ -154,7 +160,8 @@
             "additionalProperties": false,
             "properties": {
               "resource_type": { "const": "EntraID Group" },
-              "group_name": { "type": "string" }
+              "group_name": { "type": "string" },
+              "role": { "type": "string", "enum": ["Member", "Owner"] }
             }
           }
         },

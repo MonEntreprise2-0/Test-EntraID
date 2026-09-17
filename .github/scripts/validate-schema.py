@@ -152,11 +152,7 @@ def main():
         print(f"❌ Le fichier JSON Schema est invalide : {e.message}", file=sys.stderr)
         sys.exit(2)
 
-    # 2. Coherence nom de fichier
-    filename_errors = validate_filename_consistency(yaml_data, args.yaml_file)
-    all_errors.extend(filename_errors)
-
-    # 3. Coherence et unicite des Access Packages
+    # 2. Coherence et unicite des Access Packages
     ap_errors = validate_access_packages_consistency(yaml_data)
     all_errors.extend(ap_errors)
 

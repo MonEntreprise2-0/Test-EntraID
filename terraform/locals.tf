@@ -40,19 +40,19 @@ locals {
   # 2. EXTRACTION DES GROUPES (pour les blocs data SSoT)
   # =========================================================================
 
-  # Groupes declares (support v1 et v2)
+  # Groupes declares (support v1 et v2, insensible a la casse du type)
   resource_group_names = distinct(flatten([
     for app_name, app in local.apps : concat(
       # Schema v1
       [
-        for res in try(app.resources, []) : res.display_name
-        if try(res.type, "") == "group"
+        for res in try(app.resources, []) : lookup(res, "display_name", "")
+        if contains(["group", "entraid group", "entra id group"], lower(trimspace(lookup(res, "type", lookup(res, "resource_type", "")))))
       ],
       # Schema v2
       flatten([
         for ap in try(app.access_packages, []) : [
-          for res in try(ap.resources, []) : res.group_name
-          if try(res.resource_type, "") == "EntraID Group"
+          for res in try(ap.resources, []) : lookup(res, "group_name", lookup(res, "display_name", ""))
+          if contains(["group", "entraid group", "entra id group"], lower(trimspace(lookup(res, "resource_type", lookup(res, "type", "")))))
         ]
       ])
     )
@@ -87,14 +87,14 @@ locals {
     for app_name, app in local.apps : concat(
       # Schema v1
       [
-        for res in try(app.resources, []) : res.display_name
-        if try(res.type, "") == "application"
+        for res in try(app.resources, []) : lookup(res, "display_name", "")
+        if contains(["application", "application role", "app"], lower(trimspace(lookup(res, "type", lookup(res, "resource_type", "")))))
       ],
       # Schema v2
       flatten([
         for ap in try(app.access_packages, []) : [
-          for res in try(ap.resources, []) : res.enterprise_app
-          if try(res.resource_type, "") == "Application Role"
+          for res in try(ap.resources, []) : lookup(res, "enterprise_app", lookup(res, "display_name", ""))
+          if contains(["application", "application role", "app"], lower(trimspace(lookup(res, "resource_type", lookup(res, "type", "")))))
         ]
       ])
     )
@@ -111,23 +111,23 @@ locals {
         # Schema v1
         [
           for res in try(app.resources, []) : {
-            key          = "${app_name}|${res.display_name}"
+            key          = "${app_name}|${lookup(res, "display_name", "")}"
             app_name     = app_name
-            display_name = res.display_name
-          } if try(res.type, "") == "group"
+            display_name = lookup(res, "display_name", "")
+          } if contains(["group", "entraid group", "entra id group"], lower(trimspace(lookup(res, "type", lookup(res, "resource_type", "")))))
         ],
         # Schema v2
         flatten([
           for ap in try(app.access_packages, []) : [
             for res in try(ap.resources, []) : {
-              key          = "${app_name}|${res.group_name}"
+              key          = "${app_name}|${lookup(res, "group_name", lookup(res, "display_name", ""))}"
               app_name     = app_name
-              display_name = res.group_name
-            } if try(res.resource_type, "") == "EntraID Group"
+              display_name = lookup(res, "group_name", lookup(res, "display_name", ""))
+            } if contains(["group", "entraid group", "entra id group"], lower(trimspace(lookup(res, "resource_type", lookup(res, "type", "")))))
           ]
         ])
       )
-    ])) : item.key => item
+    ])) : item.key => item if item.display_name != ""
   }
 
   # Associations applications -> catalogues
@@ -137,23 +137,23 @@ locals {
         # Schema v1
         [
           for res in try(app.resources, []) : {
-            key          = "${app_name}|${res.display_name}"
+            key          = "${app_name}|${lookup(res, "display_name", "")}"
             app_name     = app_name
-            display_name = res.display_name
-          } if try(res.type, "") == "application"
+            display_name = lookup(res, "display_name", "")
+          } if contains(["application", "application role", "app"], lower(trimspace(lookup(res, "type", lookup(res, "resource_type", "")))))
         ],
         # Schema v2
         flatten([
           for ap in try(app.access_packages, []) : [
             for res in try(ap.resources, []) : {
-              key          = "${app_name}|${res.enterprise_app}"
+              key          = "${app_name}|${lookup(res, "enterprise_app", lookup(res, "display_name", ""))}"
               app_name     = app_name
-              display_name = res.enterprise_app
-            } if try(res.resource_type, "") == "Application Role"
+              display_name = lookup(res, "enterprise_app", lookup(res, "display_name", ""))
+            } if contains(["application", "application role", "app"], lower(trimspace(lookup(res, "resource_type", lookup(res, "type", "")))))
           ]
         ])
       )
-    ])) : item.key => item
+    ])) : item.key => item if item.display_name != ""
   }
 
   # =========================================================================
@@ -164,14 +164,14 @@ locals {
     for item in flatten([
       for app_name, app in local.apps : [
         for ap in try(app.access_packages, []) : {
-          key = "${app_name}|${try(
-            ap.display_name,
-            trimspace("${try(ap.context_subapp, "")} ${ap.privilege_level} - ${ap.env}")
+          key = "${app_name}|${coalesce(
+            can(ap.display_name) && ap.display_name != null && ap.display_name != "" ? ap.display_name : null,
+            trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")
           )}"
           app_name = app_name
-          display_name = try(
-            ap.display_name,
-            trimspace("${try(ap.context_subapp, "")} ${ap.privilege_level} - ${ap.env}")
+          display_name = coalesce(
+            can(ap.display_name) && ap.display_name != null && ap.display_name != "" ? ap.display_name : null,
+            trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")
           )
           description = try(ap.description, "Access Package pour ${app_name}")
           hidden      = try(ap.hidden, false)
@@ -203,20 +203,20 @@ locals {
           # Schema v2
           [
             for res in try(ap.resources, []) : {
-              key = "${app_name}|${try(
-                ap.display_name,
-                trimspace("${try(ap.context_subapp, "")} ${ap.privilege_level} - ${ap.env}")
-              )}|${try(res.enterprise_app, res.group_name)}|${try(res.app_role, "Member")}"
+              key = "${app_name}|${coalesce(
+                can(ap.display_name) && ap.display_name != null && ap.display_name != "" ? ap.display_name : null,
+                trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")
+              )}|${lookup(res, "group_name", lookup(res, "enterprise_app", lookup(res, "display_name", "")))}|${lookup(res, "role", lookup(res, "app_role", contains(["admin", "owner"], lower(try(ap.privilege_level, ""))) ? "Owner" : "Member"))}"
               app_name = app_name
-              ap_key = "${app_name}|${try(
-                ap.display_name,
-                trimspace("${try(ap.context_subapp, "")} ${ap.privilege_level} - ${ap.env}")
+              ap_key = "${app_name}|${coalesce(
+                can(ap.display_name) && ap.display_name != null && ap.display_name != "" ? ap.display_name : null,
+                trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")
               )}"
-              resource_display_name = try(res.enterprise_app, res.group_name)
-              resource_type         = res.resource_type == "Application Role" ? "application" : "group"
-              role                  = try(res.app_role, "Member")
-              catalog_assoc_key     = "${app_name}|${try(res.enterprise_app, res.group_name)}"
-            } if try(res.resource_type, "") != "Sharepoint Group"
+              resource_display_name = lookup(res, "group_name", lookup(res, "enterprise_app", lookup(res, "display_name", "")))
+              resource_type         = contains(["application", "application role", "app"], lower(trimspace(lookup(res, "resource_type", lookup(res, "type", ""))))) ? "application" : "group"
+              role                  = lookup(res, "role", lookup(res, "app_role", contains(["admin", "owner"], lower(try(ap.privilege_level, ""))) ? "Owner" : "Member"))
+              catalog_assoc_key     = "${app_name}|${lookup(res, "group_name", lookup(res, "enterprise_app", lookup(res, "display_name", "")))}"
+            } if !contains(["sharepoint group", "sharepoint"], lower(trimspace(lookup(res, "resource_type", lookup(res, "type", "")))))
           ]
         )
       ]

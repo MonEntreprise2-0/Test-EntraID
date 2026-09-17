@@ -84,6 +84,27 @@ def extract_yaml_content(raw_content: str) -> str:
     return raw_content.strip()
 
 
+def extract_app_name_from_yaml(yaml_content: str) -> str:
+    """Extrait le nom de l'application (app_name ou application_name) directement du contenu YAML."""
+    if not yaml_content:
+        return ""
+    try:
+        import yaml
+        data = yaml.safe_load(yaml_content)
+        if isinstance(data, dict):
+            name = data.get("app_name") or data.get("application_name")
+            if name:
+                return str(name).strip()
+    except Exception:
+        pass
+
+    # Repli par expression reguliere
+    match = re.search(r"^\s*(?:app_name|application_name)\s*:\s*[\"']?([^\"'\r\n#]+)[\"']?", yaml_content, re.MULTILINE)
+    if match:
+        return match.group(1).strip()
+    return ""
+
+
 def validate_app_name(app_name: str) -> bool:
     """Valide la convention kebab-case (insensible a la casse pour validation)."""
     return bool(re.match(r"^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$", app_name.lower()))
@@ -123,16 +144,35 @@ def main():
     if team_section and not zip_section and not apps_import_section:
         operation = "admin_create"
         github_team = team_section
-        app_name = get_section_value(sections, "nom de l'application", "application_name", "app_name")
         raw_yaml = get_section_value(sections, "fichier yaml", "contenu yaml", "yaml")
         yaml_content = extract_yaml_content(raw_yaml)
+        app_name = extract_app_name_from_yaml(yaml_content)
+        if not app_name:
+            app_name = get_section_value(sections, "nom de l'application", "application_name", "app_name")
 
     # Scenario A : Modification utilisateur (si aucune des operations speciales ci-dessus)
     if operation == "unknown":
         operation = "user_modify"
-        app_name = get_section_value(sections, "nom de l'application", "application_name", "app_name", "application à modifier")
         raw_yaml = get_section_value(sections, "fichier yaml", "contenu yaml", "yaml")
         yaml_content = extract_yaml_content(raw_yaml)
+        app_name = extract_app_name_from_yaml(yaml_content)
+        if not app_name:
+            app_name = get_section_value(sections, "nom de l'application", "application_name", "app_name", "application à modifier")
+
+    # Normalisation kebab-case de l'app_name et synchronisation dans le YAML
+    if app_name:
+        slugified = re.sub(r"[^a-z0-9-_]", "-", app_name.lower()).strip("-")
+        slugified = re.sub(r"-+", "-", slugified)
+        if slugified != app_name and yaml_content:
+            # Remplacement proactif dans le YAML pour eviter toute erreur de schema
+            yaml_content = re.sub(
+                r"^(\s*(?:app_name|application_name)\s*:\s*)[\"']?[^\"'\r\n#]+[\"']?",
+                rf'\1"{slugified}"',
+                yaml_content,
+                count=1,
+                flags=re.MULTILINE
+            )
+        app_name = slugified
 
     # Ecriture des fichiers de sortie
     with open(os.path.join(args.output_dir, "operation_type.txt"), "w", encoding="utf-8") as f:
