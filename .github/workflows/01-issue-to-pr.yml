@@ -5,7 +5,11 @@ name: "🔄 Issue → Pull Request"
 
 on:
   issues:
-    types: [opened, reopened, labeled]
+    types: [opened, reopened]
+
+concurrency:
+  group: issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -17,7 +21,7 @@ jobs:
   route-and-process-issue:
     name: "📝 Traiter et Router l'Issue"
     runs-on: ubuntu-latest
-    if: contains(github.event.issue.labels.*.name, 'entitlement-request')
+    if: contains(github.event.issue.labels.*.name, 'entitlement-request') && github.event.issue.state != 'closed'
 
     steps:
 
@@ -315,6 +319,26 @@ jobs:
             const team = process.env.GITHUB_TEAM || '';
             const branch = process.env.BRANCH;
             const issueNum = process.env.ISSUE_NUM;
+
+            // Vérifier si une PR existe déjà pour cette issue afin d'éviter tout doublon
+            try {
+              const existingPrs = await github.rest.pulls.list({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'all',
+                per_page: 30
+              });
+              const duplicate = existingPrs.data.find(p =>
+                p.title.includes(`(Issue #${issueNum})`) ||
+                (p.body && p.body.includes(`Closes #${issueNum}`))
+              );
+              if (duplicate) {
+                console.log(`⚠️ Une PR (#${duplicate.number}) existe déjà pour l'Issue #${issueNum}. Fin du workflow sans doublon.`);
+                return;
+              }
+            } catch (err) {
+              console.log('Vérification des doublons ignorée:', err.message);
+            }
 
             let title = '';
             let desc = '';

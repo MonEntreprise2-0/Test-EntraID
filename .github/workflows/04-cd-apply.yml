@@ -9,11 +9,13 @@ on:
     paths:
       - 'declaration/**'
       - 'terraform/**'
+  workflow_dispatch:
 
 permissions:
   contents: write
   id-token: write
-  pull-requests: read
+  pull-requests: write
+  issues: write
 
 env:
   TF_WORKING_DIR: terraform
@@ -120,6 +122,83 @@ jobs:
             echo "Terraform apply a échoué."
             exit 1
           fi
+
+      - name: 👑 Assigner les Propriétaires de Catalogues (Entra ID)
+        if: steps.apply.outcome == 'success'
+        run: |
+          python .github/scripts/assign-catalog-owners.py || true
+
+      - name: 💬 Publier la confirmation de déploiement sur la Pull Request
+        if: steps.apply.outcome == 'success'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          script: |
+            const child_process = require('child_process');
+            let prNumber = null;
+            try {
+              const log = child_process.execSync('git log -n 5 --pretty=%B').toString();
+              const prMatch = log.match(/Merge pull request #(\d+)/);
+              if (prMatch) {
+                prNumber = parseInt(prMatch[1], 10);
+              }
+            } catch (e) {
+              console.log('Erreur parsing git log:', e.message);
+            }
+
+            if (!prNumber) {
+              console.log('Aucun numéro de Pull Request trouvé dans le commit de merge.');
+              return;
+            }
+
+            let outputs = {};
+            try {
+              const raw = child_process.execSync('terraform output -json', { cwd: 'terraform' }).toString();
+              outputs = JSON.parse(raw);
+            } catch (e) {
+              console.log('Erreur lecture terraform output:', e.message);
+            }
+
+            const catalogs = outputs.catalogs?.value || {};
+            const accessPackages = outputs.access_packages?.value || {};
+            const policies = outputs.assignment_policies?.value || {};
+
+            let rows = [];
+            for (const [app, c] of Object.entries(catalogs)) {
+              rows.push(`| 📦 **Catalogue** | \`${c.display_name || app}\` | \`${c.id}\` | ✅ Actif |`);
+            }
+            for (const [key, ap] of Object.entries(accessPackages)) {
+              rows.push(`| 🎁 **Access Package** | \`${ap.display_name}\` | \`${ap.id}\` | ✅ Actif |`);
+            }
+            for (const [key, pol] of Object.entries(policies)) {
+              rows.push(`| 📜 **Politique** | \`${pol.display_name}\` | \`${pol.id}\` | ✅ Actif |`);
+            }
+
+            const body = [
+              '## 🚀 Déploiement Entra ID appliqué avec succès !',
+              '',
+              'Toutes les ressources ont été provisionnées et sont actives dans **Microsoft Entra ID** :',
+              '',
+              '| Type de Ressource | Nom dans Entra ID | Identifiant Entra ID (Object ID) | Statut |',
+              '|---|---|---|---|',
+              ...rows,
+              '',
+              '> 👑 **Propriétaires du catalogue** : les `authorization_owners` déclarés ont été rattachés au rôle *Catalog owner* dans Entra ID.',
+              '',
+              '🔗 Consultez et gérez votre catalogue directement sur le [Portail Microsoft Entra ID](https://entra.microsoft.com/#view/Microsoft_AAD_ERM/DashboardBlade).'
+            ].join('\n');
+
+            try {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: body
+              });
+              console.log(`Commentaire de déploiement posté avec succès sur la PR #${prNumber}`);
+            } catch (err) {
+              console.log('Erreur création commentaire PR:', err.message);
+            }
 
       - name: 📝 Mettre à jour automatiquement le fichier CODEOWNERS
         if: steps.apply.outcome == 'success'

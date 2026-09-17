@@ -12,4 +12,5 @@ resource "azuread_access_package_catalog" "this" {
   display_name       = try(each.value.catalog.display_name, each.value.catalog_name, each.value.app_name)
   description        = try(each.value.app_description, each.value.catalog.description, "Catalogue ${try(each.value.catalog.display_name, each.value.app_name)}")
   externally_visible = try(each.value.catalog.published, true)
+  published          = true
 }
