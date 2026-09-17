@@ -5,7 +5,7 @@ name: "🔄 Issue → Pull Request"
 
 on:
   issues:
-    types: [opened, reopened]
+    types: [opened, reopened, labeled]
 
 permissions:
   contents: write
@@ -164,17 +164,10 @@ jobs:
             const teamInput = process.env.GITHUB_TEAM.trim();
             const owner = context.repo.owner;
 
-            // 1. Vérifier qu'elle n'existe pas encore
+            // 1. Vérifier si l'application existe déjà (Information, non bloquant pour les Admins)
             const appDir = path.join('declaration', appName);
             if (fs.existsSync(appDir)) {
-              await github.rest.issues.createComment({
-                owner: owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.issue.number,
-                body: `❌ **Erreur bloquante** : L'application \`${appName}\` existe déjà dans \`declaration/\`.\n\nPour la modifier, veuillez utiliser le formulaire de modification.`
-              });
-              core.setFailed(`L'application ${appName} existe déjà.`);
-              return;
+              console.log(`ℹ️ L'application '${appName}' existe déjà dans declaration/. Mise à jour autorisée pour l'administrateur.`);
             }
 
             // 2. Vérifier l'existence de la Team GitHub dans l'organisation (insensible à la casse)
@@ -200,6 +193,12 @@ jobs:
                 repo: context.repo.repo,
                 issue_number: context.payload.issue.number,
                 body: `❌ **Erreur bloquante** : La Team GitHub \`${teamInput}\` est introuvable dans l'organisation \`${owner}\`.\n\nVeuillez vérifier le nom exact de l'équipe sur [Teams ${owner}](https://github.com/orgs/${owner}/teams).`
+              });
+              await github.rest.issues.update({
+                owner: owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                state: 'closed'
               });
               core.setFailed(`Team ${teamInput} introuvable dans l'organisation.`);
             } else {
@@ -288,10 +287,10 @@ jobs:
             mkdir -p "declaration/${APP_SLUG}"
             cp ./parsed/app.yaml "declaration/${APP_SLUG}/${APP_SLUG}.yaml"
             git add "declaration/${APP_SLUG}/${APP_SLUG}.yaml"
-            git commit -m "feat(entitlement): [${OP}] ${APP_SLUG} — via Issue #${{ github.event.issue.number }}"
+            git commit --allow-empty -m "feat(entitlement): [${OP}] ${APP_SLUG} — via Issue #${{ github.event.issue.number }}"
           elif [ "$OP" = "admin_bulk" ] || [ "$OP" = "admin_import" ]; then
             git add declaration/
-            git commit -m "feat(entitlement): [${OP}] mise à jour déclarative — via Issue #${{ github.event.issue.number }}"
+            git commit --allow-empty -m "feat(entitlement): [${OP}] mise à jour déclarative — via Issue #${{ github.event.issue.number }}"
           fi
 
           git push origin "$BRANCH"
@@ -359,5 +358,14 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issueNum,
-              body: `🚀 **Pull Request créée avec succès !**\n\n👉 Suivez l'avancement et les vérifications sur la PR : #${pr.data.number} (${pr.data.html_url})`
+              body: `🚀 **Pull Request créée avec succès !**\n\nL'Issue est automatiquement clôturée et le traitement se poursuit sur la PR : #${pr.data.number} (${pr.data.html_url})`
+            });
+
+            // Clôturer automatiquement l'Issue dès la création de la PR
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNum,
+              state: 'closed',
+              state_reason: 'completed'
             });
