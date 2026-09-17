@@ -17,6 +17,11 @@ import os
 import re
 import sys
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 try:
     import yaml
 except ImportError:
@@ -40,7 +45,9 @@ def compute_ap_name(ap: dict) -> str:
 
 def extract_resource_summary(res_list: list) -> str:
     items = []
-    for r in res_list:
+    for r in (res_list or []):
+        if not isinstance(r, dict):
+            continue
         rname = r.get("group_name") or r.get("enterprise_app") or r.get("display_name") or "Ressource"
         role = r.get("role") or r.get("app_role") or "Member"
         items.append(f"`{rname}` ({role})")
@@ -125,16 +132,18 @@ def main():
         output_lines.append("")
 
         declared_aps = {}
-        for ap in app_data.get("access_packages", []):
+        for ap in (app_data.get("access_packages") or []):
+            if not isinstance(ap, dict):
+                continue
             name = compute_ap_name(ap)
             declared_aps[name.lower()] = {
                 "name": name,
                 "env": ap.get("env", "N/A"),
                 "privilege": ap.get("privilege_level", "N/A"),
-                "resources": ap.get("resources", ap.get("resource_roles", []))
+                "resources": ap.get("resources") or ap.get("resource_roles") or []
             }
 
-        existing_for_app = catalog_packages.get(app_name, [])
+        existing_for_app = catalog_packages.get(app_name) or []
         existing_aps = {p.get("display_name", "").strip().lower(): p for p in existing_for_app if p.get("display_name")}
 
 

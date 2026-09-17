@@ -18,6 +18,11 @@ import os
 import re
 import sys
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 try:
     import yaml
 except ImportError:
@@ -77,16 +82,24 @@ def validate_access_packages_consistency(yaml_data: dict) -> list:
     errors = []
     seen_ap_names = set()
 
-    for idx, ap in enumerate(yaml_data.get("access_packages", []), 1):
-        context = ap.get("context_subapp", "").strip()
-        privilege = ap.get("privilege_level", "").strip()
-        env = ap.get("env", "").strip()
+    for idx, ap in enumerate(yaml_data.get("access_packages") or [], 1):
+        if not isinstance(ap, dict):
+            continue
 
-        # Calcul du nom d'AP : [Context/Subapp] [Privilege Level] - [Env]
-        if context:
-            computed_name = f"{context} {privilege} - {env}"
+        display_name = ap.get("display_name")
+        if display_name and str(display_name).strip():
+            computed_name = str(display_name).strip()
         else:
-            computed_name = f"{privilege} - {env}"
+            context = str(ap.get("context_subapp") or "").strip()
+            privilege = str(ap.get("privilege_level") or "").strip()
+            env = str(ap.get("env") or "").strip()
+
+            if context:
+                computed_name = f"{context} {privilege} - {env}"
+            elif privilege and env:
+                computed_name = f"{privilege} - {env}"
+            else:
+                computed_name = privilege or env or f"AP #{idx}"
 
         normalized_ap_name = computed_name.lower()
         if normalized_ap_name in seen_ap_names:
@@ -98,7 +111,7 @@ def validate_access_packages_consistency(yaml_data: dict) -> list:
 
         # Verification des emails
         email_regex = r"^[^@]+@[^@]+\.[^@]+$"
-        for email in ap.get("authorization_owners", []):
+        for email in (ap.get("authorization_owners") or []):
             if not re.match(email_regex, str(email).strip()):
                 errors.append(
                     f"Access Package '{computed_name}' : l'adresse email '{email}' "

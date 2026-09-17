@@ -31,7 +31,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 5
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          fetch-depth: 10
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -116,9 +117,11 @@ jobs:
         if: steps.apply.outcome == 'success'
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
             const path = require('path');
+            const child_process = require('child_process');
             const owner = context.repo.owner;
             const codeownersPath = path.join('.github', 'CODEOWNERS');
 
@@ -144,15 +147,29 @@ jobs:
                   if (!codeownersContent.includes(rulePrefix)) {
                     console.log(`Nouvelle application détectée sans règle CODEOWNERS : ${appName}`);
 
-                    // Vérifier si un message de commit ou PR référence une team
                     let teamSlug = 'admins';
                     try {
-                      const log = child_process.execSync('git log -1 --pretty=%B').toString();
+                      const log = child_process.execSync('git log -n 5 --pretty=%B').toString();
                       const match = log.match(/GITHUB_TEAM:\s*([a-zA-Z0-9_-]+)/);
                       if (match) {
                         teamSlug = match[1];
+                      } else {
+                        const prMatch = log.match(/Merge pull request #(\d+)/);
+                        if (prMatch) {
+                          const prRes = await github.rest.pulls.get({
+                            owner: owner,
+                            repo: context.repo.repo,
+                            pull_number: parseInt(prMatch[1], 10)
+                          });
+                          const prBodyMatch = (prRes.data.body || '').match(/GITHUB_TEAM:\s*([a-zA-Z0-9_-]+)/);
+                          if (prBodyMatch) {
+                            teamSlug = prBodyMatch[1];
+                          }
+                        }
                       }
-                    } catch (e) {}
+                    } catch (e) {
+                      console.log('Erreur extraction team:', e.message);
+                    }
 
                     const newRule = `${rulePrefix} @${owner}/${teamSlug}`;
                     codeownersContent += `\n${newRule}`;

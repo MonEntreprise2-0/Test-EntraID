@@ -249,17 +249,17 @@ locals {
           contains(keys(ap), "privilege_level") ? [
             {
               key = "${app_name}|${try(
-                ap.display_name,
-                trimspace("${try(ap.context_subapp, "")} ${ap.privilege_level} - ${ap.env}")
+                coalesce(ap.display_name, trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")),
+                trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")
               )}|Politique"
               app_name = app_name
               ap_key = "${app_name}|${try(
-                ap.display_name,
-                trimspace("${try(ap.context_subapp, "")} ${ap.privilege_level} - ${ap.env}")
+                coalesce(ap.display_name, trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")),
+                trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")
               )}"
               display_name = "Politique - ${try(
-                ap.display_name,
-                trimspace("${try(ap.context_subapp, "")} ${ap.privilege_level} - ${ap.env}")
+                coalesce(ap.display_name, trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")),
+                trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")
               )}"
               authorization_owners = try(ap.authorization_owners, [])
               assignment           = { type = "expiring", duration_in_days = 365 }

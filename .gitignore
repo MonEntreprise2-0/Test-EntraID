@@ -19,3 +19,7 @@ terraform.rc
 **/plan_summary.md
 parsed/
 *.pdf
+
+# Python
+__pycache__/
+*.py[cod]

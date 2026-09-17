@@ -18,6 +18,11 @@ import subprocess
 import sys
 import yaml
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 
 def query_graph_api(url: str) -> dict:
     """Execute un appel REST vers Microsoft Graph API via Azure CLI."""
@@ -135,14 +140,18 @@ def reverse_engineer(target_apps: list, declaration_dir: str = "declaration") ->
                     "group_name": "GRP-DEFAULT-ACCESS"
                 })
 
-            yaml_access_packages.append({
+            ap_entry = {
                 "context_subapp": context_subapp,
                 "privilege_level": privilege_level,
                 "env": env,
                 "description": ap_description,
                 "authorization_owners": ["iam-team@monentreprise123.onmicrosoft.com"],
                 "resources": resources
-            })
+            }
+            if ap_display_name:
+                ap_entry["display_name"] = ap_display_name
+
+            yaml_access_packages.append(ap_entry)
 
         # Si aucun access package n'existait, on crée un package par défaut
         if not yaml_access_packages:

@@ -17,6 +17,11 @@ import sys
 import zipfile
 import yaml
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 
 def process_bulk_zip(zip_path: str, declaration_dir: str = "declaration") -> list:
     """Decompresse, verifie et deploie les fichiers de l'archive ZIP."""
