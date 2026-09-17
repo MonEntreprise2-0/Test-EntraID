@@ -103,6 +103,8 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -130,6 +132,12 @@ jobs:
         run: |
           terraform init
           terraform state rm 'azuread_access_package_assignment_policy.this["cat-test03|AP_Test03|Politique de test"]' 2>/dev/null || true
+          terraform state rm 'azuread_access_package_assignment_policy.this["private-credit|Credit Read Only - UAT|Politique"]' 2>/dev/null || true
+          terraform state rm 'azuread_access_package_assignment_policy.this["private-credit|Credit Write - UAT|Politique"]' 2>/dev/null || true
+
+      - name: 🧹 Nettoyage automatique des ressources orphelines du State
+        run: |
+          python .github/scripts/cleanup-stale-state.py --working-dir ${{ env.TF_WORKING_DIR }}
 
       - name: Smart Discovery des catalogues Entra ID
         run: |
