@@ -164,13 +164,13 @@ locals {
     for item in flatten([
       for app_name, app in local.apps : [
         for ap in try(app.access_packages, []) : {
-          key = "${app_name}|${coalesce(
-            can(ap.display_name) && ap.display_name != null && ap.display_name != "" ? ap.display_name : null,
+          key = "${app_name}|${try(
+            coalesce(ap.display_name, trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")),
             trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")
           )}"
           app_name = app_name
-          display_name = coalesce(
-            can(ap.display_name) && ap.display_name != null && ap.display_name != "" ? ap.display_name : null,
+          display_name = try(
+            coalesce(ap.display_name, trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")),
             trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")
           )
           description = try(ap.description, "Access Package pour ${app_name}")
@@ -203,13 +203,13 @@ locals {
           # Schema v2
           [
             for res in try(ap.resources, []) : {
-              key = "${app_name}|${coalesce(
-                can(ap.display_name) && ap.display_name != null && ap.display_name != "" ? ap.display_name : null,
+              key = "${app_name}|${try(
+                coalesce(ap.display_name, trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")),
                 trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")
               )}|${lookup(res, "group_name", lookup(res, "enterprise_app", lookup(res, "display_name", "")))}|${lookup(res, "role", lookup(res, "app_role", contains(["admin", "owner"], lower(try(ap.privilege_level, ""))) ? "Owner" : "Member"))}"
               app_name = app_name
-              ap_key = "${app_name}|${coalesce(
-                can(ap.display_name) && ap.display_name != null && ap.display_name != "" ? ap.display_name : null,
+              ap_key = "${app_name}|${try(
+                coalesce(ap.display_name, trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")),
                 trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")
               )}"
               resource_display_name = lookup(res, "group_name", lookup(res, "enterprise_app", lookup(res, "display_name", "")))
