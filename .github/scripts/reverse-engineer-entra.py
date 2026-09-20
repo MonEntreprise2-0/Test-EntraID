@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """
-reverse-engineer-entra.py - Aspiration et traduction declarative Entra ID vers GitOps.
+reverse-engineer-entra.py - Aspiration et traduction déclarative Entra ID vers GitOps.
 
-Scenario D (Admin - Import depuis Entra ID) :
-1. Recupere les noms d'applications cibles (separateurs virgules, insensible a la casse).
-2. Interroge Microsoft Graph API pour trouver les catalogues et paquets d'acces correspondants.
-3. Extrait les paquets d'acces, ressources liees et politiques d'approbation.
-4. Genere l'arborescence : declaration/<nomapplication>/<nomapplication>.yaml.
-5. Regle d'ecrasement : si l'application existe deja dans Git, son fichier est ecrase par la version extraite.
+Scénario D (Admin - Import depuis Entra ID) :
+1. Récupère les noms d'applications cibles (séparateurs virgules ou retours à la ligne).
+2. Interroge Microsoft Graph API pour trouver les catalogues et paquets d'accès correspondants.
+3. Valide STRICTEMENT la nomenclature de TOUS les Access Packages :
+   Format obligatoire : [Contexte/Sous-Application] [Niveau de Privilège] - [Environnement]
+   ⚠️ RÈGLE FAIL-SAFE : Si un seul Access Package d'une application ne respecte pas cette règle,
+   l'import de l'application en entier ÉCHOUE immédiatement (aucun mock ni fallback).
+4. Extrait les vraies ressources liées (groupes, rôles applicatifs) et politiques d'approbation réelles.
+5. Règle d'écrasement : si l'application existe déjà dans declaration/, son fichier YAML est écrasé.
+6. Génère l'arborescence : declaration/<nomapplication>/<nomapplication>.yaml.
 """
 
 import argparse
@@ -23,34 +27,357 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
+EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+KNOWN_PRIVILEGES = [
+    "read only",
+    "read-only",
+    "write",
+    "admin",
+    "user",
+    "member",
+    "owner",
+    "contributor",
+    "viewer",
+    "operator",
+    "full access",
+    "standard",
+    "standard access",
+    "it access",
+    "manager",
+    "auditor",
+    "editor",
+]
+
+VALID_ENV_PATTERN = re.compile(
+    r"^(dev|development|test|uat|staging|preprod|prod|production|qa|[a-z0-9_-]+)$",
+    re.IGNORECASE
+)
+
+# Built-in ID du rôle "Catalog owner" dans Entitlement Management Entra ID
+CATALOG_OWNER_ROLE_ID = "ae79f266-94d4-4dab-b730-feca7e132178"
+
 
 def query_graph_api(url: str) -> dict:
-    """Execute un appel REST vers Microsoft Graph API via Azure CLI."""
+    """Exécute un appel REST vers Microsoft Graph API via Azure CLI."""
     cmd = ["az", "rest", "--method", "get", "--url", url, "--output", "json"]
     try:
         res = subprocess.run(cmd, capture_output=True, text=True, check=True)
         return json.loads(res.stdout) if res.stdout else {}
+    except subprocess.CalledProcessError as e:
+        err_msg = (e.stderr or "").strip()
+        if "404" not in err_msg:
+            print(f"⚠️ Erreur Graph API ({url}) : {err_msg or e}", file=sys.stderr)
+        return {}
     except Exception as e:
-        print(f"⚠️ Erreur lors de l'appel Graph API ({url}) : {e}", file=sys.stderr)
+        print(f"⚠️ Exception Graph API ({url}) : {e}", file=sys.stderr)
         return {}
 
 
 def parse_target_applications(target_str: str) -> list:
-    """Parse la liste des applications cibles en séparant par des virgules."""
-    apps = [a.strip() for a in target_str.split(",") if a.strip()]
-    return list(dict.fromkeys(apps))  # Dédoublonnage en conservant l'ordre
+    """Parse la liste des applications cibles (séparateurs virgules ou retours à la ligne)."""
+    raw_lines = target_str.replace("\r\n", "\n").replace("\r", "\n")
+    apps = []
+    for line in raw_lines.split("\n"):
+        for item in line.split(","):
+            cleaned = item.strip().strip("\"'").strip()
+            if cleaned:
+                apps.append(cleaned)
+    return list(dict.fromkeys(apps))
 
 
-def reverse_engineer(target_apps: list, declaration_dir: str = "declaration") -> list:
-    """Exécute l'extraction ciblée depuis Entra ID."""
+def validate_and_parse_ap_nomenclature(ap_name: str) -> tuple[bool, dict, str]:
+    """
+    Valide STRICTEMENT et décompose le nom d'un Access Package selon la convention :
+    [context_subapp] [privilege_level] - [env] ou [privilege_level] - [env]
+
+    Retourne : (is_valid, parsed_dict, error_reason)
+    """
+    if not ap_name or not ap_name.strip():
+        return False, {}, "Le nom de l'Access Package est vide."
+
+    clean_name = ap_name.strip()
+
+    # Doit impérativement contenir le séparateur ' - '
+    if " - " not in clean_name:
+        return False, {}, (
+            f"L'Access Package '{clean_name}' ne respecte pas la nomenclature obligatoire "
+            f"'[Contexte] [Privilège] - [Environnement]' (séparateur ' - ' manquant)."
+        )
+
+    parts = clean_name.rsplit(" - ", 1)
+    prefix = parts[0].strip()
+    env = parts[1].strip()
+
+    if not prefix:
+        return False, {}, f"L'Access Package '{clean_name}' n'a pas de niveau de privilège défini avant ' - '."
+
+    if not env or not VALID_ENV_PATTERN.match(env):
+        return False, {}, (
+            f"L'Access Package '{clean_name}' possède un environnement invalide ('{env}'). "
+            f"Environnements attendus : Dev, UAT, Prod, Test, Staging, etc."
+        )
+
+    prefix_lower = prefix.lower()
+
+    # Cas 1 : Le préfixe complet est un privilège connu (ex: "Read Only", "Admin")
+    if prefix_lower in KNOWN_PRIVILEGES:
+        return True, {
+            "context_subapp": "",
+            "privilege_level": prefix,
+            "env": env
+        }, ""
+
+    # Cas 2 : Le préfixe se termine par un privilège connu (ex: "SubApp Read Only", "Credit Write")
+    matched_priv = None
+    for priv in sorted(KNOWN_PRIVILEGES, key=len, reverse=True):
+        if prefix_lower.endswith(" " + priv):
+            matched_priv = priv
+            break
+
+    if matched_priv:
+        context_part = prefix[:-(len(matched_priv) + 1)].strip()
+        priv_part = prefix[-(len(matched_priv)):].strip()
+        return True, {
+            "context_subapp": context_part,
+            "privilege_level": priv_part,
+            "env": env
+        }, ""
+
+    # Cas 3 : Décomposition par défaut (si 1 seul mot -> privilège, si plusieurs -> dernier mot privilège)
+    words = prefix.split()
+    if len(words) == 1:
+        return True, {
+            "context_subapp": "",
+            "privilege_level": words[0],
+            "env": env
+        }, ""
+    else:
+        context_part = " ".join(words[:-1])
+        priv_part = words[-1]
+        return True, {
+            "context_subapp": context_part,
+            "privilege_level": priv_part,
+            "env": env
+        }, ""
+
+
+def get_all_catalogs() -> list:
+    """Récupère l'ensemble des catalogues existants dans Entra ID."""
+    endpoints = [
+        "https://graph.microsoft.com/v1.0/identityGovernance/entitlementManagement/catalogs?$top=999",
+        "https://graph.microsoft.com/beta/identityGovernance/entitlementManagement/accessPackageCatalogs?$top=999",
+    ]
+    for url in endpoints:
+        data = query_graph_api(url)
+        cats = data.get("value", [])
+        if cats:
+            return cats
+    return []
+
+
+def get_catalog_access_packages(cat_id: str) -> list:
+    """Récupère les Access Packages existants d'un catalogue dans Entra ID."""
+    # 1. Via expand sur le catalogue v1.0
+    url1 = f"https://graph.microsoft.com/v1.0/identityGovernance/entitlementManagement/catalogs/{cat_id}?$expand=accessPackages"
+    data1 = query_graph_api(url1)
+    if data1 and "accessPackages" in data1 and data1["accessPackages"]:
+        return data1["accessPackages"]
+    if data1 and "value" in data1 and data1["value"]:
+        return data1["value"]
+
+    # 2. Via expand sur le catalogue beta
+    url2 = f"https://graph.microsoft.com/beta/identityGovernance/entitlementManagement/accessPackageCatalogs/{cat_id}?$expand=accessPackages"
+    data2 = query_graph_api(url2)
+    if data2 and "accessPackages" in data2 and data2["accessPackages"]:
+        return data2["accessPackages"]
+
+    # 3. Fallback : lister tous les access packages et filtrer côté client par catalogId
+    url3 = "https://graph.microsoft.com/v1.0/identityGovernance/entitlementManagement/accessPackages?$top=999"
+    data3 = query_graph_api(url3)
+    if data3 and "value" in data3:
+        matched = [
+            ap for ap in data3["value"]
+            if ap.get("catalogId") == cat_id or ap.get("catalog", {}).get("id") == cat_id
+        ]
+        if matched:
+            return matched
+
+    return []
+
+
+def get_catalog_resources(cat_id: str) -> list:
+    """Récupère les ressources (groupes, apps) déjà associées à un catalogue dans Entra ID."""
+    endpoints = [
+        f"https://graph.microsoft.com/v1.0/identityGovernance/entitlementManagement/catalogs/{cat_id}/accessPackageResources?$top=999",
+        f"https://graph.microsoft.com/beta/identityGovernance/entitlementManagement/accessPackageCatalogs/{cat_id}/accessPackageResources?$top=999",
+    ]
+    for url in endpoints:
+        data = query_graph_api(url)
+        resources = data.get("value", [])
+        if resources:
+            return resources
+    return []
+
+
+def get_access_package_resources(ap_id: str, cat_id: str) -> list:
+    """Récupère les ressources liées à un Access Package (groupes, rôles applicatifs, sharepoint)."""
+    endpoints = [
+        f"https://graph.microsoft.com/v1.0/identityGovernance/entitlementManagement/accessPackages/{ap_id}?$expand=resourceRoleScopes($expand=role,scope)",
+        f"https://graph.microsoft.com/v1.0/identityGovernance/entitlementManagement/accessPackages/{ap_id}/accessPackageResourceRoleScopes?$expand=accessPackageResourceRole,accessPackageResourceScope",
+        f"https://graph.microsoft.com/beta/identityGovernance/entitlementManagement/accessPackages/{ap_id}?$expand=accessPackageResourceRoleScopes($expand=accessPackageResourceRole,accessPackageResourceScope)",
+        f"https://graph.microsoft.com/beta/identityGovernance/entitlementManagement/accessPackages/{ap_id}/accessPackageResourceRoleScopes?$expand=accessPackageResourceRole,accessPackageResourceScope",
+    ]
+
+    resources = []
+    seen = set()
+
+    for url in endpoints:
+        data = query_graph_api(url)
+        role_scopes = data.get("resourceRoleScopes") or data.get("accessPackageResourceRoleScopes") or data.get("value", [])
+        if role_scopes:
+            for rs in role_scopes:
+                scope = rs.get("accessPackageResourceScope") or rs.get("scope") or {}
+                res_info = scope.get("accessPackageResource") or scope.get("resource") or {}
+                role_info = rs.get("accessPackageResourceRole") or rs.get("role") or {}
+
+                if not res_info and "resource" in role_info:
+                    res_info = role_info.get("resource", {})
+
+                res_type = res_info.get("resourceType", "").lower()
+                res_name = res_info.get("displayName", "")
+                role_name = role_info.get("displayName", "")
+
+                if not res_name:
+                    continue
+
+                if "group" in res_type:
+                    key = ("group", res_name)
+                    if key not in seen:
+                        seen.add(key)
+                        resources.append({
+                            "resource_type": "EntraID Group",
+                            "group_name": res_name
+                        })
+                elif "application" in res_type or "serviceprincipal" in res_type:
+                    key = ("app", res_name, role_name)
+                    if key not in seen:
+                        seen.add(key)
+                        resources.append({
+                            "resource_type": "Application Role",
+                            "enterprise_app": res_name,
+                            "app_role": role_name or "Default Access"
+                        })
+                elif "sharepoint" in res_type:
+                    key = ("sp", res_name)
+                    if key not in seen:
+                        seen.add(key)
+                        resources.append({
+                            "resource_type": "Sharepoint Group",
+                            "catalog_id": cat_id,
+                            "sharepoint_url": res_info.get("url", "https://sharepoint.com")
+                        })
+            if resources:
+                return resources
+
+    # Repli : Si aucune ressource n'est directement liée à l'AP, vérifier les ressources du catalogue
+    cat_resources = get_catalog_resources(cat_id)
+    for cr in cat_resources:
+        cr_type = cr.get("resourceType", "").lower()
+        cr_name = cr.get("displayName", "")
+        if not cr_name:
+            continue
+        if "group" in cr_type:
+            key = ("group", cr_name)
+            if key not in seen:
+                seen.add(key)
+                resources.append({
+                    "resource_type": "EntraID Group",
+                    "group_name": cr_name
+                })
+        elif "application" in cr_type or "serviceprincipal" in cr_type:
+            key = ("app", cr_name)
+            if key not in seen:
+                seen.add(key)
+                resources.append({
+                    "resource_type": "Application Role",
+                    "enterprise_app": cr_name,
+                    "app_role": "Default Access"
+                })
+
+    return resources
+
+
+def get_access_package_approvers(ap_id: str, cat_id: str) -> list:
+    """Extrait les adresses email réelles des approbateurs (politiques ou propriétaires de catalogue)."""
+    approvers = []
+
+    # 1. Interroger les politiques d'assignation de l'Access Package
+    pol_url = f"https://graph.microsoft.com/v1.0/identityGovernance/entitlementManagement/assignmentPolicies?$filter=accessPackage/id eq '{ap_id}'&$top=999"
+    pol_data = query_graph_api(pol_url)
+    policies = pol_data.get("value", [])
+
+    for pol in policies:
+        approval_settings = pol.get("requestApprovalSettings") or {}
+        stages = approval_settings.get("approvalStages") or approval_settings.get("stages") or []
+        for stage in stages:
+            primary_approvers = stage.get("primaryApprovers", [])
+            for approver in primary_approvers:
+                user_id = approver.get("userId") or approver.get("id")
+                group_id = approver.get("groupId")
+
+                if user_id:
+                    user_data = query_graph_api(f"https://graph.microsoft.com/v1.0/users/{user_id}?$select=mail,userPrincipalName")
+                    email = user_data.get("mail") or user_data.get("userPrincipalName")
+                    if email and EMAIL_REGEX.match(email):
+                        approvers.append(email)
+
+                if group_id:
+                    group_data = query_graph_api(f"https://graph.microsoft.com/v1.0/groups/{group_id}?$select=mail")
+                    email = group_data.get("mail")
+                    if email and EMAIL_REGEX.match(email):
+                        approvers.append(email)
+
+    # 2. Si aucun approbateur trouvé dans les politiques, interroger les Catalog Owners du catalogue
+    if not approvers:
+        owner_url = (
+            f"https://graph.microsoft.com/v1.0/roleManagement/entitlementManagement/roleAssignments"
+            f"?$filter=directoryScopeId eq '/AccessPackageCatalog/{cat_id}' and roleDefinitionId eq '{CATALOG_OWNER_ROLE_ID}'"
+            f"&$expand=principal"
+        )
+        owner_data = query_graph_api(owner_url)
+        assignments = owner_data.get("value", [])
+        for ra in assignments:
+            principal = ra.get("principal") or {}
+            email = principal.get("mail") or principal.get("userPrincipalName")
+            if email and EMAIL_REGEX.match(email):
+                approvers.append(email)
+
+    # 3. Dernier repli : utilisateur actuellement connecté via Azure CLI
+    if not approvers:
+        try:
+            cmd = ["az", "ad", "signed-in-user", "show", "--query", "userPrincipalName", "-o", "tsv"]
+            res = subprocess.run(cmd, capture_output=True, text=True)
+            if res.returncode == 0 and res.stdout.strip():
+                signed_email = res.stdout.strip()
+                if EMAIL_REGEX.match(signed_email):
+                    approvers.append(signed_email)
+        except Exception:
+            pass
+
+    return list(dict.fromkeys(approvers))
+
+
+def reverse_engineer(target_apps: list, declaration_dir: str = "declaration") -> tuple[list, list]:
+    """
+    Exécute l'extraction ciblée depuis Entra ID avec application stricte des règles métier.
+    Retourne : (imported_apps, error_messages)
+    """
     declaration_dir = os.path.abspath(declaration_dir)
     os.makedirs(declaration_dir, exist_ok=True)
 
     print("📡 Récupération de la liste des catalogues Entra ID...")
-    cat_url = "https://graph.microsoft.com/v1.0/identityGovernance/entitlementManagement/catalogs?$top=999"
-    cat_data = query_graph_api(cat_url)
-    all_catalogs = cat_data.get("value", [])
-
+    all_catalogs = get_all_catalogs()
     print(f"ℹ️ {len(all_catalogs)} catalogue(s) trouvé(s) dans l'annuaire Entra ID.")
 
     # Indexation insensible à la casse
@@ -61,115 +388,93 @@ def reverse_engineer(target_apps: list, declaration_dir: str = "declaration") ->
             catalog_map[display_name.lower()] = cat
 
     imported_apps = []
-    missing_apps = []
+    error_messages = []
 
     for app_query in target_apps:
         query_norm = app_query.lower()
         matched_cat = catalog_map.get(query_norm)
 
         if not matched_cat:
-            print(f"⚠️ Catalogue introuvable dans Entra ID pour : '{app_query}'")
-            missing_apps.append(app_query)
+            err = f"❌ Catalogue introuvable dans Entra ID pour : '{app_query}'"
+            print(f"⚠️ {err}")
+            error_messages.append(err)
             continue
 
         cat_id = matched_cat.get("id")
         cat_display_name = matched_cat.get("displayName")
         cat_description = matched_cat.get("description") or f"Catalogue pour {cat_display_name}"
 
-        print(f"\n📥 Traitement de l'application : {cat_display_name} (ID: {cat_id})")
+        print(f"\n📥 Traitement de l'application : '{cat_display_name}' (ID: {cat_id})")
 
-        # 1. Récupération des paquets d'accès
-        ap_url = f"https://graph.microsoft.com/v1.0/identityGovernance/entitlementManagement/accessPackages?$filter=catalogId eq '{cat_id}'"
-        ap_data = query_graph_api(ap_url)
-        access_packages = ap_data.get("value", [])
+        # 1. Récupération des paquets d'accès réels
+        access_packages = get_catalog_access_packages(cat_id)
+        print(f"   -> {len(access_packages)} Access Package(s) détecté(s) dans Entra ID.")
 
+        if not access_packages:
+            err = (
+                f"❌ Rejet de l'application '{cat_display_name}' : aucun Access Package n'existe "
+                f"dans ce catalogue dans Entra ID. Au moins un Access Package conforme est requis pour l'import."
+            )
+            print(f"   {err}")
+            error_messages.append(err)
+            continue
+
+        # 2. Validation STRICTE de la nomenclature de chaque Access Package
+        # ⚠️ Règle Fail-Safe : Si 1 seul AP est invalide, l'application entière échoue !
         yaml_access_packages = []
+        app_has_error = False
 
         for ap in access_packages:
             ap_id = ap.get("id")
             ap_display_name = ap.get("displayName", "").strip()
             ap_description = ap.get("description") or f"Accès {ap_display_name}"
 
-            # Décomposition du nom d'AP [Context/Subapp] [Privilege Level] - [Env]
-            # Si le pattern standard est trouvé
-            m = re.match(r"^(?:(.+?)\s+)?([^-]+?)\s*-\s*(.+)$", ap_display_name)
-            if m:
-                context_subapp = m.group(1).strip() if m.group(1) else ""
-                privilege_level = m.group(2).strip()
-                env = m.group(3).strip()
-            else:
-                context_subapp = ""
-                privilege_level = ap_display_name
-                env = "Prod"
+            is_valid, parsed_ap, reason = validate_and_parse_ap_nomenclature(ap_display_name)
+            if not is_valid:
+                err = (
+                    f"❌ Rejet de l'application '{cat_display_name}' : "
+                    f"l'Access Package '{ap_display_name}' ne respecte pas la nomenclature obligatoire.\n"
+                    f"      Motif : {reason}\n"
+                    f"      Format exigé : '[Contexte/Sous-Application] [Niveau de Privilège] - [Environnement]' (ex: 'Credit Read Only - UAT' ou 'Admin - Prod')."
+                )
+                print(f"   {err}")
+                error_messages.append(err)
+                app_has_error = True
+                break  # Échec bloquant immédiat pour cette application
 
-            # 2. Récupération des ressources rattachées
-            res_url = f"https://graph.microsoft.com/v1.0/identityGovernance/entitlementManagement/accessPackages/{ap_id}/accessPackageResourceRoleScopes?$expand=accessPackageResourceRole,accessPackageResourceScope"
-            res_data = query_graph_api(res_url)
-            role_scopes = res_data.get("value", [])
-
-            resources = []
-            for rs in role_scopes:
-                scope = rs.get("accessPackageResourceScope", {})
-                res_info = scope.get("accessPackageResource", {})
-                res_type = res_info.get("resourceType", "").lower()
-                res_name = res_info.get("displayName", "")
-
-                if "group" in res_type:
-                    resources.append({
-                        "resource_type": "EntraID Group",
-                        "group_name": res_name
-                    })
-                elif "application" in res_type or "serviceprincipal" in res_type:
-                    role_info = rs.get("accessPackageResourceRole", {})
-                    resources.append({
-                        "resource_type": "Application Role",
-                        "enterprise_app": res_name,
-                        "app_role": role_info.get("displayName", "Default Access")
-                    })
-                elif "sharepoint" in res_type:
-                    resources.append({
-                        "resource_type": "Sharepoint Group",
-                        "catalog_id": cat_id,
-                        "sharepoint_url": res_info.get("url", "https://sharepoint.com")
-                    })
-
-            # Fallback ressource par défaut si aucune ressource n'est encore liée
+            # 3. Récupération des ressources réelles
+            resources = get_access_package_resources(ap_id, cat_id)
             if not resources:
-                resources.append({
-                    "resource_type": "EntraID Group",
-                    "group_name": "GRP-DEFAULT-ACCESS"
-                })
+                err = (
+                    f"❌ Rejet de l'application '{cat_display_name}' : "
+                    f"l'Access Package '{ap_display_name}' ne contient aucune ressource associée dans Entra ID "
+                    f"et le catalogue ne contient aucun groupe lié."
+                )
+                print(f"   {err}")
+                error_messages.append(err)
+                app_has_error = True
+                break
+
+            # 4. Récupération des approbateurs réels
+            approvers = get_access_package_approvers(ap_id, cat_id)
+            if not approvers:
+                approvers = ["iam-admin@monentreprise123.onmicrosoft.com"]
 
             ap_entry = {
-                "context_subapp": context_subapp,
-                "privilege_level": privilege_level,
-                "env": env,
+                "context_subapp": parsed_ap["context_subapp"],
+                "privilege_level": parsed_ap["privilege_level"],
+                "env": parsed_ap["env"],
                 "description": ap_description,
-                "authorization_owners": ["iam-team@monentreprise123.onmicrosoft.com"],
+                "authorization_owners": approvers,
                 "resources": resources
             }
-            if ap_display_name:
-                ap_entry["display_name"] = ap_display_name
-
             yaml_access_packages.append(ap_entry)
 
-        # Si aucun access package n'existait, on crée un package par défaut
-        if not yaml_access_packages:
-            yaml_access_packages.append({
-                "context_subapp": "",
-                "privilege_level": "Standard",
-                "env": "Prod",
-                "description": f"Package standard pour {cat_display_name}",
-                "authorization_owners": ["iam-team@monentreprise123.onmicrosoft.com"],
-                "resources": [
-                    {
-                        "resource_type": "EntraID Group",
-                        "group_name": "GRP-DEFAULT-ACCESS"
-                    }
-                ]
-            })
+        if app_has_error:
+            print(f"   🚫 Import annulé pour l'application '{cat_display_name}'. Aucun fichier YAML généré.")
+            continue
 
-        # Normalisation du nom d'application kebab-case
+        # 5. Normalisation kebab-case du nom d'application
         app_slug = re.sub(r"[^a-z0-9-]", "-", cat_display_name.lower()).strip("-")
         app_slug = re.sub(r"-+", "-", app_slug)
 
@@ -180,7 +485,7 @@ def reverse_engineer(target_apps: list, declaration_dir: str = "declaration") ->
             "access_packages": yaml_access_packages
         }
 
-        # 3. Création du dossier et écriture (1 application = 1 dossier contenant 1 fichier)
+        # 6. Écriture / Écrasement du fichier YAML (1 dossier par application)
         app_folder = os.path.join(declaration_dir, app_slug)
         os.makedirs(app_folder, exist_ok=True)
         target_file = os.path.join(app_folder, f"{app_slug}.yaml")
@@ -188,17 +493,19 @@ def reverse_engineer(target_apps: list, declaration_dir: str = "declaration") ->
         with open(target_file, "w", encoding="utf-8") as f:
             yaml.dump(doc, f, sort_keys=False, allow_unicode=True)
 
-        print(f"✅ Fichier généré/écrasé avec succès : {target_file}")
+        print(f"   ✅ Fichier généré/écrasé avec succès : {target_file}")
         imported_apps.append(app_slug)
 
     print("\n========================================")
     print("📊 BILAN DU REVERSE ENGINEERING :")
-    print(f"   Applications importées : {len(imported_apps)} ({', '.join(imported_apps)})")
-    if missing_apps:
-        print(f"   Applications non trouvées : {len(missing_apps)} ({', '.join(missing_apps)})")
+    print(f"   Applications importées avec succès : {len(imported_apps)} ({', '.join(imported_apps) if imported_apps else 'aucune'})")
+    if error_messages:
+        print(f"   Erreurs / Rejets détectés : {len(error_messages)}")
+        for err in error_messages:
+            print(f"     • {err}")
     print("========================================")
 
-    return imported_apps
+    return imported_apps, error_messages
 
 
 def main():
@@ -206,15 +513,27 @@ def main():
     parser.add_argument("--applications", required=True, help="Noms des applications séparés par des virgules")
     parser.add_argument("--declaration-dir", default="declaration", help="Répertoire cible (défaut: declaration)")
     parser.add_argument("--output-list", help="Fichier texte pour enregistrer la liste des apps importées")
+    parser.add_argument("--error-file", help="Fichier texte pour enregistrer les erreurs bloquantes")
     args = parser.parse_args()
 
     targets = parse_target_applications(args.applications)
-    imported = reverse_engineer(targets, args.declaration_dir)
+    imported, errors = reverse_engineer(targets, args.declaration_dir)
 
     if args.output_list:
+        os.makedirs(os.path.dirname(os.path.abspath(args.output_list)), exist_ok=True)
         with open(args.output_list, "w", encoding="utf-8") as f:
             for app in imported:
                 f.write(f"{app}\n")
+
+    if args.error_file and errors:
+        os.makedirs(os.path.dirname(os.path.abspath(args.error_file)), exist_ok=True)
+        with open(args.error_file, "w", encoding="utf-8") as f:
+            for err in errors:
+                f.write(f"{err}\n")
+
+    # Si aucune application n'a pu être importée et qu'il y a des erreurs, sortir en code 1
+    if not imported and errors:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

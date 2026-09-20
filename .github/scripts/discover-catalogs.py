@@ -101,22 +101,49 @@ def get_entraid_groups() -> list:
 
 def get_catalog_access_packages(catalog_id: str) -> list:
     """Recupere les Access Packages existants d'un catalogue dans Entra ID."""
-    endpoints = [
-        f"https://graph.microsoft.com/v1.0/identityGovernance/entitlementManagement/accessPackages?$filter=catalogId eq '{catalog_id}'&$top=999",
-        f"https://graph.microsoft.com/beta/identityGovernance/entitlementManagement/accessPackages?$filter=catalogId eq '{catalog_id}'&$top=999",
-        f"https://graph.microsoft.com/v1.0/identityGovernance/entitlementManagement/catalogs/{catalog_id}/accessPackages?$top=999",
-    ]
-    for url in endpoints:
-        cmd = ["az", "rest", "--method", "get", "--url", url, "--output", "json"]
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode == 0 and result.stdout:
-                data = json.loads(result.stdout)
-                packages = data.get("value", [])
-                if packages:
-                    return packages
-        except Exception:
-            continue
+    # 1. Via expand sur le catalogue v1.0
+    url1 = f"https://graph.microsoft.com/v1.0/identityGovernance/entitlementManagement/catalogs/{catalog_id}?$expand=accessPackages"
+    cmd1 = ["az", "rest", "--method", "get", "--url", url1, "--output", "json"]
+    try:
+        result = subprocess.run(cmd1, capture_output=True, text=True)
+        if result.returncode == 0 and result.stdout:
+            data = json.loads(result.stdout)
+            packages = data.get("accessPackages") or data.get("value", [])
+            if packages:
+                return packages
+    except Exception:
+        pass
+
+    # 2. Via expand sur le catalogue beta
+    url2 = f"https://graph.microsoft.com/beta/identityGovernance/entitlementManagement/accessPackageCatalogs/{catalog_id}?$expand=accessPackages"
+    cmd2 = ["az", "rest", "--method", "get", "--url", url2, "--output", "json"]
+    try:
+        result = subprocess.run(cmd2, capture_output=True, text=True)
+        if result.returncode == 0 and result.stdout:
+            data = json.loads(result.stdout)
+            packages = data.get("accessPackages") or data.get("value", [])
+            if packages:
+                return packages
+    except Exception:
+        pass
+
+    # 3. Via listing global et filtrage client
+    url3 = "https://graph.microsoft.com/v1.0/identityGovernance/entitlementManagement/accessPackages?$top=999"
+    cmd3 = ["az", "rest", "--method", "get", "--url", url3, "--output", "json"]
+    try:
+        result = subprocess.run(cmd3, capture_output=True, text=True)
+        if result.returncode == 0 and result.stdout:
+            data = json.loads(result.stdout)
+            all_pkgs = data.get("value", [])
+            matched = [
+                p for p in all_pkgs
+                if p.get("catalogId") == catalog_id or p.get("catalog", {}).get("id") == catalog_id
+            ]
+            if matched:
+                return matched
+    except Exception:
+        pass
+
     return []
 
 

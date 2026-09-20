@@ -242,6 +242,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: "[Scénario D] Exécuter le Reverse Engineering"
+        id: reverse-engineer
         if: steps.parse.outputs.operation == 'admin_import'
         env:
           TARGET_APPS: ${{ steps.parse.outputs.target_applications }}
@@ -249,7 +250,30 @@ jobs:
           python .github/scripts/reverse-engineer-entra.py \
             --applications "$TARGET_APPS" \
             --declaration-dir declaration \
-            --output-list ./parsed/imported_apps.txt
+            --output-list ./parsed/imported_apps.txt \
+            --error-file ./parsed/import_errors.txt
+
+      - name: "[Scénario D] Notification d'échec d'import sur l'Issue"
+        if: steps.parse.outputs.operation == 'admin_import' && failure()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            let errorDetails = "Une erreur est survenue lors de l'extraction depuis Microsoft Entra ID.";
+            if (fs.existsSync('./parsed/import_errors.txt')) {
+              const content = fs.readFileSync('./parsed/import_errors.txt', 'utf8').trim();
+              if (content) {
+                errorDetails = content;
+              }
+            }
+            const issueNum = context.payload.issue.number;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNum,
+              body: `❌ **Échec de l'importation depuis Microsoft Entra ID**\n\n\`\`\`text\n${errorDetails}\n\`\`\`\n\n---\n> ℹ️ **Règle de nomenclature obligatoire :**\n> Chaque Access Package d'une application doit impérativement respecter la convention : \`[Contexte/Sous-Application] [Niveau de Privilège] - [Environnement]\` *(ex: \`Credit Read Only - UAT\` ou \`Admin - Prod\`)*.\n> Si **un seul Access Package** ne respecte pas cette règle, l'import de l'application en entier est rejeté.\n>\n> 👉 **Pour corriger :** Ajustez le nom de l'Access Package directement dans le portail Microsoft Entra ID, puis relancez l'import.`
+            });
 
       # -----------------------------------------------------------------------
       # 7. Création de la Branche Git & Commit des fichiers
