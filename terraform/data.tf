@@ -41,5 +41,5 @@ data "azuread_service_principal" "all" {
 # ---------------------------------------------------------------------------
 data "azuread_user" "owners" {
   for_each            = toset(local.all_owner_emails)
-  user_principal_name = each.value
+  user_principal_name = try(local.discovered_users[lower(each.value)].user_principal_name, each.value)
 }

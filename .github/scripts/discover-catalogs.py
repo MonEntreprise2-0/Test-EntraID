@@ -99,6 +99,25 @@ def get_entraid_groups() -> list:
     return []
 
 
+def get_entraid_users() -> list:
+    """Recupere la liste des utilisateurs Entra ID pour la resolution insensible a la casse et par mail/UPN."""
+    endpoints = [
+        "https://graph.microsoft.com/v1.0/users?$top=999&$select=id,displayName,mail,userPrincipalName",
+    ]
+    for url in endpoints:
+        cmd = ["az", "rest", "--method", "get", "--url", url, "--output", "json"]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0 and result.stdout:
+                data = json.loads(result.stdout)
+                users = data.get("value", [])
+                if users:
+                    return users
+        except Exception:
+            continue
+    return []
+
+
 def get_catalog_access_packages(catalog_id: str) -> list:
     """Recupere les Access Packages existants d'un catalogue dans Entra ID."""
     # 1. Via expand sur le catalogue v1.0
@@ -431,6 +450,34 @@ def main():
                         "display_name": gname
                     }
 
+    # Resolution des utilisateurs / owners Entra ID
+    print("----------------------------------------------------")
+    print("🔎 Decouverte et resolution des utilisateurs / owners Entra ID...")
+    entraid_users = get_entraid_users()
+    print(f"   -> {len(entraid_users)} utilisateur(s) trouve(s) dans Entra ID :")
+    user_lookup = {}
+    for u in entraid_users:
+        upn = (u.get("userPrincipalName") or "").strip()
+        mail = (u.get("mail") or "").strip()
+        print(f"      👤 UPN: {upn} | Mail: {mail}")
+        if upn:
+            user_lookup[upn.lower()] = upn
+        if mail:
+            user_lookup[mail.lower()] = upn
+
+    discovered_users = {}
+    for app_name, app_data in apps.items():
+        for ap in app_data.get("access_packages", []):
+            for email in ap.get("authorization_owners", []):
+                email_clean = email.strip()
+                if email_clean:
+                    resolved_upn = user_lookup.get(email_clean.lower(), email_clean)
+                    discovered_users[email_clean.lower()] = {
+                        "user_principal_name": resolved_upn
+                    }
+                    if resolved_upn != email_clean:
+                        print(f"  ✅ Owner '{email_clean}' résolu -> UPN '{resolved_upn}'")
+
     # Ecriture des sorties
     out_dir = os.path.dirname(args.output_file)
     if out_dir:
@@ -442,6 +489,10 @@ def main():
     groups_file = os.path.join(out_dir if out_dir else ".", "discovered_groups.json")
     with open(groups_file, "w", encoding="utf-8") as f:
         json.dump(discovered_groups, f, indent=2)
+
+    users_file = os.path.join(out_dir if out_dir else ".", "discovered_users.json")
+    with open(users_file, "w", encoding="utf-8") as f:
+        json.dump(discovered_users, f, indent=2)
 
     packages_file = os.path.join(out_dir if out_dir else ".", "entraid_catalog_packages.json")
     with open(packages_file, "w", encoding="utf-8") as f:
