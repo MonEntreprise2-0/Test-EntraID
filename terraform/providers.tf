@@ -24,6 +24,7 @@ terraform {
 #   ARM_CLIENT_ID, ARM_TENANT_ID, ARM_SUBSCRIPTION_ID, ARM_OIDC_TOKEN
 # -----------------------------------------------------------------------------
 provider "azuread" {
+  client_id = var.client_id
   tenant_id = var.tenant_id
   use_oidc  = var.use_oidc
 }

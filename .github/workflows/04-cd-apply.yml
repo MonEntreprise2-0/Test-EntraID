@@ -22,6 +22,7 @@ env:
   ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
   ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
   ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  ARM_USE_OIDC: "true"
 
 jobs:
   terraform-apply:
@@ -63,9 +64,12 @@ jobs:
           terraform force-unlock -force 43a8bdec-d0ba-144c-96ce-284c18d87a96 2>/dev/null || true
           az storage blob lease break --blob-name "entitlement-mgmt.tfstate" --container-name "entitlement-mgmt" --account-name "stardiantfstate" --auth-mode login 2>/dev/null || true
 
-      - name: 🧹 Nettoyage automatique des ressources orphelines du State
+      - name: 🧹 Nettoyage automatique et réconciliation des ressources obsolètes
         run: |
-          python .github/scripts/cleanup-stale-state.py --working-dir ${{ env.TF_WORKING_DIR }}
+          python .github/scripts/cleanup-stale-state.py \
+            --working-dir ${{ env.TF_WORKING_DIR }} \
+            --declarations-dir declaration \
+            --delete-obsolete
 
       - name: 🔎 Smart Discovery des catalogues Entra ID
         run: |
@@ -84,6 +88,7 @@ jobs:
           fi
 
           terraform plan \
+            -var="client_id=${{ secrets.AZURE_CLIENT_ID }}" \
             -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
             -var="use_oidc=true" \
             -no-color \
@@ -108,6 +113,7 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           terraform apply \
+            -var="client_id=${{ secrets.AZURE_CLIENT_ID }}" \
             -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
             -var="use_oidc=true" \
             -auto-approve \
@@ -115,6 +121,25 @@ jobs:
             2>&1 | tee apply_output.txt
 
           APPLY_EXIT_CODE=${PIPESTATUS[0]}
+
+          if [ $APPLY_EXIT_CODE -ne 0 ]; then
+            echo "⚠️ Premier essai de Terraform apply a échoué. Nettoyage de sécurité du state et nouvelle tentative..."
+            python ../.github/scripts/cleanup-stale-state.py \
+              --working-dir . \
+              --declarations-dir ../declaration \
+              --delete-obsolete || true
+
+            terraform apply \
+              -var="client_id=${{ secrets.AZURE_CLIENT_ID }}" \
+              -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
+              -var="use_oidc=true" \
+              -auto-approve \
+              -no-color \
+              2>&1 | tee -a apply_output.txt
+
+            APPLY_EXIT_CODE=${PIPESTATUS[0]}
+          fi
+
           echo "exit_code=$APPLY_EXIT_CODE" >> $GITHUB_OUTPUT
 
           if [ $APPLY_EXIT_CODE -ne 0 ]; then

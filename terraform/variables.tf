@@ -18,6 +18,12 @@ variable "use_oidc" {
   description = "Utiliser OIDC pour l'authentification. Mettre a true dans GitHub Actions, false en local."
 }
 
+variable "client_id" {
+  type        = string
+  default     = null
+  description = "Client ID / Application ID du Service Principal."
+}
+
 variable "declarations_path" {
   type        = string
   default     = "../declaration"
