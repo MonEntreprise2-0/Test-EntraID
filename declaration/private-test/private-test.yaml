@@ -25,7 +25,7 @@ access_packages:
   # ==========================================================================
 
   - context_subapp: "Credit"
-    privilege_level: "Write"
+    privilege_level: "Admin"
     env: "UAT"
     description: "Access Package Credit Write - UAT"
     authorization_owners:
