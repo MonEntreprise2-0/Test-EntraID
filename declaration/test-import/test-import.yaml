@@ -7,7 +7,7 @@ access_packages:
   env: UAT
   description: Test import
   authorization_owners:
-  - iam-admin@monentreprise123.onmicrosoft.com
+  - OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com
   resources:
   - resource_type: EntraID Group
     group_name: Group_Test01
