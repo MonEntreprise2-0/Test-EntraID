@@ -79,6 +79,16 @@ locals {
   # Union de tous les noms de groupes uniques
   all_group_names = distinct(concat(local.resource_group_names, local.policy_group_names))
 
+  # Emails des approbateurs (authorization_owners) declares dans les Access Packages (schema v2)
+  all_owner_emails = distinct(flatten([
+    for app_name, app in local.apps : [
+      for ap in try(app.access_packages, []) : [
+        for email in try(ap.authorization_owners, []) : trimspace(email)
+        if trimspace(email) != ""
+      ]
+    ]
+  ]))
+
   # =========================================================================
   # 3. EXTRACTION DES APPLICATIONS (pour les blocs data SSoT)
   # =========================================================================
@@ -234,15 +244,16 @@ locals {
           # Schema v1
           [
             for pol in try(ap.policies, []) : {
-              key          = "${app_name}|${ap.display_name}|${pol.display_name}"
-              app_name     = app_name
-              ap_key       = "${app_name}|${ap.display_name}"
-              display_name = pol.display_name
-              requestor    = pol.requestor
-              approval     = pol.approval
-              assignment   = pol.assignment
-              review       = try(pol.review, { enabled = false })
-              owner_only   = false
+              key                  = "${app_name}|${ap.display_name}|${pol.display_name}"
+              app_name             = app_name
+              ap_key               = "${app_name}|${ap.display_name}"
+              display_name         = pol.display_name
+              requestor            = pol.requestor
+              approval             = pol.approval
+              assignment           = pol.assignment
+              review               = try(pol.review, { enabled = false })
+              owner_only           = false
+              authorization_owners = []
             }
           ],
           # Schema v2
@@ -261,14 +272,17 @@ locals {
                 coalesce(ap.display_name, trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")),
                 trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")
               )}"
-              authorization_owners = try(ap.authorization_owners, [])
+              authorization_owners = [
+                for email in try(ap.authorization_owners, []) : trimspace(email)
+                if trimspace(email) != ""
+              ]
               assignment           = { type = "expiring", duration_in_days = 365 }
               requestor = {
                 scope_type = "all_members"
                 groups     = []
               }
               approval = {
-                required = true
+                required = length(try(ap.authorization_owners, [])) > 0
                 stages   = []
               }
               review = { enabled = false }

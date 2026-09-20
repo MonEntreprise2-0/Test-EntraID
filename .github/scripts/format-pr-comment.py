@@ -54,12 +54,47 @@ def extract_resource_summary(res_list: list) -> str:
     return ", ".join(items) if items else "Aucune"
 
 
+def extract_owners_summary(owners_list: list) -> str:
+    cleaned = [str(o).strip() for o in (owners_list or []) if str(o).strip()]
+    return ", ".join(cleaned) if cleaned else "Aucun"
+
+
+def parse_tfplan_changes(tfplan_path: str) -> set:
+    """Extrait les noms d'Access Packages impactes par des changements dans le plan Terraform."""
+    changed_aps = set()
+    if not tfplan_path or not os.path.isfile(tfplan_path):
+        return changed_aps
+
+    try:
+        with open(tfplan_path, "r", encoding="utf-8") as f:
+            plan = json.load(f)
+
+        for rc in plan.get("resource_changes", []):
+            actions = rc.get("change", {}).get("actions", [])
+            if actions == ["no-op"] or actions == ["read"]:
+                continue
+
+            address = rc.get("address", "")
+            m = re.search(r'\["([^"]+)"\]', address)
+            if m:
+                key = m.group(1)
+                parts = key.split("|")
+                if len(parts) >= 2:
+                    ap_name = parts[1].strip().lower()
+                    changed_aps.add(ap_name)
+    except Exception as e:
+        print(f"⚠️ Erreur lors de l'analyse de {tfplan_path}: {e}", file=sys.stderr)
+
+    return changed_aps
+
+
 def main():
     parser = argparse.ArgumentParser(description="Synthèse unitaire de PR pour Entitlement Management")
     parser.add_argument("--changed-files", default="", help="Liste des fichiers YAML modifiés")
     parser.add_argument("--tfplan-json", default="", help="Chemin vers tfplan.json")
     parser.add_argument("--catalog-packages-json", default="", help="Chemin vers entraid_catalog_packages.json")
-    parser.add_argument("--discovered-summary", default="", help="Chemin vers discovered_summary.md")
+    parser.add_argument("--discovered-catalogs-json", default="", help="Chemin vers discovered_catalogs.json")
+    parser.add_argument("--discovered-summary", default="", help="Ignoré (réservé rétro-compatibilité)")
     parser.add_argument("--plan-output", default="", help="Chemin vers plan_output.txt")
     parser.add_argument("--output-file", required=True, help="Chemin du fichier Markdown généré")
     args = parser.parse_args()
@@ -72,7 +107,17 @@ def main():
         except Exception as e:
             print(f"⚠️ Erreur de lecture de {args.catalog_packages_json}: {e}", file=sys.stderr)
 
-    files = [f.strip() for f in args.changed_files.split() if f.strip().endswith(".yaml") or f.strip().endswith(".yml")]
+    discovered_catalogs = {}
+    if args.discovered_catalogs_json and os.path.isfile(args.discovered_catalogs_json):
+        try:
+            with open(args.discovered_catalogs_json, "r", encoding="utf-8") as f:
+                discovered_catalogs = json.load(f)
+        except Exception as e:
+            print(f"⚠️ Erreur de lecture de {args.discovered_catalogs_json}: {e}", file=sys.stderr)
+
+    # Filtrer strictement les fichiers YAML cibles de la PR
+    raw_files = [f.strip() for f in args.changed_files.split() if f.strip().endswith(".yaml") or f.strip().endswith(".yml")]
+    files = [f for f in raw_files if not os.path.basename(f).startswith("_")]
     if not files:
         for root, _, fnames in os.walk("declaration"):
             for fn in fnames:
@@ -98,20 +143,12 @@ def main():
         except Exception:
             pass
 
+    tfplan_changed_aps = parse_tfplan_changes(args.tfplan_json)
+
     output_lines = [
         "## 📋 Synthèse Ciblée du Plan de Déploiement Entra ID",
         ""
     ]
-
-    if args.discovered_summary and os.path.isfile(args.discovered_summary):
-        try:
-            with open(args.discovered_summary, "r", encoding="utf-8") as sf:
-                dt = sf.read().strip()
-                if dt:
-                    output_lines.append(dt)
-                    output_lines.append("")
-        except Exception:
-            pass
 
     for fpath in files:
         if not os.path.isfile(fpath):
@@ -119,7 +156,7 @@ def main():
         try:
             with open(fpath, "r", encoding="utf-8") as f:
                 app_data = yaml.safe_load(f)
-        except Exception as e:
+        except Exception:
             continue
 
         if not isinstance(app_data, dict):
@@ -128,11 +165,15 @@ def main():
         app_name = app_data.get("app_name") or app_data.get("application_name") or os.path.splitext(os.path.basename(fpath))[0]
         catalog_name = app_data.get("catalog_name") or app_data.get("catalog", {}).get("display_name") or app_name
 
-        output_lines.append(f"### 🎯 Application ciblée : `{app_name}` (Catalogue : `{catalog_name}`)")
+        cat_info = discovered_catalogs.get(app_name, {})
+        is_existing_catalog = cat_info.get("exists", False) if cat_info else (app_name in catalog_packages)
+
+        output_lines.append(f"### 📋 Récapitulatif du déploiement — Application : `{app_name}`")
         output_lines.append("")
 
+        declared_raw_aps = app_data.get("access_packages") or []
         declared_aps = {}
-        for ap in (app_data.get("access_packages") or []):
+        for ap in declared_raw_aps:
             if not isinstance(ap, dict):
                 continue
             name = compute_ap_name(ap)
@@ -140,27 +181,64 @@ def main():
                 "name": name,
                 "env": ap.get("env", "N/A"),
                 "privilege": ap.get("privilege_level", "N/A"),
+                "description": ap.get("description", ""),
+                "owners": ap.get("authorization_owners", []),
                 "resources": ap.get("resources") or ap.get("resource_roles") or []
             }
 
         existing_for_app = catalog_packages.get(app_name) or []
         existing_aps = {p.get("display_name", "").strip().lower(): p for p in existing_for_app if p.get("display_name")}
 
+        # SCÉNARIO 1 : CRÉATION (Catalogue non existant dans Entra ID)
+        if not is_existing_catalog:
+            if declared_aps:
+                output_lines.append("| Access Package | Env | Niveau Privilège | Ressources & Rôles liés | Authorization Owner |")
+                output_lines.append("|---|---|---|---|---|")
+                for ap_info in declared_aps.values():
+                    res_str = extract_resource_summary(ap_info["resources"])
+                    owners_str = extract_owners_summary(ap_info["owners"])
+                    output_lines.append(
+                        f"| **{ap_info['name']}** | `{ap_info['env']}` | `{ap_info['privilege']}` | {res_str} | {owners_str} |"
+                    )
+            else:
+                output_lines.append("_Aucun Access Package déclaré._")
+            output_lines.append("")
+            output_lines.append("---")
+            continue
 
+        # SCÉNARIO 2 : MODIFICATION (Catalogue pré-existant dans Entra ID) -> Algorithme de Diff
         created_list = []
         modified_list = []
+        unchanged_list = []
         deleted_list = []
-
 
         for ap_lower, ap_info in declared_aps.items():
             if ap_lower in existing_aps:
                 ext = existing_aps[ap_lower]
-                modified_list.append({
-                    "name": ap_info["name"],
-                    "id": ext.get("id", "N/A"),
-                    "action": "Écrasé & adopté (Alignement YAML)",
-                    "resources": extract_resource_summary(ap_info["resources"])
-                })
+                ap_id = ext.get("id", "N/A")
+
+                # Détection de différence
+                has_tf_change = ap_lower in tfplan_changed_aps
+                ext_resources = ext.get("resources", [])
+                res_diff = False
+                if ext_resources:
+                    decl_res_summary = extract_resource_summary(ap_info["resources"])
+                    ext_res_summary = extract_resource_summary(ext_resources)
+                    if decl_res_summary != ext_res_summary:
+                        res_diff = True
+
+                if has_tf_change or res_diff:
+                    modified_list.append({
+                        "name": ap_info["name"],
+                        "id": ap_id,
+                        "action": "Modifié / Écrasé",
+                        "resources": extract_resource_summary(ap_info["resources"])
+                    })
+                else:
+                    unchanged_list.append({
+                        "name": ap_info["name"],
+                        "id": ap_id
+                    })
             else:
                 created_list.append({
                     "name": ap_info["name"],
@@ -174,9 +252,10 @@ def main():
                 deleted_list.append({
                     "name": ext_info.get("display_name"),
                     "id": ext_info.get("id", "N/A"),
-                    "status": "Absent du YAML (Non conservé)"
+                    "status": "Absent du YAML (Supprimé)"
                 })
 
+        # 1. Access Packages Créés
         output_lines.append("#### ✅ Access Packages Créés")
         if created_list:
             output_lines.append("| Nom de l'Access Package | Niveau / Env | Ressources & Rôles liés |")
@@ -187,6 +266,7 @@ def main():
             output_lines.append("_Aucun nouveau Access Package à créer._")
         output_lines.append("")
 
+        # 2. Access Packages Modifiés
         output_lines.append("#### 🔄 Access Packages Modifiés (Écrasés dans Entra ID)")
         if modified_list:
             output_lines.append("| Nom de l'Access Package | ID Entra ID | Ressources & Rôles cibles | Statut |")
@@ -197,6 +277,7 @@ def main():
             output_lines.append("_Aucun Access Package existant à écraser/modifier._")
         output_lines.append("")
 
+        # 3. Access Packages Supprimés
         output_lines.append("#### ❌ Access Packages Supprimés")
         if deleted_list:
             output_lines.append("| Nom de l'Access Package | ID Entra ID | Remarque |")
@@ -206,6 +287,18 @@ def main():
         else:
             output_lines.append("_Aucun Access Package supprimé._")
         output_lines.append("")
+
+        # 4. Access Packages Non modifiés
+        output_lines.append("#### 🟰 Access Packages Non modifiés")
+        if unchanged_list:
+            output_lines.append("| Nom de l'Access Package | ID Entra ID |")
+            output_lines.append("|---|---|")
+            for u in unchanged_list:
+                output_lines.append(f"| **{u['name']}** | `{u['id']}` |")
+        else:
+            output_lines.append("_Aucun Access Package inchangé._")
+        output_lines.append("")
+
         output_lines.append("---")
 
     output_lines.append("### 📊 Statistiques Globales Terraform")

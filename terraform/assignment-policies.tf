@@ -46,20 +46,41 @@ resource "azuread_access_package_assignment_policy" "this" {
   # ---------------------------------------------------------------------------
   approval_settings {
     approval_required = (
-      try(each.value.approval.required, false) && length(try(each.value.approval.stages, [])) > 0
+      length(try(each.value.authorization_owners, [])) > 0
+      ||
+      (try(each.value.approval.required, false) && length(try(each.value.approval.stages, [])) > 0)
     )
 
-    # Etapes d'approbation (uniquement si au moins 1 etape est declaree)
+    # Etapes d'approbation Schema v2 (basees sur authorization_owners)
+    dynamic "approval_stage" {
+      for_each = length(try(each.value.authorization_owners, [])) > 0 ? [1] : []
+      content {
+        approval_timeout_in_days = 14
+
+        # Approbateurs individuels declares dans authorization_owners
+        dynamic "primary_approver" {
+          for_each = try(each.value.authorization_owners, [])
+          content {
+            object_id    = data.azuread_user.owners[primary_approver.value].object_id
+            subject_type = "singleUser"
+          }
+        }
+      }
+    }
+
+    # Etapes d'approbation Schema v1 (basees sur approval.stages et groupes)
     dynamic "approval_stage" {
       for_each = (
-        try(each.value.approval.required, false) && length(try(each.value.approval.stages, [])) > 0
+        length(try(each.value.authorization_owners, [])) == 0 &&
+        try(each.value.approval.required, false) &&
+        length(try(each.value.approval.stages, [])) > 0
         ? each.value.approval.stages
         : []
       )
       content {
         approval_timeout_in_days = approval_stage.value.days_to_decide
 
-        # Approbateurs principaux
+        # Approbateurs principaux (groupes)
         dynamic "primary_approver" {
           for_each = try(approval_stage.value.approver_groups, [])
           content {

@@ -184,7 +184,7 @@ jobs:
             --changed-files "$CHANGED_FILES" \
             --tfplan-json "${{ env.TF_WORKING_DIR }}/tfplan.json" \
             --catalog-packages-json "${{ env.TF_WORKING_DIR }}/entraid_catalog_packages.json" \
-            --discovered-summary "${{ env.TF_WORKING_DIR }}/discovered_summary.md" \
+            --discovered-catalogs-json "${{ env.TF_WORKING_DIR }}/discovered_catalogs.json" \
             --plan-output "${{ env.TF_WORKING_DIR }}/plan_output.txt" \
             --output-file "${{ env.TF_WORKING_DIR }}/plan_summary.md"
 
@@ -226,6 +226,14 @@ jobs:
               const grpMatches = planOutput.matchAll(/No group found with display_name "([^"]+)"/g);
               for (const m of grpMatches) { missingGroups.push(m[1]); }
 
+              const missingUsers = [];
+              const userMatches = planOutput.matchAll(/No user found with (?:user_principal_name|UPN) "([^"]+)"/g);
+              for (const m of userMatches) { missingUsers.push(m[1]); }
+              const userMatches2 = planOutput.matchAll(/azuread_user\.owners\["([^"]+)"\]/g);
+              if (missingUsers.length === 0 && planOutput.includes('data.azuread_user.owners')) {
+                for (const m of userMatches2) { missingUsers.push(m[1]); }
+              }
+
               footerBlock = [
                 '> [!CAUTION]',
                 '> ### 🚫 Ressources bloquantes à créer dans Entra ID :',
@@ -236,11 +244,12 @@ jobs:
                 '> 2. Cliquez sur le bouton **"Re-run jobs"** de cette Pull Request pour relancer immédiatement la vérification.',
               ];
 
-              if (missingApps.length > 0 || missingGroups.length > 0) {
+              if (missingApps.length > 0 || missingGroups.length > 0 || missingUsers.length > 0) {
                 footerBlock.push('>');
                 footerBlock.push('> **Détail des ressources manquantes détectées :**');
                 for (const a of missingApps) { footerBlock.push(`> - 📱 Application / Rôle applicatif manquant : \`${a}\``); }
                 for (const g of missingGroups) { footerBlock.push(`> - 👥 Groupe Entra ID manquant : \`${g}\``); }
+                for (const u of missingUsers) { footerBlock.push(`> - 👤 Utilisateur / Owner manquant : \`${u}\``); }
               }
             } else {
               status = 'Ressources validées — Plan prêt pour approbation';

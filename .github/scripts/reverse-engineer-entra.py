@@ -312,58 +312,71 @@ def get_access_package_approvers(ap_id: str, cat_id: str) -> list:
     """Extrait les adresses email réelles des approbateurs (politiques ou propriétaires de catalogue)."""
     approvers = []
 
-    # 1. Interroger les politiques d'assignation de l'Access Package
-    pol_url = f"https://graph.microsoft.com/v1.0/identityGovernance/entitlementManagement/assignmentPolicies?$filter=accessPackage/id eq '{ap_id}'&$top=999"
-    pol_data = query_graph_api(pol_url)
-    policies = pol_data.get("value", [])
+    # 1. Interroger les politiques d'assignation de l'Access Package (v1.0 puis beta)
+    policy_endpoints = [
+        f"https://graph.microsoft.com/v1.0/identityGovernance/entitlementManagement/assignmentPolicies?$filter=accessPackage/id eq '{ap_id}'&$top=999",
+        f"https://graph.microsoft.com/beta/identityGovernance/entitlementManagement/assignmentPolicies?$filter=accessPackage/id eq '{ap_id}'&$top=999",
+    ]
 
-    for pol in policies:
-        approval_settings = pol.get("requestApprovalSettings") or {}
-        stages = approval_settings.get("approvalStages") or approval_settings.get("stages") or []
-        for stage in stages:
-            primary_approvers = stage.get("primaryApprovers", [])
-            for approver in primary_approvers:
-                user_id = approver.get("userId") or approver.get("id")
-                group_id = approver.get("groupId")
+    for pol_url in policy_endpoints:
+        pol_data = query_graph_api(pol_url)
+        policies = pol_data.get("value", [])
+        if not policies:
+            continue
 
-                if user_id:
-                    user_data = query_graph_api(f"https://graph.microsoft.com/v1.0/users/{user_id}?$select=mail,userPrincipalName")
-                    email = user_data.get("mail") or user_data.get("userPrincipalName")
+        for pol in policies:
+            approval_settings = pol.get("requestApprovalSettings") or {}
+            stages = approval_settings.get("approvalStages") or approval_settings.get("stages") or []
+            for stage in stages:
+                primary_approvers = stage.get("primaryApprovers", [])
+                for approver in primary_approvers:
+                    # Cas email / UPN direct
+                    direct_email = approver.get("mail") or approver.get("userPrincipalName") or approver.get("userEmail")
+                    if direct_email and EMAIL_REGEX.match(direct_email):
+                        approvers.append(direct_email)
+                        continue
+
+                    user_id = approver.get("userId") or approver.get("id")
+                    group_id = approver.get("groupId")
+
+                    if user_id:
+                        user_data = query_graph_api(f"https://graph.microsoft.com/v1.0/users/{user_id}?$select=mail,userPrincipalName")
+                        email = user_data.get("mail") or user_data.get("userPrincipalName")
+                        if email and EMAIL_REGEX.match(email):
+                            approvers.append(email)
+
+                    if group_id:
+                        group_data = query_graph_api(f"https://graph.microsoft.com/v1.0/groups/{group_id}?$select=mail")
+                        email = group_data.get("mail")
+                        if email and EMAIL_REGEX.match(email):
+                            approvers.append(email)
+
+        if approvers:
+            break
+
+    # 2. Si aucun approbateur trouvé dans les politiques, interroger les Catalog Owners
+    if not approvers:
+        owner_endpoints = [
+            "https://graph.microsoft.com/v1.0/roleManagement/entitlementManagement/roleAssignments?$expand=principal&$top=999",
+            "https://graph.microsoft.com/beta/roleManagement/entitlementManagement/roleAssignments?$expand=principal&$top=999",
+        ]
+        for owner_url in owner_endpoints:
+            owner_data = query_graph_api(owner_url)
+            assignments = owner_data.get("value", [])
+            for ra in assignments:
+                scope = ra.get("directoryScopeId") or ra.get("appScopeId") or ""
+                if cat_id in scope:
+                    principal = ra.get("principal") or {}
+                    email = principal.get("mail") or principal.get("userPrincipalName")
                     if email and EMAIL_REGEX.match(email):
                         approvers.append(email)
-
-                if group_id:
-                    group_data = query_graph_api(f"https://graph.microsoft.com/v1.0/groups/{group_id}?$select=mail")
-                    email = group_data.get("mail")
-                    if email and EMAIL_REGEX.match(email):
-                        approvers.append(email)
-
-    # 2. Si aucun approbateur trouvé dans les politiques, interroger les Catalog Owners du catalogue
-    if not approvers:
-        owner_url = (
-            f"https://graph.microsoft.com/v1.0/roleManagement/entitlementManagement/roleAssignments"
-            f"?$filter=directoryScopeId eq '/AccessPackageCatalog/{cat_id}' and roleDefinitionId eq '{CATALOG_OWNER_ROLE_ID}'"
-            f"&$expand=principal"
-        )
-        owner_data = query_graph_api(owner_url)
-        assignments = owner_data.get("value", [])
-        for ra in assignments:
-            principal = ra.get("principal") or {}
-            email = principal.get("mail") or principal.get("userPrincipalName")
-            if email and EMAIL_REGEX.match(email):
-                approvers.append(email)
-
-    # 3. Dernier repli : utilisateur actuellement connecté via Azure CLI
-    if not approvers:
-        try:
-            cmd = ["az", "ad", "signed-in-user", "show", "--query", "userPrincipalName", "-o", "tsv"]
-            res = subprocess.run(cmd, capture_output=True, text=True)
-            if res.returncode == 0 and res.stdout.strip():
-                signed_email = res.stdout.strip()
-                if EMAIL_REGEX.match(signed_email):
-                    approvers.append(signed_email)
-        except Exception:
-            pass
+                    elif principal.get("id"):
+                        p_data = query_graph_api(f"https://graph.microsoft.com/v1.0/users/{principal.get('id')}?$select=mail,userPrincipalName")
+                        p_email = p_data.get("mail") or p_data.get("userPrincipalName")
+                        if p_email and EMAIL_REGEX.match(p_email):
+                            approvers.append(p_email)
+            if approvers:
+                break
 
     return list(dict.fromkeys(approvers))
 
@@ -457,8 +470,7 @@ def reverse_engineer(target_apps: list, declaration_dir: str = "declaration") ->
 
             # 4. Récupération des approbateurs réels
             approvers = get_access_package_approvers(ap_id, cat_id)
-            if not approvers:
-                approvers = ["iam-admin@monentreprise123.onmicrosoft.com"]
+            # Ne jamais inventer ou simuler d'approbateur
 
             ap_entry = {
                 "context_subapp": parsed_ap["context_subapp"],
@@ -472,6 +484,10 @@ def reverse_engineer(target_apps: list, declaration_dir: str = "declaration") ->
 
         if app_has_error:
             print(f"   🚫 Import annulé pour l'application '{cat_display_name}'. Aucun fichier YAML généré.")
+            failed_details.append({
+                "app": app_query,
+                "reason": error_messages[-1] if error_messages else "Erreur de validation"
+            })
             continue
 
         # 5. Normalisation kebab-case du nom d'application
@@ -496,6 +512,35 @@ def reverse_engineer(target_apps: list, declaration_dir: str = "declaration") ->
         print(f"   ✅ Fichier généré/écrasé avec succès : {target_file}")
         imported_apps.append(app_slug)
 
+        # Extraction pour le compte-rendu de la PR
+        aps_list = []
+        res_list = []
+        seen_res = set()
+        all_owners = []
+
+        for yap in yaml_access_packages:
+            ctx = yap.get("context_subapp", "").strip()
+            priv = yap.get("privilege_level", "").strip()
+            env_val = yap.get("env", "").strip()
+            ap_full_name = f"{ctx} {priv} - {env_val}".strip() if ctx else f"{priv} - {env_val}".strip()
+            aps_list.append(f"`{ap_full_name}`")
+
+            for r in yap.get("resources", []):
+                rname = r.get("group_name") or r.get("enterprise_app") or r.get("display_name")
+                role = r.get("role") or r.get("app_role") or "Member"
+                if (rname, role) not in seen_res:
+                    seen_res.add((rname, role))
+                    res_list.append(f"`{rname}` ({role})")
+
+            all_owners.extend(yap.get("authorization_owners", []))
+
+        imported_details.append({
+            "app": app_slug,
+            "aps": ", ".join(aps_list) if aps_list else "Aucun",
+            "resources": ", ".join(res_list) if res_list else "Aucune",
+            "owners": ", ".join(list(dict.fromkeys(all_owners))) if all_owners else "Aucun"
+        })
+
     print("\n========================================")
     print("📊 BILAN DU REVERSE ENGINEERING :")
     print(f"   Applications importées avec succès : {len(imported_apps)} ({', '.join(imported_apps) if imported_apps else 'aucune'})")
@@ -505,7 +550,35 @@ def reverse_engineer(target_apps: list, declaration_dir: str = "declaration") ->
             print(f"     • {err}")
     print("========================================")
 
-    return imported_apps, error_messages
+    # Génération du compte-rendu Markdown
+    summary_lines = [
+        "📋 **Compte rendu de l'import depuis Entra ID**",
+        "",
+        "✅ **Applications Importées**"
+    ]
+    if imported_details:
+        summary_lines.append("| Nom Application | Access Packages | Ressources & Rôles liés | Authorization Owner |")
+        summary_lines.append("|---|---|---|---|")
+        for item in imported_details:
+            summary_lines.append(f"| `{item['app']}` | {item['aps']} | {item['resources']} | {item['owners']} |")
+    else:
+        summary_lines.append("_Aucune application importée._")
+    summary_lines.append("")
+
+    summary_lines.append("❌ **Échec d'import (Action requise)**")
+    if failed_details:
+        summary_lines.append("| Nom Application | Raison de l'échec |")
+        summary_lines.append("|---|---|")
+        for fail in failed_details:
+            clean_reason = fail["reason"].replace("\n", " ").strip()
+            summary_lines.append(f"| `{fail['app']}` | {clean_reason} |")
+    else:
+        summary_lines.append("_Aucun échec d'importation._")
+    summary_lines.append("")
+
+    summary_md = "\n".join(summary_lines) + "\n"
+
+    return imported_apps, error_messages, summary_md
 
 
 def main():
@@ -514,10 +587,11 @@ def main():
     parser.add_argument("--declaration-dir", default="declaration", help="Répertoire cible (défaut: declaration)")
     parser.add_argument("--output-list", help="Fichier texte pour enregistrer la liste des apps importées")
     parser.add_argument("--error-file", help="Fichier texte pour enregistrer les erreurs bloquantes")
+    parser.add_argument("--summary-file", help="Fichier Markdown pour enregistrer le compte-rendu d'import")
     args = parser.parse_args()
 
     targets = parse_target_applications(args.applications)
-    imported, errors = reverse_engineer(targets, args.declaration_dir)
+    imported, errors, summary_md = reverse_engineer(targets, args.declaration_dir)
 
     if args.output_list:
         os.makedirs(os.path.dirname(os.path.abspath(args.output_list)), exist_ok=True)
@@ -530,6 +604,11 @@ def main():
         with open(args.error_file, "w", encoding="utf-8") as f:
             for err in errors:
                 f.write(f"{err}\n")
+
+    if args.summary_file:
+        os.makedirs(os.path.dirname(os.path.abspath(args.summary_file)), exist_ok=True)
+        with open(args.summary_file, "w", encoding="utf-8") as f:
+            f.write(summary_md)
 
     # Si aucune application n'a pu être importée et qu'il y a des erreurs, sortir en code 1
     if not imported and errors:

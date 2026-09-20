@@ -251,7 +251,8 @@ jobs:
             --applications "$TARGET_APPS" \
             --declaration-dir declaration \
             --output-list ./parsed/imported_apps.txt \
-            --error-file ./parsed/import_errors.txt
+            --error-file ./parsed/import_errors.txt \
+            --summary-file ./parsed/import_summary.md
 
       - name: "[Scénario D] Notification d'échec d'import sur l'Issue"
         if: steps.parse.outputs.operation == 'admin_import' && failure()
@@ -378,19 +379,34 @@ jobs:
               desc = `Modification en masse de plusieurs fichiers YAML via archive ZIP (Issue #${issueNum}).`;
             } else if (op === 'admin_import') {
               title = `🔄 [Import Entra ID] Reverse Engineering (Issue #${issueNum})`;
-              desc = `Import déclaratif d'applications depuis Microsoft Entra ID (Issue #${issueNum}).`;
+              const fs = require('fs');
+              let summaryMd = '';
+              if (fs.existsSync('./parsed/import_summary.md')) {
+                summaryMd = fs.readFileSync('./parsed/import_summary.md', 'utf8').trim();
+              }
+              desc = summaryMd || `Import déclaratif d'applications depuis Microsoft Entra ID (Issue #${issueNum}).`;
             }
 
-            const body = [
-              `## ${title}`,
-              '',
-              desc,
-              '',
-              '---',
-              `Closes #${issueNum}`,
-              '',
-              '> ℹ️ Le pipeline CI va valider le schéma, inspecter les ressources dans Entra ID et calculer le plan Terraform.'
-            ].join('\n');
+            const isImportWithSummary = (op === 'admin_import' && desc.startsWith('📋'));
+            const body = isImportWithSummary
+              ? [
+                  desc,
+                  '',
+                  '---',
+                  `Closes #${issueNum}`,
+                  '',
+                  '> ℹ️ Le pipeline CI va valider le schéma, inspecter les ressources dans Entra ID et calculer le plan Terraform.'
+                ].join('\n')
+              : [
+                  `## ${title}`,
+                  '',
+                  desc,
+                  '',
+                  '---',
+                  `Closes #${issueNum}`,
+                  '',
+                  '> ℹ️ Le pipeline CI va valider le schéma, inspecter les ressources dans Entra ID et calculer le plan Terraform.'
+                ].join('\n');
 
             const pr = await github.rest.pulls.create({
               owner: context.repo.owner,

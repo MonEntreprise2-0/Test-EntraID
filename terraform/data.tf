@@ -35,3 +35,11 @@ data "azuread_service_principal" "all" {
   for_each     = toset(local.all_application_names)
   display_name = each.value
 }
+
+# ---------------------------------------------------------------------------
+# UTILISATEURS — Approbateurs (authorization_owners) declares dans les YAML
+# ---------------------------------------------------------------------------
+data "azuread_user" "owners" {
+  for_each            = toset(local.all_owner_emails)
+  user_principal_name = each.value
+}
