@@ -19,8 +19,8 @@ resource "azuread_access_package_assignment_policy" "this" {
 
   # Duree de l'assignation
   duration_in_days = (
-    try(each.value.assignment.type, "expiring") == "expiring"
-    ? try(each.value.assignment.duration_in_days, 365)
+    try(each.value.assignment_type, "expiring") == "expiring"
+    ? try(each.value.duration_in_days, 365)
     : 0  # 0 = permanent (pas d'expiration)
   )
 
@@ -28,12 +28,12 @@ resource "azuread_access_package_assignment_policy" "this" {
   # Qui peut demander cet Access Package
   # ---------------------------------------------------------------------------
   requestor_settings {
-    scope_type        = lookup(local.scope_type_map, try(each.value.requestor.scope_type, "none"), "NoSubjects")
-    requests_accepted = try(each.value.requestor.scope_type, "none") != "none"
+    scope_type        = lookup(local.scope_type_map, try(each.value.requestor_scope_type, "none"), "NoSubjects")
+    requests_accepted = try(each.value.requestor_scope_type, "none") != "none"
 
     # Groupes eligibles (uniquement si scope_type = "specific")
     dynamic "requestor" {
-      for_each = try(each.value.requestor.scope_type, "") == "specific" ? each.value.requestor.groups : []
+      for_each = try(each.value.requestor_scope_type, "") == "specific" ? try(each.value.requestor_groups, []) : []
       content {
         object_id    = data.azuread_group.all[requestor.value].object_id
         subject_type = "groupMembers"
@@ -48,7 +48,7 @@ resource "azuread_access_package_assignment_policy" "this" {
     approval_required = (
       length(try(each.value.authorization_owners, [])) > 0
       ||
-      (try(each.value.approval.required, false) && length(try(each.value.approval.stages, [])) > 0)
+      (try(each.value.approval_required, false) && length(try(each.value.approval_stages, [])) > 0)
     )
 
     # Etapes d'approbation Schema v2 (basees sur authorization_owners)
@@ -68,13 +68,13 @@ resource "azuread_access_package_assignment_policy" "this" {
       }
     }
 
-    # Etapes d'approbation Schema v1 (basees sur approval.stages et groupes)
+    # Etapes d'approbation Schema v1 (basees sur approval_stages et groupes)
     dynamic "approval_stage" {
       for_each = (
         length(try(each.value.authorization_owners, [])) == 0 &&
-        try(each.value.approval.required, false) &&
-        length(try(each.value.approval.stages, [])) > 0
-        ? each.value.approval.stages
+        try(each.value.approval_required, false) &&
+        length(try(each.value.approval_stages, [])) > 0
+        ? each.value.approval_stages
         : []
       )
       content {
@@ -105,18 +105,18 @@ resource "azuread_access_package_assignment_policy" "this" {
   # Revue d'acces periodique (optionnel)
   # ---------------------------------------------------------------------------
   dynamic "assignment_review_settings" {
-    for_each = try(each.value.review.enabled, false) ? [each.value.review] : []
+    for_each = try(each.value.review_enabled, false) ? [1] : []
     content {
       enabled          = true
       review_frequency = lookup(
         local.review_frequency_map,
-        assignment_review_settings.value.frequency_in_days,
+        try(each.value.review_frequency, 180),
         "quarterly"
       )
-      duration_in_days = min(assignment_review_settings.value.frequency_in_days, 14)
+      duration_in_days = min(try(each.value.review_frequency, 180), 14)
       review_type      = lookup(
         local.reviewer_type_map,
-        assignment_review_settings.value.reviewer_type,
+        try(each.value.reviewer_type, "Self"),
         "Self"
       )
       access_recommendation_enabled   = true
@@ -124,7 +124,7 @@ resource "azuread_access_package_assignment_policy" "this" {
 
       # Reviseurs specifiques (uniquement si reviewer_type = "specific")
       dynamic "reviewer" {
-        for_each = try(assignment_review_settings.value.reviewer_groups, [])
+        for_each = try(each.value.reviewer_groups, [])
         content {
           object_id    = data.azuread_group.all[reviewer.value].object_id
           subject_type = "groupMembers"
