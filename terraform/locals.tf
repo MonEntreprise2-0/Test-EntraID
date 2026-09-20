@@ -36,6 +36,12 @@ locals {
     {}
   )
 
+  # Mapping des utilisateurs decouverts de maniere insensible a la casse et par mail/UPN
+  discovered_users = try(
+    jsondecode(file("${path.module}/discovered_users.json")),
+    {}
+  )
+
   # =========================================================================
   # 2. EXTRACTION DES GROUPES (pour les blocs data SSoT)
   # =========================================================================
