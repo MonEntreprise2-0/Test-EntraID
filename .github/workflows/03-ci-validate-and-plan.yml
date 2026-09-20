@@ -109,7 +109,7 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: '1.5'
+          terraform_version: '1.8.5'
           terraform_wrapper: true
 
       - name: Azure Login (OIDC)
@@ -147,16 +147,6 @@ jobs:
       - name: Terraform Validate
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform validate
-
-      - name: 🔍 Debug imports and keys
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        run: |
-          echo "=== IMPORTS.TF ==="
-          cat imports.tf || true
-          echo "=== ASSIGNMENT POLICIES KEYS ==="
-          timeout 15s bash -c "echo 'keys(local.assignment_policies)' | terraform console -var='tenant_id=${{ secrets.AZURE_TENANT_ID }}' -var='use_oidc=true'" || true
-          echo "=== TERRAFORM STATE LIST ==="
-          terraform state list || true
 
       - name: Terraform Plan (Contrôle SSoT et détection des ressources)
         id: plan
