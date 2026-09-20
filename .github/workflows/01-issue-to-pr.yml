@@ -261,7 +261,7 @@ jobs:
           github-token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
-            let errorDetails = "Une erreur est survenue lors de l'extraction depuis Microsoft Entra ID.";
+            let errorDetails = "Une erreur technique inattendue est survenue lors de l'extraction depuis Microsoft Entra ID.";
             if (fs.existsSync('./parsed/import_errors.txt')) {
               const content = fs.readFileSync('./parsed/import_errors.txt', 'utf8').trim();
               if (content) {
@@ -269,11 +269,15 @@ jobs:
               }
             }
             const issueNum = context.payload.issue.number;
+            const isNomenclature = errorDetails.toLowerCase().includes('nomenclature');
+            const note = isNomenclature
+              ? `\n\n---\n> ℹ️ **Règle de nomenclature obligatoire :**\n> Chaque Access Package d'une application doit impérativement respecter la convention : \`[Contexte/Sous-Application] [Niveau de Privilège] - [Environnement]\` *(ex: \`Credit Read Only - UAT\` ou \`Admin - Prod\`)*.\n> Si **un seul Access Package** ne respecte pas cette règle, l'import de l'application en entier est rejeté.\n>\n> 👉 **Pour corriger :** Ajustez le nom de l'Access Package directement dans le portail Microsoft Entra ID, puis relancez l'import.`
+              : '';
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issueNum,
-              body: `❌ **Échec de l'importation depuis Microsoft Entra ID**\n\n\`\`\`text\n${errorDetails}\n\`\`\`\n\n---\n> ℹ️ **Règle de nomenclature obligatoire :**\n> Chaque Access Package d'une application doit impérativement respecter la convention : \`[Contexte/Sous-Application] [Niveau de Privilège] - [Environnement]\` *(ex: \`Credit Read Only - UAT\` ou \`Admin - Prod\`)*.\n> Si **un seul Access Package** ne respecte pas cette règle, l'import de l'application en entier est rejeté.\n>\n> 👉 **Pour corriger :** Ajustez le nom de l'Access Package directement dans le portail Microsoft Entra ID, puis relancez l'import.`
+              body: `❌ **Échec de l'importation depuis Microsoft Entra ID**\n\n\`\`\`text\n${errorDetails}\n\`\`\`${note}`
             });
 
       # -----------------------------------------------------------------------

@@ -357,8 +357,8 @@ def get_access_package_approvers(ap_id: str, cat_id: str) -> list:
     # 2. Si aucun approbateur trouvé dans les politiques, interroger les Catalog Owners
     if not approvers:
         owner_endpoints = [
-            "https://graph.microsoft.com/v1.0/roleManagement/entitlementManagement/roleAssignments?$expand=principal&$top=999",
-            "https://graph.microsoft.com/beta/roleManagement/entitlementManagement/roleAssignments?$expand=principal&$top=999",
+            "https://graph.microsoft.com/v1.0/roleManagement/entitlementManagement/roleAssignments?$expand=principal",
+            "https://graph.microsoft.com/beta/roleManagement/entitlementManagement/roleAssignments?$expand=principal",
         ]
         for owner_url in owner_endpoints:
             owner_data = query_graph_api(owner_url)
@@ -402,6 +402,8 @@ def reverse_engineer(target_apps: list, declaration_dir: str = "declaration") ->
 
     imported_apps = []
     error_messages = []
+    imported_details = []
+    failed_details = []
 
     for app_query in target_apps:
         query_norm = app_query.lower()
@@ -411,6 +413,10 @@ def reverse_engineer(target_apps: list, declaration_dir: str = "declaration") ->
             err = f"❌ Catalogue introuvable dans Entra ID pour : '{app_query}'"
             print(f"⚠️ {err}")
             error_messages.append(err)
+            failed_details.append({
+                "app": app_query,
+                "reason": f"Catalogue introuvable dans Microsoft Entra ID pour '{app_query}'"
+            })
             continue
 
         cat_id = matched_cat.get("id")
@@ -430,6 +436,10 @@ def reverse_engineer(target_apps: list, declaration_dir: str = "declaration") ->
             )
             print(f"   {err}")
             error_messages.append(err)
+            failed_details.append({
+                "app": app_query,
+                "reason": "Aucun Access Package dans ce catalogue dans Entra ID"
+            })
             continue
 
         # 2. Validation STRICTE de la nomenclature de chaque Access Package
@@ -610,9 +620,9 @@ def main():
         with open(args.summary_file, "w", encoding="utf-8") as f:
             f.write(summary_md)
 
-    # Si aucune application n'a pu être importée et qu'il y a des erreurs, sortir en code 1
-    if not imported and errors:
-        sys.exit(1)
+    # Toujours sortir avec code 0 pour garantir la création systématique de la Pull Request.
+    # Le compte-rendu détaillé (succès et éventuels rejets avec leurs motifs) est transmis à la PR via summary_file.
+    sys.exit(0)
 
 
 if __name__ == "__main__":
