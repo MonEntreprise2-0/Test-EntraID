@@ -193,7 +193,7 @@ def get_catalog_access_packages(cat_id: str) -> list:
         return data2["accessPackages"]
 
     # 3. Fallback : lister tous les access packages et filtrer côté client par catalogId
-    url3 = "https://graph.microsoft.com/v1.0/identityGovernance/entitlementManagement/accessPackages?$top=999"
+    url3 = "https://graph.microsoft.com/v1.0/identityGovernance/entitlementManagement/accessPackages?$top=999&$expand=catalog"
     data3 = query_graph_api(url3)
     if data3 and "value" in data3:
         matched = [
@@ -392,14 +392,8 @@ def reverse_engineer(target_apps: list, declaration_dir: str = "declaration") ->
 
     print("📡 Récupération de la liste des catalogues Entra ID...")
     all_catalogs = get_all_catalogs()
-    print(f"ℹ️ {len(all_catalogs)} catalogue(s) trouvé(s) dans l'annuaire Entra ID.")
-
-    # Indexation insensible à la casse
-    catalog_map = {}
-    for cat in all_catalogs:
-        display_name = cat.get("displayName", "").strip()
-        if display_name:
-            catalog_map[display_name.lower()] = cat
+    catalog_names = [cat.get("displayName", "").strip() for cat in all_catalogs if cat.get("displayName")]
+    print(f"ℹ️ {len(all_catalogs)} catalogue(s) trouvé(s) dans l'annuaire Entra ID : {', '.join(catalog_names)}")
 
     imported_apps = []
     error_messages = []
@@ -407,16 +401,35 @@ def reverse_engineer(target_apps: list, declaration_dir: str = "declaration") ->
     failed_details = []
 
     for app_query in target_apps:
-        query_norm = app_query.lower()
-        matched_cat = catalog_map.get(query_norm)
+        q_clean = app_query.strip()
+        q_lower = q_clean.lower()
+        q_norm = re.sub(r"[^a-z0-9]", "", q_lower)
+
+        # 1. Correspondance exacte
+        matched_cat = next((c for c in all_catalogs if c.get("displayName", "").strip() == q_clean), None)
+
+        # 2. Correspondance insensible à la casse
+        if not matched_cat:
+            matched_cat = next((c for c in all_catalogs if c.get("displayName", "").strip().lower() == q_lower), None)
+
+        # 3. Correspondance insensible à la ponctuation (tirets, underscores, espaces)
+        if not matched_cat:
+            matched_cat = next((c for c in all_catalogs if re.sub(r"[^a-z0-9]", "", c.get("displayName", "").lower()) == q_norm), None)
 
         if not matched_cat:
-            err = f"❌ Catalogue introuvable dans Entra ID pour : '{app_query}'"
+            avail_str = ", ".join([f"`{name}`" for name in catalog_names]) if catalog_names else "aucun"
+            err = (
+                f"❌ Catalogue introuvable dans Entra ID pour : '{app_query}'.\n"
+                f"      Catalogues actuellement existants dans l'annuaire Entra ID : {avail_str}."
+            )
             print(f"⚠️ {err}")
             error_messages.append(err)
             failed_details.append({
                 "app": app_query,
-                "reason": f"Catalogue introuvable dans Microsoft Entra ID pour '{app_query}'"
+                "reason": (
+                    f"Catalogue introuvable dans Microsoft Entra ID pour '{app_query}'. "
+                    f"Catalogues disponibles détectés : {avail_str}"
+                )
             })
             continue
 
