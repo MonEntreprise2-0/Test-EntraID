@@ -362,7 +362,7 @@ def main():
                     if "privilege_level" in ap and not ap.get("policies"):
                         default_pol_name = f"Politique - {ap_name}"
                         for ep in existing_policies:
-                            if ep.get("displayName", "").strip().lower() in [default_pol_name.lower(), "politique", "initial policy"]:
+                            if ep.get("displayName", "").strip().lower() in [default_pol_name.lower(), "politique"]:
                                 pol_key = f"{app_name}|{ap_name}|Politique"
                                 import_blocks.append(f'''import {{
   to = azuread_access_package_assignment_policy.this["{pol_key}"]
