@@ -24,8 +24,23 @@ access_packages:
   # AP 2 
   # ==========================================================================
 
-  - context_subapp: "Application2"
+  - context_subapp: "Credit"
     privilege_level: "Admin2"
+    env: "Prod"
+    description: "Access Package Credit NonAdmin - Prod"
+    authorization_owners:
+      - "gorlainel_gmail.com#EXT#@monentreprise123.onmicrosoft.com"
+      - "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
+
+    resources:
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test01"
+
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test02"
+
+  - context_subapp: "Application3"
+    privilege_level: "Admin3"
     env: "Prod"
     description: "Access Package Credit NonAdmin - Prod"
     authorization_owners:
