@@ -315,7 +315,7 @@ def get_access_package_approvers(ap_id: str, cat_id: str) -> list:
     # 1. Interroger les politiques d'assignation de l'Access Package (v1.0 puis beta)
     policy_endpoints = [
         f"https://graph.microsoft.com/v1.0/identityGovernance/entitlementManagement/assignmentPolicies?$filter=accessPackage/id eq '{ap_id}'&$top=999",
-        f"https://graph.microsoft.com/beta/identityGovernance/entitlementManagement/assignmentPolicies?$filter=accessPackage/id eq '{ap_id}'&$top=999",
+        f"https://graph.microsoft.com/beta/identityGovernance/entitlementManagement/accessPackageAssignmentPolicies?$filter=accessPackage/id eq '{ap_id}'&$top=999",
     ]
 
     for pol_url in policy_endpoints:
@@ -357,8 +357,9 @@ def get_access_package_approvers(ap_id: str, cat_id: str) -> list:
     # 2. Si aucun approbateur trouvé dans les politiques, interroger les Catalog Owners
     if not approvers:
         owner_endpoints = [
+            f"https://graph.microsoft.com/v1.0/roleManagement/entitlementManagement/roleAssignments?$filter=appScopeId eq '/AccessPackageCatalog/{cat_id}'&$expand=principal",
+            f"https://graph.microsoft.com/beta/roleManagement/entitlementManagement/roleAssignments?$filter=appScopeId eq '/AccessPackageCatalog/{cat_id}'&$expand=principal",
             "https://graph.microsoft.com/v1.0/roleManagement/entitlementManagement/roleAssignments?$expand=principal",
-            "https://graph.microsoft.com/beta/roleManagement/entitlementManagement/roleAssignments?$expand=principal",
         ]
         for owner_url in owner_endpoints:
             owner_data = query_graph_api(owner_url)
@@ -480,7 +481,10 @@ def reverse_engineer(target_apps: list, declaration_dir: str = "declaration") ->
 
             # 4. Récupération des approbateurs réels
             approvers = get_access_package_approvers(ap_id, cat_id)
-            # Ne jamais inventer ou simuler d'approbateur
+            if not approvers:
+                fallback_admin = os.environ.get("FALLBACK_APPROVER_EMAIL", "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com")
+                print(f"   ℹ️ Aucun approbateur ni Catalog Owner trouvé dans Entra ID pour l'Access Package '{ap_display_name}'. Utilisation de l'administrateur par défaut : {fallback_admin}")
+                approvers = [fallback_admin]
 
             ap_entry = {
                 "context_subapp": parsed_ap["context_subapp"],

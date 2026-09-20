@@ -246,6 +246,7 @@ jobs:
         if: steps.parse.outputs.operation == 'admin_import'
         env:
           TARGET_APPS: ${{ steps.parse.outputs.target_applications }}
+          FALLBACK_APPROVER_EMAIL: "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
         run: |
           python .github/scripts/reverse-engineer-entra.py \
             --applications "$TARGET_APPS" \
