@@ -59,5 +59,6 @@ output "summary" {
     total_packages = length(azuread_access_package.this)
     total_policies = length(azuread_access_package_assignment_policy.this)
     applications   = keys(local.apps)
+    policy_keys    = keys(local.assignment_policies)
   }
 }
