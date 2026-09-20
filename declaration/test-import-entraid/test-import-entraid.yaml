@@ -1,0 +1,13 @@
+app_name: test-import-entraid
+catalog_name: Test_import_entraId
+app_description: Je crée cette application pour tester l'import de l'entreID
+access_packages:
+- context_subapp: ''
+  privilege_level: Standard
+  env: Prod
+  description: Package standard pour Test_import_entraId
+  authorization_owners:
+  - iam-team@monentreprise123.onmicrosoft.com
+  resources:
+  - resource_type: EntraID Group
+    group_name: GRP-DEFAULT-ACCESS
