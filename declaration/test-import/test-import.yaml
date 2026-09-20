@@ -1,0 +1,15 @@
+app_name: test-import
+catalog_name: Test_import
+app_description: Test import de l'EntraID
+access_packages:
+- context_subapp: App
+  privilege_level: Admin
+  env: UAT
+  description: Test import
+  authorization_owners:
+  - iam-admin@monentreprise123.onmicrosoft.com
+  resources:
+  - resource_type: EntraID Group
+    group_name: Group_Test01
+  - resource_type: EntraID Group
+    group_name: Group_Test02
