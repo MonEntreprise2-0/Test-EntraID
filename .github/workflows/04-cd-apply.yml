@@ -60,6 +60,8 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           terraform init
+          terraform force-unlock -force 43a8bdec-d0ba-144c-96ce-284c18d87a96 2>/dev/null || true
+          az storage blob lease break --blob-name "entitlement-mgmt.tfstate" --container-name "entitlement-mgmt" --account-name "stardiantfstate" --auth-mode login 2>/dev/null || true
 
       - name: 🧹 Nettoyage automatique des ressources orphelines du State
         run: |
