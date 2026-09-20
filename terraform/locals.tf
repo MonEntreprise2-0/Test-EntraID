@@ -240,10 +240,10 @@ locals {
   assignment_policies = {
     for item in flatten([
       for app_name, app in local.apps : [
-        for ap in try(app.access_packages, []) : concat(
-          # Schema v1
-          [
-            for pol in try(ap.policies, []) : {
+        for ap in try(app.access_packages, []) : (
+          # Schema v1 : presence explicite de policies
+          length(try(ap.policies, [])) > 0 ? [
+            for pol in ap.policies : {
               key                  = "${app_name}|${ap.display_name}|${pol.display_name}"
               app_name             = app_name
               ap_key               = "${app_name}|${ap.display_name}"
@@ -255,9 +255,9 @@ locals {
               owner_only           = false
               authorization_owners = []
             }
-          ],
-          # Schema v2
-          contains(keys(ap), "privilege_level") ? [
+          ] :
+          # Schema v2 : auto-generation a partir de la nomenclature et authorization_owners
+          [
             {
               key = "${app_name}|${try(
                 coalesce(ap.display_name, trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")),
@@ -272,11 +272,6 @@ locals {
                 coalesce(ap.display_name, trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")),
                 trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")
               )}"
-              authorization_owners = [
-                for email in try(ap.authorization_owners, []) : trimspace(email)
-                if trimspace(email) != ""
-              ]
-              assignment           = { type = "expiring", duration_in_days = 365 }
               requestor = {
                 scope_type = "all_members"
                 groups     = []
@@ -285,9 +280,18 @@ locals {
                 required = length(try(ap.authorization_owners, [])) > 0
                 stages   = []
               }
-              review = { enabled = false }
+              assignment = {
+                type             = "expiring"
+                duration_in_days = 365
+              }
+              review     = { enabled = false }
+              owner_only = false
+              authorization_owners = [
+                for email in try(ap.authorization_owners, []) : trimspace(email)
+                if trimspace(email) != ""
+              ]
             }
-          ] : []
+          ]
         )
       ]
     ]) : item.key => item
