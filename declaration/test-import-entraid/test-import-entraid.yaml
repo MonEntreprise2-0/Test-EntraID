@@ -1,0 +1,26 @@
+app_name: test-import-entraid
+catalog_name: Test_import_entraId
+app_description: Je crée cette application pour tester l'import de l'entreID
+access_packages:
+- context_subapp: Application2
+  privilege_level: Admin
+  env: Dev
+  description: Import EntraID
+  authorization_owners:
+  - iam-admin@monentreprise123.onmicrosoft.com
+  resources:
+  - resource_type: EntraID Group
+    group_name: Group_Test01
+  - resource_type: EntraID Group
+    group_name: Group_Test02
+- context_subapp: Application
+  privilege_level: Admin
+  env: Dev
+  description: Application à importer dans Github
+  authorization_owners:
+  - iam-admin@monentreprise123.onmicrosoft.com
+  resources:
+  - resource_type: EntraID Group
+    group_name: Group_Test01
+  - resource_type: EntraID Group
+    group_name: Group_Test02
