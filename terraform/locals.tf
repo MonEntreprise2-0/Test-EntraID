@@ -237,64 +237,70 @@ locals {
   # 7. APLATISSEMENT — Politiques d'assignation
   # =========================================================================
 
-  assignment_policies = {
-    for item in flatten([
-      for app_name, app in local.apps : [
-        for ap in try(app.access_packages, []) : (
-          # Schema v1 : presence explicite de policies
-          length(try(ap.policies, [])) > 0 ? [
-            for pol in ap.policies : {
-              key                  = "${app_name}|${ap.display_name}|${pol.display_name}"
-              app_name             = app_name
-              ap_key               = "${app_name}|${ap.display_name}"
-              display_name         = pol.display_name
-              requestor            = pol.requestor
-              approval             = pol.approval
-              assignment           = pol.assignment
-              review               = try(pol.review, { enabled = false })
-              owner_only           = false
-              authorization_owners = []
-            }
-          ] :
-          # Schema v2 : auto-generation a partir de la nomenclature et authorization_owners
-          [
-            {
-              key = "${app_name}|${try(
-                coalesce(ap.display_name, trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")),
-                trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")
-              )}|Politique"
-              app_name = app_name
-              ap_key = "${app_name}|${try(
-                coalesce(ap.display_name, trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")),
-                trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")
-              )}"
-              display_name = "Politique - ${try(
-                coalesce(ap.display_name, trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")),
-                trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")
-              )}"
-              requestor = {
-                scope_type = "all_members"
-                groups     = []
-              }
-              approval = {
-                required = length(try(ap.authorization_owners, [])) > 0
-                stages   = []
-              }
-              assignment = {
-                type             = "expiring"
-                duration_in_days = 365
-              }
-              review     = { enabled = false }
-              owner_only = false
-              authorization_owners = [
-                for email in try(ap.authorization_owners, []) : trimspace(email)
-                if trimspace(email) != ""
-              ]
-            }
-          ]
-        )
+  # 7.1 Politiques Schema v1 (declarees explicitement)
+  policies_v1 = flatten([
+    for app_name, app in local.apps : [
+      for ap in try(app.access_packages, []) : [
+        for pol in try(ap.policies, []) : {
+          key                  = "${app_name}|${try(ap.display_name, "")}|${pol.display_name}"
+          app_name             = app_name
+          ap_key               = "${app_name}|${try(ap.display_name, "")}"
+          display_name         = pol.display_name
+          requestor_scope_type = try(pol.requestor.scope_type, "none")
+          requestor_groups     = try(pol.requestor.groups, [])
+          approval_required    = try(pol.approval.required, false)
+          approval_stages      = try(pol.approval.stages, [])
+          assignment_type      = try(pol.assignment.type, "expiring")
+          duration_in_days     = try(pol.assignment.duration_in_days, 365)
+          review_enabled       = try(pol.review.enabled, false)
+          review_frequency     = try(pol.review.frequency_in_days, 180)
+          reviewer_type        = try(pol.review.reviewer_type, "Self")
+          reviewer_groups      = try(pol.review.reviewer_groups, [])
+          authorization_owners = []
+        }
       ]
-    ]) : item.key => item
+    ]
+  ])
+
+  # 7.2 Politiques Schema v2 (auto-generees selon nomenclature et authorization_owners)
+  policies_v2 = flatten([
+    for app_name, app in local.apps : [
+      for ap in try(app.access_packages, []) : [
+        {
+          key = "${app_name}|${try(
+            coalesce(ap.display_name, trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")),
+            trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")
+          )}|Politique"
+          app_name = app_name
+          ap_key = "${app_name}|${try(
+            coalesce(ap.display_name, trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")),
+            trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")
+          )}"
+          display_name = "Politique - ${try(
+            coalesce(ap.display_name, trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")),
+            trimspace("${try(ap.context_subapp, "") != "" ? "${ap.context_subapp} " : ""}${try(ap.privilege_level, "")} - ${try(ap.env, "")}")
+          )}"
+          requestor_scope_type = "all_members"
+          requestor_groups     = []
+          approval_required    = length(try(ap.authorization_owners, [])) > 0
+          approval_stages      = []
+          assignment_type      = "expiring"
+          duration_in_days     = 365
+          review_enabled       = false
+          review_frequency     = 180
+          reviewer_type        = "Self"
+          reviewer_groups      = []
+          authorization_owners = [
+            for email in try(ap.authorization_owners, []) : trimspace(email)
+            if trimspace(email) != ""
+          ]
+        }
+      ] if length(try(ap.policies, [])) == 0
+    ]
+  ])
+
+  assignment_policies = {
+    for item in concat(local.policies_v1, local.policies_v2) : item.key => item
   }
 
   # =========================================================================
