@@ -1,0 +1,26 @@
+app_name: catalogue-test-v2
+catalog_name: catalogue-test-v2
+app_description: Description de mon test avec la nouvelle nomenclature
+access_packages:
+- context_subapp: SubApp
+  privilege_level: Admin
+  env: Dev
+  description: SubApp Admin Dev
+  authorization_owners:
+  - iam-admin@monentreprise123.onmicrosoft.com
+  resources:
+  - resource_type: EntraID Group
+    group_name: Group_Test01
+  - resource_type: EntraID Group
+    group_name: Group_Test02
+- context_subapp: SubApp
+  privilege_level: Read Only
+  env: Dev
+  description: SubApp Read Only Dev
+  authorization_owners:
+  - iam-admin@monentreprise123.onmicrosoft.com
+  resources:
+  - resource_type: EntraID Group
+    group_name: Group_Test01
+  - resource_type: EntraID Group
+    group_name: Group_Test02
