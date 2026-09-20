@@ -131,9 +131,6 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           terraform init
-          terraform state rm 'azuread_access_package_assignment_policy.this["cat-test03|AP_Test03|Politique de test"]' 2>/dev/null || true
-          terraform state rm 'azuread_access_package_assignment_policy.this["private-credit|Credit Read Only - UAT|Politique"]' 2>/dev/null || true
-          terraform state rm 'azuread_access_package_assignment_policy.this["private-credit|Credit Write - UAT|Politique"]' 2>/dev/null || true
 
       - name: 🧹 Nettoyage automatique des ressources orphelines du State
         run: |
@@ -156,23 +153,16 @@ jobs:
           terraform plan \
             -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
             -var="use_oidc=true" \
-            -no-color \
             -out=tfplan.binary \
-            -detailed-exitcode \
+            -no-color \
             2>&1 | tee plan_output.txt
 
           PLAN_EXIT_CODE=${PIPESTATUS[0]}
           echo "exit_code=$PLAN_EXIT_CODE" >> $GITHUB_OUTPUT
 
-          if [ -f tfplan.binary ]; then
+          if [ $PLAN_EXIT_CODE -eq 0 ]; then
             terraform show -json tfplan.binary > tfplan.json 2>/dev/null || true
           fi
-
-          if [ $PLAN_EXIT_CODE -eq 1 ]; then
-            echo "Terraform plan a échoué (ressources manquantes ou erreur de syntaxe)."
-            exit 1
-          fi
-        continue-on-error: true
 
       - name: Synthèse et publication du résultat sur la PR
         id: summary
@@ -227,29 +217,36 @@ jobs:
               for (const m of grpMatches) { missingGroups.push(m[1]); }
 
               const missingUsers = [];
-              const userMatches = planOutput.matchAll(/No user found with (?:user_principal_name|UPN) "([^"]+)"/g);
+              const userMatches = planOutput.matchAll(/(?:No user found with (?:user_principal_name|UPN)|user with user_principal_name) "([^"]+)"/gi);
               for (const m of userMatches) { missingUsers.push(m[1]); }
-              const userMatches2 = planOutput.matchAll(/azuread_user\.owners\["([^"]+)"\]/g);
-              if (missingUsers.length === 0 && planOutput.includes('data.azuread_user.owners')) {
-                for (const m of userMatches2) { missingUsers.push(m[1]); }
-              }
-
-              footerBlock = [
-                '> [!CAUTION]',
-                '> ### 🚫 Ressources bloquantes à créer dans Entra ID :',
-                '> **Certaines ressources (groupes, rôles applicatifs ou applications) déclarées dans votre fichier YAML n\'existent pas dans Microsoft Entra ID.**',
-                '>',
-                '> 💡 **Procédure de déblocage (Sans recréer d\'Issue) :**',
-                '> 1. Créez les ressources manquantes directement dans le portail Microsoft Entra ID.',
-                '> 2. Cliquez sur le bouton **"Re-run jobs"** de cette Pull Request pour relancer immédiatement la vérification.',
-              ];
 
               if (missingApps.length > 0 || missingGroups.length > 0 || missingUsers.length > 0) {
-                footerBlock.push('>');
-                footerBlock.push('> **Détail des ressources manquantes détectées :**');
+                footerBlock = [
+                  '> [!CAUTION]',
+                  '> ### 🚫 Ressources bloquantes à créer dans Entra ID :',
+                  '> **Certaines ressources (groupes, rôles applicatifs ou utilisateurs) déclarées dans votre fichier YAML n\'existent pas dans Microsoft Entra ID.**',
+                  '>',
+                  '> 💡 **Procédure de déblocage (Sans recréer d\'Issue) :**',
+                  '> 1. Créez les ressources manquantes directement dans le portail Microsoft Entra ID.',
+                  '> 2. Cliquez sur le bouton **"Re-run jobs"** de cette Pull Request pour relancer immédiatement la vérification.',
+                  '>',
+                  '> **Détail des ressources manquantes détectées :**'
+                ];
                 for (const a of missingApps) { footerBlock.push(`> - 📱 Application / Rôle applicatif manquant : \`${a}\``); }
                 for (const g of missingGroups) { footerBlock.push(`> - 👥 Groupe Entra ID manquant : \`${g}\``); }
                 for (const u of missingUsers) { footerBlock.push(`> - 👤 Utilisateur / Owner manquant : \`${u}\``); }
+              } else {
+                footerBlock = [
+                  '> [!CAUTION]',
+                  '> ### 🚫 Échec de la vérification Terraform :',
+                  '> Une erreur est survenue lors de la phase de planification.',
+                  '>',
+                  '> 💡 **Détails de l\'erreur :**',
+                ];
+                const errorLines = planOutput.split('\n').filter(l => l.includes('Error:') || l.includes('error:'));
+                for (const el of errorLines.slice(0, 5)) {
+                  footerBlock.push(`> \`${el.trim()}\``);
+                }
               }
             } else {
               status = 'Ressources validées — Plan prêt pour approbation';
