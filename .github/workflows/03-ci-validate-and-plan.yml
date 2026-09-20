@@ -146,6 +146,14 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform validate
 
+      - name: 🔍 Debug imports and assignment policies
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          echo "=== IMPORTS.TF ==="
+          cat imports.tf || true
+          echo "=== ASSIGNMENT POLICIES KEYS ==="
+          echo "keys(local.assignment_policies)" | terraform console || true
+
       - name: Terraform Plan (Contrôle SSoT et détection des ressources)
         id: plan
         working-directory: ${{ env.TF_WORKING_DIR }}
