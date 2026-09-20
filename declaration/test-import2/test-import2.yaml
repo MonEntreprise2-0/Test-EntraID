@@ -1,0 +1,15 @@
+app_name: test-import2
+catalog_name: Test_import2
+app_description: On teste à nouveau l'import
+access_packages:
+- context_subapp: Appli
+  privilege_level: Admin
+  env: Dev
+  description: "Test import EntraID"
+  authorization_owners:
+  - OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com
+  resources:
+  - resource_type: EntraID Group
+    group_name: Group_Test01
+  - resource_type: EntraID Group
+    group_name: Group_Test02
