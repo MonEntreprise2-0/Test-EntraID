@@ -7,7 +7,7 @@ access_packages:
   env: Dev
   description: SubApp Admin Dev
   authorization_owners:
-  - iam-admin@monentreprise123.onmicrosoft.com
+  - OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com
   resources:
   - resource_type: EntraID Group
     group_name: Group_Test01
@@ -18,7 +18,7 @@ access_packages:
   env: Dev
   description: SubApp Read Only Dev
   authorization_owners:
-  - iam-admin@monentreprise123.onmicrosoft.com
+  - OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com
   resources:
   - resource_type: EntraID Group
     group_name: Group_Test01

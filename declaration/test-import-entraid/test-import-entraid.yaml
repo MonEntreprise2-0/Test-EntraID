@@ -7,7 +7,7 @@ access_packages:
   env: Dev
   description: Import EntraID
   authorization_owners:
-  - iam-admin@monentreprise123.onmicrosoft.com
+  - OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com
   resources:
   - resource_type: EntraID Group
     group_name: Group_Test01
@@ -18,7 +18,7 @@ access_packages:
   env: Dev
   description: Application à importer dans Github
   authorization_owners:
-  - iam-admin@monentreprise123.onmicrosoft.com
+  - OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com
   resources:
   - resource_type: EntraID Group
     group_name: Group_Test01
