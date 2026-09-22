@@ -38,36 +38,61 @@ function Tester-NomenclatureAccessPackage {
         }
     }
 
-    # Regex de décomposition : ^(?:(?<context>[A-Za-z0-9_]+)\s+)?(?<privilege>[A-Za-z0-9_\s]+?)\s*-\s*(?<env>[A-Za-z0-9_]+)$
-    $pattern = '^(?:(?<context>[A-Za-z0-9_]+)\s+)?(?<privilege>[A-Za-z0-9_\s]+?)\s*-\s*(?<env>[A-Za-z0-9_]+)$'
-    if ($clean -match $pattern) {
-        $context = $Matches['context']
-        $privilege = $Matches['privilege'].Trim()
+    $prefix = ""
+    $env = ""
+
+    # Cas 1 : Séparateur standard " - " (avec espaces)
+    $dashIndex = $clean.LastIndexOf(' - ')
+    if ($dashIndex -gt 0) {
+        $prefix = $clean.Substring(0, $dashIndex).Trim()
+        $env = $clean.Substring($dashIndex + 3).Trim()
+    } elseif ($clean -match '^(?<prefix>.+?)\s*-\s*(?<env>[A-Za-z0-9_-]+)$') {
+        # Cas 2 : Séparateur sans espaces stricts
+        $prefix = $Matches['prefix'].Trim()
         $env = $Matches['env'].Trim()
-
-        # Si le privilège est vide après découpage
-        if ([string]::IsNullOrWhiteSpace($privilege)) {
-            return [PSCustomObject]@{
-                IsValid      = $false
-                DisplayName  = $clean
-                ErrorMessage = "Le niveau de privilège n'a pas pu être extrait pour '$clean'."
-            }
-        }
-
+    } else {
         return [PSCustomObject]@{
-            IsValid       = $true
-            DisplayName   = $clean
-            ContextSubapp = if ($context) { $context.Trim() } else { "" }
-            Privilege     = $privilege
-            Env           = $env
-            ErrorMessage  = ""
+            IsValid      = $false
+            DisplayName  = $clean
+            ErrorMessage = "Le nom '$clean' ne respecte pas le format '[Contexte] [Privilège] - [Environnement]' ou '[Privilège] - [Environnement]'."
         }
     }
 
+    if ([string]::IsNullOrWhiteSpace($prefix) -or [string]::IsNullOrWhiteSpace($env)) {
+        return [PSCustomObject]@{
+            IsValid      = $false
+            DisplayName  = $clean
+            ErrorMessage = "Le préfixe (contexte/privilège) ou l'environnement est vide pour '$clean'."
+        }
+    }
+
+    # Décomposition du préfixe en [Contexte] et [Privilège]
+    $context = ""
+    $privilege = ""
+
+    # Cas où le préfixe entier est un privilège direct sans contexte (ex: "Read Only", "Full Access")
+    if ($prefix -match '^(?i)(?:Read[\s-_]?Only|Full[\s-_]?(?:Control|Access)|Direct[\s-_]?Access)$') {
+        $context = ""
+        $privilege = $prefix
+    } elseif ($prefix.Contains(' ')) {
+        # S'il y a un espace, le premier mot constitue le contexte et le reste constitue le privilège
+        # Permet de supporter les contextes avec tirets (ex: "Test-import Admin" -> Contexte: "Test-import", Privilège: "Admin")
+        $firstSpaceIndex = $prefix.IndexOf(' ')
+        $context = $prefix.Substring(0, $firstSpaceIndex).Trim()
+        $privilege = $prefix.Substring($firstSpaceIndex + 1).Trim()
+    } else {
+        # Un seul mot dans le préfixe -> c'est le niveau de privilège (ex: "Admin", "User")
+        $context = ""
+        $privilege = $prefix
+    }
+
     return [PSCustomObject]@{
-        IsValid      = $false
-        DisplayName  = $clean
-        ErrorMessage = "Le nom '$clean' ne respecte pas le format '[Contexte] [Privilège] - [Environnement]' ou '[Privilège] - [Environnement]'."
+        IsValid       = $true
+        DisplayName   = $clean
+        ContextSubapp = $context
+        Privilege     = $privilege
+        Env           = $env
+        ErrorMessage  = ""
     }
 }
 
