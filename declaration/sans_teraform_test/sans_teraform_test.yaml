@@ -1,66 +1,70 @@
-app_name: "sans_teraform_test"
+﻿app_name: "sans_teraform_test"
 app_description: "private credit correction"
 
 access_packages:
-
-  # ==========================================================================
-  # AP 1 : "Private Credit Read Only - UAT"
-  # ==========================================================================
-
-  - context_subapp: "sans_teraform_Credit"
+  - context_subapp: "test_import"
     privilege_level: "Admin"
-    env: "UAT"
-    description: "Access Package Credit Admin - UAT"
+    env: "Dev"
+    description: "dddddddddddddddddd"
     authorization_owners:
-      - "gorlainel_gmail.com#EXT#@monentreprise123.onmicrosoft.com"
       - "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
-
-    resources:
-      - resource_type: "EntraID Group"
-        group_name: "Group_Test01"
-
-
-  # ==========================================================================
-  # AP 2 
-  # ==========================================================================
-
-  - context_subapp: "sans_teraform_Credit"
-    privilege_level: "Admin2"
-    env: "Prod"
-    description: "Access Package Credit NonAdmin - Prod"
-    authorization_owners:
-      - "gorlainel_gmail.com#EXT#@monentreprise123.onmicrosoft.com"
-      - "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
-
     resources:
       - resource_type: "EntraID Group"
         group_name: "Group_Test02"
-
-  - context_subapp: "sans_teraform_Application"
-    privilege_level: "Admin"
-    env: "Prod"
-    description: "Access Package Credit NonAdmin - Prod"
-    authorization_owners:
-      - "gorlainel_gmail.com#EXT#@monentreprise123.onmicrosoft.com"
-      - "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
-
-    resources:
-      - resource_type: "EntraID Group"
-        group_name: "Group_Test01"
-
-      - resource_type: "EntraID Group"
-        group_name: "Group_Test02"
+        role: "Owner"
 
   - context_subapp: "no_tf"
     privilege_level: "Admin3"
     env: "Prod"
     description: "xxxdddddddeeeeeeee"
     authorization_owners:
-      - "gorlainel_gmail.com#EXT#@monentreprise123.onmicrosoft.com"
+      - "gorlainel@gmail.com"
+    resources:
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test02"
+        role: "Member"
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test01"
+        role: "Member"
 
+  - context_subapp: "sans_teraform_Application"
+    privilege_level: "Admin"
+    env: "Prod"
+    description: "Access Package Credit NonAdmin - Prod"
+    authorization_owners:
+      - "gorlainel@gmail.com"
+      - "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
+    resources:
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test02"
+        role: "Member"
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test01"
+        role: "Member"
+
+  - context_subapp: "sans_teraform_Credit"
+    privilege_level: "Admin2"
+    env: "Prod"
+    description: "Access Package Credit NonAdmin - Prod"
+    authorization_owners:
+      - "gorlainel@gmail.com"
+      - "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
+    resources:
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test02"
+        role: "Member"
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test01"
+        role: "Member"
+
+  - context_subapp: "sans_teraform_Credit"
+    privilege_level: "Admin"
+    env: "UAT"
+    description: "Access Package Credit Admin - UAT"
+    authorization_owners:
+      - "gorlainel@gmail.com"
+      - "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
     resources:
       - resource_type: "EntraID Group"
         group_name: "Group_Test01"
-
-      - resource_type: "EntraID Group"
-        group_name: "Group_Test02"
+        role: "Member"
