@@ -13,8 +13,8 @@
   "properties": {
     "app_name": {
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$",
-      "description": "Nom du catalogue et identifiant unique de l'application en kebab-case. Doit correspondre au nom du fichier (sans extension)."
+      "pattern": "^[a-z0-9][a-z0-9-_]{1,62}[a-z0-9]$",
+      "description": "Nom du catalogue et identifiant unique de l'application en kebab-case ou snake_case. Doit correspondre au nom du fichier (sans extension)."
     },
     "catalog_name": {
       "type": "string",

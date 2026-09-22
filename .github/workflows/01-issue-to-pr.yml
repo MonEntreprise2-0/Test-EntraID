@@ -33,14 +33,20 @@ jobs:
 
       # -----------------------------------------------------------------------
       # 1. Parsing du formulaire d'Issue (PowerShell)
-      # -----------------------------------------------------------------------
       - name: Parse Issue body
         id: parse
         shell: pwsh
         env:
           ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_LABELS: ${{ join(github.event.issue.labels.*.name, ',') }}
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
         run: |
-          & ./scripts/Traiter-DemandeIssue.ps1 -IssueBody $env:ISSUE_BODY -OutputDir ./parsed
+          & ./scripts/Traiter-DemandeIssue.ps1 `
+            -IssueBody $env:ISSUE_BODY `
+            -IssueTitle $env:ISSUE_TITLE `
+            -IssueLabels $env:ISSUE_LABELS `
+            -OutputDir ./parsed
 
           $operation = (Get-Content ./parsed/operation_type.txt -Raw).Trim()
           echo "operation=$operation" >> $env:GITHUB_OUTPUT
@@ -64,6 +70,23 @@ jobs:
             $targets = (Get-Content ./parsed/target_applications.txt -Raw).Trim()
             echo "target_applications=$targets" >> $env:GITHUB_OUTPUT
           }
+
+      # -----------------------------------------------------------------------
+      # 1.1 Contrôle de la validité de l'interprétation de l'Issue
+      # -----------------------------------------------------------------------
+      - name: Vérifier la détection du scénario
+        if: steps.parse.outputs.operation == 'unknown'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              body: `❌ **Erreur d'interprétation de la demande** : Le système n'a pas pu identifier le scénario correspondant à cette Issue.\n\nVeuillez vous assurer d'utiliser l'un des formulaires officiels du dépôt.`
+            });
+            core.setFailed('Scénario inconnu (unknown).');
 
       # -----------------------------------------------------------------------
       # 2. Contrôle d'Accès RBAC pour les scénarios réservés aux Admins
@@ -121,7 +144,25 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
-            const appName = process.env.APP_NAME.toLowerCase();
+            const appName = (process.env.APP_NAME || '').toLowerCase();
+
+            if (!appName) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                body: `❌ **Erreur bloquante** : Aucun nom d'application (\`app_name\`) n'a pu être extrait du fichier YAML.`
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                state: 'closed'
+              });
+              core.setFailed('app_name manquant.');
+              return;
+            }
+
             const appDir = path.join('declaration', appName);
 
             if (!fs.existsSync(appDir)) {
@@ -155,9 +196,43 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
-            const appName = process.env.APP_NAME.toLowerCase();
-            const teamInput = process.env.GITHUB_TEAM.trim();
+            const appName = (process.env.APP_NAME || '').toLowerCase();
+            const teamInput = (process.env.GITHUB_TEAM || '').trim();
             const owner = context.repo.owner;
+
+            if (!appName) {
+              await github.rest.issues.createComment({
+                owner: owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                body: `❌ **Erreur bloquante** : Aucun nom d'application (\`app_name\`) n'a pu être extrait du fichier YAML joint ou du formulaire.`
+              });
+              await github.rest.issues.update({
+                owner: owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                state: 'closed'
+              });
+              core.setFailed('app_name manquant pour la création.');
+              return;
+            }
+
+            if (!teamInput) {
+              await github.rest.issues.createComment({
+                owner: owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                body: `❌ **Erreur bloquante** : Aucune Team GitHub Owner n'a été spécifiée dans le formulaire.`
+              });
+              await github.rest.issues.update({
+                owner: owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                state: 'closed'
+              });
+              core.setFailed('Team GitHub manquante pour la création.');
+              return;
+            }
 
             // 1. Vérifier si l'application existe déjà
             const appDir = path.join('declaration', appName);
@@ -327,6 +402,10 @@ jobs:
           git checkout -b "$BRANCH"
 
           if [ "$OP" = "user_modify" ] || [ "$OP" = "admin_create" ]; then
+            if [ ! -f "./parsed/app.yaml" ]; then
+              echo "::error::Fichier ./parsed/app.yaml introuvable !"
+              exit 1
+            fi
             mkdir -p "declaration/${APP_SLUG}"
             cp ./parsed/app.yaml "declaration/${APP_SLUG}/${APP_SLUG}.yaml"
             git add "declaration/${APP_SLUG}/${APP_SLUG}.yaml"
@@ -398,6 +477,11 @@ jobs:
                 summaryMd = fs.readFileSync('./parsed/import_summary.md', 'utf8').trim();
               }
               desc = summaryMd || `Import déclaratif d'applications depuis Microsoft Entra ID (Issue #${issueNum}).`;
+            }
+
+            if (!title) {
+              title = `🆕 [Demande Entitlement] ${app || 'Demande'} (Issue #${issueNum})`;
+              desc = `Traitement automatique de la demande soumise via l'Issue #${issueNum}.`;
             }
 
             const isImportWithSummary = (op === 'admin_import' && desc.startsWith('📋'));

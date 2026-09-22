@@ -281,8 +281,8 @@ function Valider-StructureYaml {
     if ([string]::IsNullOrWhiteSpace($appName)) {
         $errors.Add("Le champ obligatoire 'app_name' est manquant ou vide.")
     } else {
-        if ($appName -notmatch '^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$') {
-            $errors.Add("Le champ 'app_name' ('$appName') doit respecter le format kebab-case (minuscules, chiffres, tirets) avec une longueur entre 3 et 64 caractères.")
+        if ($appName -notmatch '^[a-z0-9][a-z0-9-_]{1,62}[a-z0-9]$') {
+            $errors.Add("Le champ 'app_name' ('$appName') doit respecter le format kebab-case ou snake_case (minuscules, chiffres, tirets, underscores) avec une longueur entre 3 et 64 caractères.")
         }
         # Vérification règle 1 app = 1 dossier = 1 fichier
         if ($fileName -ne "_example" -and $fileName -ne $appName) {
