@@ -227,11 +227,10 @@ function Invoke-GraphRequest {
                 if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
                     $errDetails = $_.ErrorDetails.Message
                 }
-                Write-Host "DEBUG GRAPH FAILED [$Method] $currentUrl (HTTP $statusCode) : $errDetails" -ForegroundColor Red
-                if ($payload) {
-                    Write-Host "DEBUG REJECTED PAYLOAD : $payload" -ForegroundColor Yellow
-                }
                 Write-Error "Erreur lors de l'appel Graph [$Method] $currentUrl (HTTP $statusCode) : $errDetails"
+                if ($payload) {
+                    Write-Verbose "Payload rejeté : $payload"
+                }
                 throw $_
             }
         }

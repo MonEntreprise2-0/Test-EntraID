@@ -457,7 +457,6 @@ function Synchroniser-EtatEntra {
                 $policy = New-PolitiqueAssignationEntra -AccessPackageId $apId -DisplayName $policyName -ApproverUserIds $approverIds.ToArray()
             } else {
                 Write-Host "  ✅ Politique d'assignation existante trouvée ($($policy.id))." -ForegroundColor Gray
-                Write-Host "  DEBUG POLICY FOUND: $($policy | ConvertTo-Json -Depth 5 -Compress)" -ForegroundColor Yellow
                 Set-PolitiqueAssignationEntra -PolicyId $policy.id -AccessPackageId $apId -DisplayName $policyName -ApproverUserIds $approverIds.ToArray() | Out-Null
             }
 
