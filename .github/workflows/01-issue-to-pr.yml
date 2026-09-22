@@ -332,6 +332,13 @@ jobs:
           TARGET_APPS: ${{ steps.parse.outputs.target_applications }}
           FALLBACK_APPROVER_EMAIL: "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
         run: |
+          if (-not $env:TARGET_APPS -or [string]::IsNullOrWhiteSpace($env:TARGET_APPS)) {
+            $err = "Aucun catalogue à importer n'a pu être extrait du formulaire de l'Issue. Veuillez renseigner le champ 'Noms exacts des catalogues à importer (CAT-{app_name})'."
+            New-Item -ItemType Directory -Path "./parsed" -Force | Out-Null
+            [System.IO.File]::WriteAllText("./parsed/import_errors.txt", $err, [System.Text.Encoding]::UTF8)
+            Write-Error $err
+            exit 1
+          }
           & ./scripts/Importer-DepuisEntra.ps1 `
             -Applications $env:TARGET_APPS `
             -DeclarationDir "declaration" `
@@ -357,7 +364,7 @@ jobs:
             const issueNum = context.payload.issue.number;
             const isNomenclature = errorDetails.toLowerCase().includes('nomenclature');
             const note = isNomenclature
-              ? `\n\n---\n> ℹ️ **Règle de nomenclature obligatoire :**\n> Chaque Access Package d'une application doit impérativement respecter la convention : \`[Contexte/Sous-Application] [Niveau de Privilège] - [Environnement]\` *(ex: \`Credit Read Only - UAT\` ou \`Admin - Prod\`)*.\n> Si **un seul Access Package** ne respecte pas cette règle, l'import de l'application en entier est rejeté.\n>\n> 👉 **Pour corriger :** Ajustez le nom de l'Access Package directement dans le portail Microsoft Entra ID, puis relancez l'import.`
+              ? `\n\n---\n> ℹ️ **Règle de nomenclature obligatoire :**\n> Le catalogue doit obligatoirement être nommé \`CAT-{app_name}\` dans Entra ID.\n> Chaque Access Package doit impérativement respecter la convention : \`{app_name} - [Contexte] [Privilège] - [Environnement]\` *(ou \`{app_name} - [Privilège] - [Environnement]\`)* avec un environnement parmi DEV, UAT, PRD, TST, GLB.\n> Si **un seul Access Package** ne respecte pas cette règle, l'import du catalogue en entier est rejeté.\n>\n> 👉 **Pour corriger :** Ajustez le nom directement dans le portail Microsoft Entra ID, puis relancez l'import.`
               : '';
             await github.rest.issues.createComment({
               owner: context.repo.owner,
@@ -486,7 +493,7 @@ jobs:
               desc = `Traitement automatique de la demande soumise via l'Issue #${issueNum}.`;
             }
 
-            const isImportWithSummary = (op === 'admin_import' && desc.startsWith('📋'));
+            const isImportWithSummary = (op === 'admin_import' && (desc.startsWith('## 📋') || desc.includes('📋')));
             const body = isImportWithSummary
               ? [
                   desc,

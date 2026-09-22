@@ -113,7 +113,7 @@ if ($operation -eq "unknown") {
         $operation = "admin_create"
     } elseif ($IssueBody -match '<!--\s*SCENARIO:\s*admin_bulk\s*-->' -or $IssueBody -match 'Archive ZIP') {
         $operation = "admin_bulk"
-    } elseif ($IssueBody -match '<!--\s*SCENARIO:\s*admin_import\s*-->' -or $IssueBody -match 'Applications Entra ID à importer' -or $IssueBody -match 'Noms exacts des applications à importer') {
+    } elseif ($IssueBody -match '<!--\s*SCENARIO:\s*admin_import\s*-->' -or $IssueBody -match '(?i)(?:catalogues?|applications?).*?import') {
         $operation = "admin_import"
     }
 }
@@ -184,7 +184,7 @@ if (-not (Test-Path (Join-Path $OutputDir "app_name.txt")) -and -not [string]::I
 # 3. Extraction de la Team GitHub (Scénario B)
 # ---------------------------------------------------------------------------
 if ($operation -eq "admin_create") {
-    $teamMatch = [regex]::Match($IssueBody, '###\s*(?:👥\s*)?Nom de la Team GitHub.*?\r?\n\s*`?([a-zA-Z0-9_-]+)`?')
+    $teamMatch = [regex]::Match($IssueBody, '(?i)###\s*.*?Team GitHub.*?\r?\n\s*`?([a-zA-Z0-9_-]+)`?')
     if (-not $teamMatch.Success) {
         $teamMatch = [regex]::Match($IssueBody, '(?i)(?:team|équipe)\s*(?:github)?\s*:\s*`?([a-zA-Z0-9_-]+)`?')
     }
@@ -214,11 +214,11 @@ if ($operation -eq "admin_bulk") {
 # 5. Extraction des applications cibles (Scénario D - Import)
 # ---------------------------------------------------------------------------
 if ($operation -eq "admin_import") {
-    $importMatch = [regex]::Match($IssueBody, '###\s*(?:📋\s*)?(?:Applications Entra ID à importer|Noms exacts des applications à importer).*?\r?\n([\s\S]*?)(?:\r?\n###|\Z)')
+    $importMatch = [regex]::Match($IssueBody, '(?i)###\s*.*?(?:catalogues?|applications?).*?import.*?\r?\n([\s\S]*?)(?:\r?\n###|\Z)')
     if ($importMatch.Success) {
         $targetApps = $importMatch.Groups[1].Value.Trim()
         [System.IO.File]::WriteAllText((Join-Path $OutputDir "target_applications.txt"), $targetApps, [System.Text.Encoding]::UTF8)
-        Write-Host "🎯 Applications cibles pour import : $targetApps" -ForegroundColor Gray
+        Write-Host "🎯 Catalogues/Applications cibles pour import : $targetApps" -ForegroundColor Gray
     }
 }
 

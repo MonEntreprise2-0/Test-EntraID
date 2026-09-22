@@ -11,8 +11,9 @@
 
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$Applications,
+    [Parameter(Mandatory = $false)]
+    [AllowEmptyString()]
+    [string]$Applications = "",
 
     [Parameter(Mandatory = $false)]
     [string]$DeclarationDir = "declaration",
@@ -51,7 +52,7 @@ try {
 }
 
 # Découpage des applications cibles
-$rawList = $Applications -split '[,;\r\n]+'
+$rawList = if ($Applications) { $Applications -split '[,;\r\n]+' } else { @() }
 $appNames = [System.Collections.Generic.List[string]]::new()
 foreach ($item in $rawList) {
     $clean = $item.Trim()
@@ -61,7 +62,7 @@ foreach ($item in $rawList) {
 }
 
 if ($appNames.Count -eq 0) {
-    $msg = "Aucune application spécifiée pour l'import."
+    $msg = "Aucun catalogue spécifié pour l'import. Veuillez renseigner le champ 'Noms exacts des catalogues à importer (CAT-{app_name})' dans le formulaire de l'Issue."
     Write-Error $msg
     if ($ErrorFile) { [System.IO.File]::WriteAllText($ErrorFile, $msg, [System.Text.Encoding]::UTF8) }
     exit 1
