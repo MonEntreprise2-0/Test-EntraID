@@ -1,0 +1,71 @@
+﻿app_name: "sans-teraform-test"
+catalog_name: "sans_teraform_test"
+app_description: "Description importée pour sans_teraform_test"
+
+access_packages:
+  - context_subapp: "test_import"
+    privilege_level: "Admin"
+    env: "UAT"
+    description: "je teste l'import dans github"
+    authorization_owners:
+      - "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
+    resources:
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test01"
+        role: "Owner"
+
+  - context_subapp: "no_tf"
+    privilege_level: "Admin3"
+    env: "Prod"
+    description: "xxxdddddddeeeeeeee"
+    authorization_owners:
+      - "gorlainel@gmail.com"
+    resources:
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test02"
+        role: "Member"
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test01"
+        role: "Member"
+
+  - context_subapp: "sans_teraform_Application"
+    privilege_level: "Admin"
+    env: "Prod"
+    description: "Access Package Credit NonAdmin - Prod"
+    authorization_owners:
+      - "gorlainel@gmail.com"
+      - "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
+    resources:
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test02"
+        role: "Member"
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test01"
+        role: "Member"
+
+  - context_subapp: "sans_teraform_Credit"
+    privilege_level: "Admin2"
+    env: "Prod"
+    description: "Access Package Credit NonAdmin - Prod"
+    authorization_owners:
+      - "gorlainel@gmail.com"
+      - "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
+    resources:
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test02"
+        role: "Member"
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test01"
+        role: "Member"
+
+  - context_subapp: "sans_teraform_Credit"
+    privilege_level: "Admin"
+    env: "UAT"
+    description: "Access Package Credit Admin - UAT"
+    authorization_owners:
+      - "gorlainel@gmail.com"
+      - "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
+    resources:
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test01"
+        role: "Member"
