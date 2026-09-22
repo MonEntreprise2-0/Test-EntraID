@@ -581,7 +581,6 @@ function Set-PolitiqueAssignationEntra {
     } else {
         "allDirectoryUsers"
     })
-    $specificTargets = $(if ($existing -and $existing.specificAllowedTargets) { $existing.specificAllowedTargets } else { @() })
     $policyDesc = $(if ($existing -and $existing.description) { $existing.description } else { "Politique gérée par GitOps" })
     $finalDisplayName = $(if (-not [string]::IsNullOrWhiteSpace($DisplayName)) { $DisplayName } elseif ($existing -and $existing.displayName) { $existing.displayName } else { "Politique d'assignation standard" })
 
@@ -590,7 +589,7 @@ function Set-PolitiqueAssignationEntra {
         displayName             = $finalDisplayName
         description             = $policyDesc
         allowedTargetScope      = $targetScope
-        specificAllowedTargets  = $specificTargets
+        specificAllowedTargets  = @()
         expiration              = $expirationObj
         requestorSettings       = $reqSettings
         requestApprovalSettings = $approvalSettings
