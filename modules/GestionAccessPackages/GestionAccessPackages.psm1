@@ -306,7 +306,10 @@ function Get-PolitiqueAssignationEntra {
         [string]$AccessPackageId,
 
         [Parameter(Mandatory = $false)]
-        [string]$PolicyId
+        [string]$PolicyId,
+
+        [Parameter(Mandatory = $false)]
+        [string]$DisplayName
     )
 
     if (-not [string]::IsNullOrWhiteSpace($PolicyId)) {
@@ -317,13 +320,38 @@ function Get-PolitiqueAssignationEntra {
         $filter = "accessPackage/id eq '$AccessPackageId'"
         $policies = Invoke-GraphRequest -Endpoint "/identityGovernance/entitlementManagement/assignmentPolicies?`$filter=$([System.Uri]::EscapeDataString($filter))&`$top=999" -Method GET -AllPages -IgnoreNotFound
         if ($policies -and $policies.Count -gt 0) {
-            return $policies[0]
+            if (-not [string]::IsNullOrWhiteSpace($DisplayName)) {
+                $namedMatch = $policies | Where-Object { $_.displayName -eq $DisplayName }
+                if ($namedMatch) {
+                    return $namedMatch[0]
+                }
+            }
+
+            # Ignorer "Initial Policy" générée automatiquement par Entra ID (réservée à l'assignation directe)
+            $customPolicies = $policies | Where-Object { $_.displayName -ne "Initial Policy" }
+            if ($customPolicies -and $customPolicies.Count -gt 0) {
+                return $customPolicies[0]
+            }
+
+            if ([string]::IsNullOrWhiteSpace($DisplayName)) {
+                return $policies[0]
+            }
         }
 
         # Fallback endpoint beta
         try {
             $policiesBeta = Invoke-GraphRequest -Endpoint "/identityGovernance/entitlementManagement/accessPackageAssignmentPolicies?`$filter=$([System.Uri]::EscapeDataString($filter))&`$top=999" -ApiVersion "beta" -Method GET -AllPages -IgnoreNotFound
             if ($policiesBeta -and $policiesBeta.Count -gt 0) {
+                if (-not [string]::IsNullOrWhiteSpace($DisplayName)) {
+                    $namedBeta = $policiesBeta | Where-Object { $_.displayName -eq $DisplayName }
+                    if ($namedBeta) {
+                        return $namedBeta[0]
+                    }
+                }
+                $customBeta = $policiesBeta | Where-Object { $_.displayName -ne "Initial Policy" }
+                if ($customBeta -and $customBeta.Count -gt 0) {
+                    return $customBeta[0]
+                }
                 return $policiesBeta[0]
             }
         } catch {
@@ -384,7 +412,7 @@ function New-PolitiqueAssignationEntra {
         $primaryApprovers = [System.Collections.Generic.List[object]]::new()
         foreach ($userId in $ApproverUserIds) {
             if (-not [string]::IsNullOrWhiteSpace($userId)) {
-                $primaryApprovers.Add(@{
+                $primaryApprovers.Add([ordered]@{
                     "@odata.type" = "#microsoft.graph.singleUser"
                     userId        = $userId.Trim()
                 })
@@ -438,15 +466,14 @@ function New-PolitiqueAssignationEntra {
     }
 
     $body = [ordered]@{
-        displayName              = $DisplayName
-        description              = "Politique gérée par GitOps - $DisplayName"
-        allowedTargetScope       = "allDirectoryUsers"
-        specificAllowedTargets   = @()
-        automaticRequestSettings = $null
-        expiration               = $expirationObj
-        requestorSettings        = $reqSettings
-        requestApprovalSettings  = $approvalSettings
-        accessPackage            = @{ id = $AccessPackageId }
+        displayName             = $DisplayName
+        description             = "Politique gérée par GitOps - $DisplayName"
+        allowedTargetScope      = "allDirectoryUsers"
+        specificAllowedTargets  = @()
+        expiration              = $expirationObj
+        requestorSettings       = $reqSettings
+        requestApprovalSettings = $approvalSettings
+        accessPackage           = @{ id = $AccessPackageId }
     }
 
     Write-Verbose "Création de la politique d'assignation pour l'Access Package '$AccessPackageId'..."
@@ -486,7 +513,7 @@ function Set-PolitiqueAssignationEntra {
         $primaryApprovers = [System.Collections.Generic.List[object]]::new()
         foreach ($userId in $ApproverUserIds) {
             if (-not [string]::IsNullOrWhiteSpace($userId)) {
-                $primaryApprovers.Add(@{
+                $primaryApprovers.Add([ordered]@{
                     "@odata.type" = "#microsoft.graph.singleUser"
                     userId        = $userId.Trim()
                 })
@@ -549,21 +576,25 @@ function Set-PolitiqueAssignationEntra {
         $null
     })
 
-    $targetScope = $(if ($existing -and $existing.allowedTargetScope) { $existing.allowedTargetScope } else { "allDirectoryUsers" })
+    $targetScope = $(if ($existing -and $existing.allowedTargetScope -and $existing.allowedTargetScope -ne "notSpecified") {
+        $existing.allowedTargetScope
+    } else {
+        "allDirectoryUsers"
+    })
     $specificTargets = $(if ($existing -and $existing.specificAllowedTargets) { $existing.specificAllowedTargets } else { @() })
     $policyDesc = $(if ($existing -and $existing.description) { $existing.description } else { "Politique gérée par GitOps" })
     $finalDisplayName = $(if (-not [string]::IsNullOrWhiteSpace($DisplayName)) { $DisplayName } elseif ($existing -and $existing.displayName) { $existing.displayName } else { "Politique d'assignation standard" })
 
     $body = [ordered]@{
-        id                       = $PolicyId
-        displayName              = $finalDisplayName
-        description              = $policyDesc
-        allowedTargetScope       = $targetScope
-        specificAllowedTargets   = $specificTargets
-        automaticRequestSettings = $null
-        expiration               = $expirationObj
-        requestorSettings        = $reqSettings
-        requestApprovalSettings  = $approvalSettings
+        id                      = $PolicyId
+        displayName             = $finalDisplayName
+        description             = $policyDesc
+        allowedTargetScope      = $targetScope
+        specificAllowedTargets  = $specificTargets
+        expiration              = $expirationObj
+        requestorSettings       = $reqSettings
+        requestApprovalSettings = $approvalSettings
+        questions               = @()
     }
 
     if ($targetApId) {

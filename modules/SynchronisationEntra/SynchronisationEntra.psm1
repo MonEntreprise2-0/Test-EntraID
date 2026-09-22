@@ -450,7 +450,7 @@ function Synchroniser-EtatEntra {
             }
 
             $policyName = "Politique - $apName"
-            $policy = Get-PolitiqueAssignationEntra -AccessPackageId $apId
+            $policy = Get-PolitiqueAssignationEntra -AccessPackageId $apId -DisplayName $policyName
 
             if (-not $policy) {
                 Write-Host "  📜 Création de la politique d'assignation pour '$apName'..." -ForegroundColor Green

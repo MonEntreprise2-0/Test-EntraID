@@ -228,6 +228,9 @@ function Invoke-GraphRequest {
                     $errDetails = $_.ErrorDetails.Message
                 }
                 Write-Error "Erreur lors de l'appel Graph [$Method] $currentUrl (HTTP $statusCode) : $errDetails"
+                if ($payload) {
+                    Write-Error "Payload rejeté : $payload"
+                }
                 throw $_
             }
         }
