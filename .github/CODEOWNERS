@@ -1,4 +1,4 @@
-# ============================================================================
+﻿# ============================================================================
 # POLITIQUE DE GOUVERNANCE — CODEOWNERS
 # ============================================================================
 # Ce fichier définit les équipes GitHub propriétaires de chaque répertoire.
@@ -27,3 +27,5 @@
 /declaration/private-test-correction/ @MonEntreprise2-0/dev
 
 /declaration/test-import2/ @MonEntreprise2-0/admins
+
+/declaration/test_sans_teraform/ @MonEntreprise2-0/admins
