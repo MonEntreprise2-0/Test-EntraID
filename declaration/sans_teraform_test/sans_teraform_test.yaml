@@ -54,7 +54,7 @@ access_packages:
   - context_subapp: "no_tf"
     privilege_level: "Admin3"
     env: "Prod"
-    description: "xxx"
+    description: "xxxdddddddeeeeeeee"
     authorization_owners:
       - "gorlainel_gmail.com#EXT#@monentreprise123.onmicrosoft.com"
 
