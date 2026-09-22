@@ -1,4 +1,4 @@
-﻿# ============================================================================
+# ============================================================================
 # SCRIPT D'ORCHESTRATION : Importer-DepuisEntra.ps1
 # ============================================================================
 # Rôle :
@@ -30,8 +30,9 @@ param(
     [string]$SummaryFile = "import_summary.md"
 )
 
-$moduleRoot = Join-Path $PSScriptRoot "..\modules"
-$env:PSModulePath = (Resolve-Path $moduleRoot).Path + ';' + $env:PSModulePath
+$moduleRoot = Join-Path $PSScriptRoot "../modules"
+$resolvedModules = (Resolve-Path $moduleRoot).Path
+$env:PSModulePath = "$resolvedModules$([System.IO.Path]::PathSeparator)$($env:PSModulePath)"
 
 Import-Module ConnexionGraph -Force
 Import-Module GestionCatalogues -Force

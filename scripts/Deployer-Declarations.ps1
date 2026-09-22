@@ -1,4 +1,4 @@
-﻿# ============================================================================
+# ============================================================================
 # SCRIPT D'ORCHESTRATION : Deployer-Declarations.ps1
 # ============================================================================
 # Rôle :
@@ -22,8 +22,9 @@ param(
     [int]$PrNumber = 0
 )
 
-$moduleRoot = Join-Path $PSScriptRoot "..\modules"
-$env:PSModulePath = (Resolve-Path $moduleRoot).Path + ';' + $env:PSModulePath
+$moduleRoot = Join-Path $PSScriptRoot "../modules"
+$resolvedModules = (Resolve-Path $moduleRoot).Path
+$env:PSModulePath = "$resolvedModules$([System.IO.Path]::PathSeparator)$($env:PSModulePath)"
 
 Import-Module ValidationSyntaxe -Force
 Import-Module ConnexionGraph -Force

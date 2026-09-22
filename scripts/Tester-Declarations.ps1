@@ -1,4 +1,4 @@
-﻿# ============================================================================
+# ============================================================================
 # SCRIPT D'ORCHESTRATION : Tester-Declarations.ps1
 # ============================================================================
 # Rôle :
@@ -27,8 +27,9 @@ param(
 )
 
 # Configuration de l'environnement de modules
-$moduleRoot = Join-Path $PSScriptRoot "..\modules"
-$env:PSModulePath = (Resolve-Path $moduleRoot).Path + ';' + $env:PSModulePath
+$moduleRoot = Join-Path $PSScriptRoot "../modules"
+$resolvedModules = (Resolve-Path $moduleRoot).Path
+$env:PSModulePath = "$resolvedModules$([System.IO.Path]::PathSeparator)$($env:PSModulePath)"
 
 Import-Module ValidationSyntaxe -Force
 Import-Module ConnexionGraph -Force
