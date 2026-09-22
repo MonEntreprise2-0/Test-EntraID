@@ -1,8 +1,8 @@
 # ============================================================================
-# Workflow : CI — Pipeline de Validation à 3 Étapes
+# Workflow : CI — Pipeline de Validation à 3 Étapes (100% PowerShell)
 # ============================================================================
-# Étape 1 : Syntaxe et conformité (JSON Schema, nommage 1 app = 1 dossier)
-# Étape 2 : Détection des ressources Entra ID (Bloquant strict, relance via Re-run)
+# Étape 1 : Syntaxe et conformité (Schéma YAML v2, nommage 1 app = 1 dossier)
+# Étape 2 : Contrôle SSoT Entra ID & Calcul du Plan (Bloquant, relance via Re-run)
 # Étape 3 : Validation Humaine (Approbation Admin requise)
 # ============================================================================
 name: "🔍 CI — Pipeline de Validation à 3 Étapes"
@@ -12,20 +12,14 @@ on:
     branches: [main]
     paths:
       - 'declaration/**'
-      - 'terraform/**'
+      - 'modules/**'
+      - 'scripts/**'
       - 'schemas/**'
 
 permissions:
   contents: read
   pull-requests: write
   id-token: write
-
-env:
-  TF_WORKING_DIR: terraform
-  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-  ARM_USE_OIDC: "true"
 
 jobs:
 
@@ -41,14 +35,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install dependencies
-        run: pip install pyyaml jsonschema
 
       - name: Détecter les fichiers YAML modifiés
         id: changed
@@ -69,32 +55,19 @@ jobs:
             echo "count=$(echo \"$CHANGED_FILES\" | wc -l)" >> $GITHUB_OUTPUT
           fi
 
-      - name: Valider chaque fichier contre le Schéma et le Nommage
+      - name: Valider la syntaxe et la structure des déclarations YAML
         if: steps.changed.outputs.count != '0'
+        shell: pwsh
         run: |
-          ERRORS=0
+          $rawFiles = @"
+          ${{ steps.changed.outputs.files }}
+          "@
+          $fileList = $rawFiles -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
 
-          while IFS= read -r file; do
-            echo "================================================"
-            echo "Validation en cours : $file"
-            echo "================================================"
-
-            python .github/scripts/validate-schema.py \
-              --yaml-file "$file" \
-              --schema-file schemas/app-declaration.schema.json || ERRORS=$((ERRORS + 1))
-
-            echo ""
-          done <<< "${{ steps.changed.outputs.files }}"
-
-          if [ $ERRORS -gt 0 ]; then
-            echo "❌ $ERRORS fichier(s) en échec de validation de schéma ou de nommage."
-            exit 1
-          fi
-
-          echo "✅ Tous les fichiers déclaratifs sont conformes."
+          & ./scripts/Tester-Declarations.ps1 -Stage SchemaOnly -ChangedFiles $fileList
 
   # ===========================================================================
-  # ÉTAPE 2 : Détection des Ressources Entra ID & Plan SSoT (Bloquant)
+  # ÉTAPE 2 : Détection des Ressources Entra ID (SSoT) & Calcul du Plan
   # ===========================================================================
   detect-resources-and-plan:
     name: "🔎 Étape 2 : Détection des Ressources Entra ID"
@@ -107,12 +80,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: '1.8.5'
-          terraform_wrapper: true
-
       - name: Azure Login (OIDC)
         uses: azure/login@v2
         with:
@@ -120,70 +87,36 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install Python dependencies
-        run: pip install pyyaml
-
-      - name: Terraform Init
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        run: |
-          terraform init
-          terraform force-unlock -force 43a8bdec-d0ba-144c-96ce-284c18d87a96 2>/dev/null || true
-          az storage blob lease break --blob-name "entitlement-mgmt.tfstate" --container-name "entitlement-mgmt" --account-name "stardiantfstate" --auth-mode login 2>/dev/null || true
-
-      - name: 🧹 Nettoyage automatique des ressources orphelines du State
-        run: |
-          python .github/scripts/cleanup-stale-state.py --working-dir ${{ env.TF_WORKING_DIR }}
-
-      - name: Smart Discovery des catalogues Entra ID
-        run: |
-          python .github/scripts/discover-catalogs.py \
-            --declarations-dir declaration \
-            --output-file terraform/discovered_catalogs.json
-
-      - name: Terraform Validate
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform validate
-
-      - name: Terraform Plan (Contrôle SSoT et détection des ressources)
-        id: plan
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        run: |
-          terraform plan \
-            -var="client_id=${{ secrets.AZURE_CLIENT_ID }}" \
-            -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
-            -var="use_oidc=true" \
-            -lock=false \
-            -out=tfplan.binary \
-            -no-color \
-            2>&1 | tee plan_output.txt
-
-          PLAN_EXIT_CODE=${PIPESTATUS[0]}
-          echo "exit_code=$PLAN_EXIT_CODE" >> $GITHUB_OUTPUT
-
-          if [ $PLAN_EXIT_CODE -eq 0 ]; then
-            terraform show -json tfplan.binary > tfplan.json 2>/dev/null || true
-          fi
-
-      - name: Synthèse et publication du résultat sur la PR
-        id: summary
-        if: always()
+      - name: Détecter les fichiers déclaratifs modifiés
+        id: changed
         run: |
           CHANGED_FILES=$(git diff --name-only --diff-filter=ACMR origin/main...HEAD -- 'declaration/**/*.yaml' | grep -v 'declaration/_' || true)
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "files<<$EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
+          echo "$EOF" >> $GITHUB_OUTPUT
 
-          python .github/scripts/format-pr-comment.py \
-            --changed-files "$CHANGED_FILES" \
-            --tfplan-json "${{ env.TF_WORKING_DIR }}/tfplan.json" \
-            --catalog-packages-json "${{ env.TF_WORKING_DIR }}/entraid_catalog_packages.json" \
-            --discovered-catalogs-json "${{ env.TF_WORKING_DIR }}/discovered_catalogs.json" \
-            --plan-output "${{ env.TF_WORKING_DIR }}/plan_output.txt" \
-            --output-file "${{ env.TF_WORKING_DIR }}/plan_summary.md"
+      - name: Contrôle SSoT Entra ID et Calcul du Plan
+        id: plan
+        shell: pwsh
+        run: |
+          $rawFiles = @"
+          ${{ steps.changed.outputs.files }}
+          "@
+          $fileList = $rawFiles -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
 
-      - name: Publier le commentaire d'impact sur la PR
+          $planExit = 0
+          try {
+            & ./scripts/Tester-Declarations.ps1 -Stage SSoTAndPlan -ChangedFiles $fileList -OutputPlanFile plan_summary.md
+          } catch {
+            $planExit = 1
+          }
+
+          if ($LASTEXITCODE -ne 0) { $planExit = $LASTEXITCODE }
+          echo "exit_code=$planExit" >> $env:GITHUB_OUTPUT
+          exit $planExit
+
+      - name: Publier le commentaire de plan sur la PR
         if: always()
         uses: actions/github-script@v7
         with:
@@ -191,112 +124,28 @@ jobs:
           script: |
             const fs = require('fs');
 
-            let planOutput = '';
-            try {
-              planOutput = fs.readFileSync('${{ env.TF_WORKING_DIR }}/plan_output.txt', 'utf8');
-            } catch (e) {
-              planOutput = 'Sortie du plan indisponible.';
-            }
-
             let summaryContent = '';
             try {
-              summaryContent = fs.readFileSync('${{ env.TF_WORKING_DIR }}/plan_summary.md', 'utf8');
-            } catch (e) {
-              summaryContent = '⚠️ Résumé non disponible.';
-            }
-
-            const exitCode = '${{ steps.plan.outputs.exit_code }}';
-            let status, emoji;
-
-            let footerBlock = [];
-            if (exitCode === '1') {
-              status = 'Échec du contrôle SSoT — Ressources manquantes dans Entra ID';
-              emoji = '❌';
-
-              const missingApps = [];
-              const appMatches = planOutput.matchAll(/No service principals found matching filter: "displayName eq '([^']+)'"/g);
-              for (const m of appMatches) { missingApps.push(m[1]); }
-
-              const missingGroups = [];
-              const grpMatches = planOutput.matchAll(/No group found with display_name "([^"]+)"/g);
-              for (const m of grpMatches) { missingGroups.push(m[1]); }
-
-              const missingUsers = [];
-              const userMatches = planOutput.matchAll(/(?:No user found with (?:user_principal_name|UPN)|user with user_principal_name) "([^"]+)"/gi);
-              for (const m of userMatches) { missingUsers.push(m[1]); }
-
-              if (missingApps.length > 0 || missingGroups.length > 0 || missingUsers.length > 0) {
-                footerBlock = [
-                  '> [!CAUTION]',
-                  '> ### 🚫 Ressources bloquantes à créer dans Entra ID :',
-                  '> **Certaines ressources (groupes, rôles applicatifs ou utilisateurs) déclarées dans votre fichier YAML n\'existent pas dans Microsoft Entra ID.**',
-                  '>',
-                  '> 💡 **Procédure de déblocage (Sans recréer d\'Issue) :**',
-                  '> 1. Créez les ressources manquantes directement dans le portail Microsoft Entra ID.',
-                  '> 2. Cliquez sur le bouton **"Re-run jobs"** de cette Pull Request pour relancer immédiatement la vérification.',
-                  '>',
-                  '> **Détail des ressources manquantes détectées :**'
-                ];
-                for (const a of missingApps) { footerBlock.push(`> - 📱 Application / Rôle applicatif manquant : \`${a}\``); }
-                for (const g of missingGroups) { footerBlock.push(`> - 👥 Groupe Entra ID manquant : \`${g}\``); }
-                for (const u of missingUsers) { footerBlock.push(`> - 👤 Utilisateur / Owner manquant : \`${u}\``); }
+              if (fs.existsSync('plan_summary.md')) {
+                summaryContent = fs.readFileSync('plan_summary.md', 'utf8');
               } else {
-                footerBlock = [
-                  '> [!CAUTION]',
-                  '> ### 🚫 Échec de la vérification Terraform :',
-                  '> Une erreur est survenue lors de la phase de planification.',
-                  '>',
-                  '> 💡 **Détails de l\'erreur :**',
-                ];
-                const errorLines = planOutput.split('\n').filter(l => l.includes('Error:') || l.includes('error:'));
-                for (const el of errorLines.slice(0, 5)) {
-                  footerBlock.push(`> \`${el.trim()}\``);
-                }
+                summaryContent = '⚠️ Rapport du plan indisponible.';
               }
-            } else {
-              status = 'Ressources validées — Plan prêt pour approbation';
-              emoji = '✅';
-              footerBlock = [
-                '> [!NOTE]',
-                '> ### ℹ️ Étape suivante : Validation Humaine',
-                '> Toutes les ressources cibles existent dans Entra ID. Un administrateur habilité doit examiner ce plan et apposer son approbation (**Approve**) avant de procéder au merge.'
-              ];
+            } catch (e) {
+              summaryContent = '⚠️ Erreur lors de la lecture du rapport : ' + e.message;
             }
-
-            const maxLen = 40000;
-            const truncated = planOutput.length > maxLen
-              ? planOutput.substring(0, maxLen) + '\n\n... (plan tronqué)'
-              : planOutput;
-
-            const body = [
-              `## ${emoji} Étape 2 : Contrôle des Ressources — ${status}`,
-              '',
-              summaryContent,
-              '',
-              '---',
-              '',
-              '<details>',
-              '<summary>🔍 Afficher le détail technique du plan Terraform</summary>',
-              '',
-              '```hcl',
-              truncated,
-              '```',
-              '</details>',
-              '',
-              footerBlock.join('\n')
-            ].join('\n');
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.payload.pull_request.number,
-              body: body
+              body: summaryContent
             });
 
-      - name: Bloquer la CI en cas de ressource manquante
-        if: steps.plan.outputs.exit_code == '1'
+      - name: Bloquer la CI en cas de ressource manquante dans Entra ID
+        if: steps.plan.outputs.exit_code != '0'
         run: |
-          echo "❌ Échec bloquant : des ressources manquent dans Entra ID."
+          echo "❌ Échec bloquant : des ressources manquent dans Microsoft Entra ID."
           echo "👉 Veuillez créer la ressource dans Entra ID puis cliquer sur 'Re-run jobs'."
           exit 1
 

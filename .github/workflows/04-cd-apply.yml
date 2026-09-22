@@ -1,14 +1,15 @@
 # ============================================================================
-# Workflow : CD - Terraform Apply (Déploiement automatique & CODEOWNERS)
+# Workflow : CD — Déploiement Entra ID (100% PowerShell & CODEOWNERS)
 # ============================================================================
-name: "🚀 CD — Terraform Apply"
+name: "🚀 CD — Déploiement Entra ID"
 
 on:
   push:
     branches: [main]
     paths:
       - 'declaration/**'
-      - 'terraform/**'
+      - 'modules/**'
+      - 'scripts/**'
   workflow_dispatch:
 
 permissions:
@@ -17,15 +18,8 @@ permissions:
   pull-requests: write
   issues: write
 
-env:
-  TF_WORKING_DIR: terraform
-  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-  ARM_USE_OIDC: "true"
-
 jobs:
-  terraform-apply:
+  deploy-entraid:
     name: "⚡ Déploiement Entra ID"
     runs-on: ubuntu-latest
 
@@ -37,11 +31,6 @@ jobs:
           token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           fetch-depth: 10
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: '1.8.5'
-
       - name: Azure Login (OIDC)
         uses: azure/login@v2
         with:
@@ -49,115 +38,19 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install Python dependencies
-        run: pip install pyyaml
-
-      - name: Terraform Init
-        working-directory: ${{ env.TF_WORKING_DIR }}
+      - name: ⚡ Déploiement déclaratif Microsoft Entra ID
+        id: deploy
+        shell: pwsh
         run: |
-          terraform init
-          terraform force-unlock -force 43a8bdec-d0ba-144c-96ce-284c18d87a96 2>/dev/null || true
-          az storage blob lease break --blob-name "entitlement-mgmt.tfstate" --container-name "entitlement-mgmt" --account-name "stardiantfstate" --auth-mode login 2>/dev/null || true
-
-      - name: 🧹 Nettoyage automatique et réconciliation des ressources obsolètes
-        run: |
-          python .github/scripts/cleanup-stale-state.py \
-            --working-dir ${{ env.TF_WORKING_DIR }} \
-            --declarations-dir declaration \
-            --delete-obsolete
-
-      - name: 🔎 Smart Discovery des catalogues Entra ID
-        run: |
-          python .github/scripts/discover-catalogs.py \
-            --declarations-dir declaration \
-            --output-file terraform/discovered_catalogs.json
-
-      - name: Terraform Plan (pre-apply review)
-        id: plan
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        run: |
-          echo "## 📋 Plan avant déploiement" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          if [ -f "discovered_summary.md" ]; then
-            cat discovered_summary.md >> $GITHUB_STEP_SUMMARY
-          fi
-
-          terraform plan \
-            -var="client_id=${{ secrets.AZURE_CLIENT_ID }}" \
-            -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
-            -var="use_oidc=true" \
-            -no-color \
-            2>&1 | tee plan_output.txt
-
-          PLAN_FILE="plan_output.txt"
-
-          CREATES=$(grep -c '# .* will be created' $PLAN_FILE 2>/dev/null || echo "0")
-          UPDATES=$(grep -c '# .* will be updated' $PLAN_FILE 2>/dev/null || echo "0")
-          DESTROYS=$(grep -c '# .* will be destroyed' $PLAN_FILE 2>/dev/null || echo "0")
-          NOCHANGE=$(grep -c 'No changes.' $PLAN_FILE 2>/dev/null || echo "0")
-
-          echo "| Action | Nombre |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| 🆕 Créations | $CREATES |" >> $GITHUB_STEP_SUMMARY
-          echo "| ✏️ Modifications | $UPDATES |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🗑️ Suppressions | $DESTROYS |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-      - name: Terraform Apply
-        id: apply
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        run: |
-          terraform apply \
-            -var="client_id=${{ secrets.AZURE_CLIENT_ID }}" \
-            -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
-            -var="use_oidc=true" \
-            -auto-approve \
-            -no-color \
-            2>&1 | tee apply_output.txt
-
-          APPLY_EXIT_CODE=${PIPESTATUS[0]}
-
-          if [ $APPLY_EXIT_CODE -ne 0 ]; then
-            echo "⚠️ Premier essai de Terraform apply a échoué. Nettoyage de sécurité du state et nouvelle tentative..."
-            python ../.github/scripts/cleanup-stale-state.py \
-              --working-dir . \
-              --declarations-dir ../declaration \
-              --delete-obsolete || true
-
-            terraform apply \
-              -var="client_id=${{ secrets.AZURE_CLIENT_ID }}" \
-              -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
-              -var="use_oidc=true" \
-              -auto-approve \
-              -no-color \
-              2>&1 | tee -a apply_output.txt
-
-            APPLY_EXIT_CODE=${PIPESTATUS[0]}
-          fi
-
-          echo "exit_code=$APPLY_EXIT_CODE" >> $GITHUB_OUTPUT
-
-          if [ $APPLY_EXIT_CODE -ne 0 ]; then
-            echo "Terraform apply a échoué."
-            exit 1
-          fi
-
-      - name: 👑 Assigner les Propriétaires de Catalogues (Entra ID)
-        if: steps.apply.outcome == 'success'
-        run: |
-          python .github/scripts/assign-catalog-owners.py || true
+          & ./scripts/Deployer-Declarations.ps1 -OutputSummaryFile deployment_summary.md
 
       - name: 💬 Publier la confirmation de déploiement sur la Pull Request
-        if: steps.apply.outcome == 'success'
+        if: steps.deploy.outcome == 'success'
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           script: |
+            const fs = require('fs');
             const child_process = require('child_process');
             let prNumber = null;
             try {
@@ -175,129 +68,27 @@ jobs:
               return;
             }
 
-            let outputs = {};
-            try {
-              const raw = child_process.execSync('terraform output -json', { cwd: 'terraform' }).toString();
-              outputs = JSON.parse(raw);
-            } catch (e) {
-              console.log('Erreur lecture terraform output:', e.message);
+            let summaryContent = '';
+            if (fs.existsSync('deployment_summary.md')) {
+              summaryContent = fs.readFileSync('deployment_summary.md', 'utf8');
+            } else {
+              summaryContent = '## 🚀 Déploiement appliqué avec succès dans Microsoft Entra ID !';
             }
-
-            const catalogs = outputs.catalogs?.value || {};
-            const accessPackages = outputs.access_packages?.value || {};
-            const policies = outputs.assignment_policies?.value || {};
-
-            let rows = [];
-            for (const [app, c] of Object.entries(catalogs)) {
-              rows.push(`| 📦 **Catalogue** | \`${c.display_name || app}\` | \`${c.id}\` | ✅ Actif |`);
-            }
-            for (const [key, ap] of Object.entries(accessPackages)) {
-              rows.push(`| 🎁 **Access Package** | \`${ap.display_name}\` | \`${ap.id}\` | ✅ Actif |`);
-            }
-            for (const [key, pol] of Object.entries(policies)) {
-              rows.push(`| 📜 **Politique** | \`${pol.display_name}\` | \`${pol.id}\` | ✅ Actif |`);
-            }
-
-            const body = [
-              '## 🚀 Déploiement Entra ID appliqué avec succès !',
-              '',
-              'Toutes les ressources ont été provisionnées et sont actives dans **Microsoft Entra ID** :',
-              '',
-              '| Type de Ressource | Nom dans Entra ID | Identifiant Entra ID (Object ID) | Statut |',
-              '|---|---|---|---|',
-              ...rows,
-              '',
-              '> 👑 **Propriétaires du catalogue** : les `authorization_owners` déclarés ont été rattachés au rôle *Catalog owner* dans Entra ID.',
-              '',
-              '🔗 Consultez et gérez votre catalogue directement sur le [Portail Microsoft Entra ID](https://entra.microsoft.com/#view/Microsoft_AAD_ERM/DashboardBlade).'
-            ].join('\n');
 
             try {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: prNumber,
-                body: body
+                body: summaryContent
               });
               console.log(`Commentaire de déploiement posté avec succès sur la PR #${prNumber}`);
             } catch (err) {
               console.log('Erreur création commentaire PR:', err.message);
             }
 
-      - name: 📝 Mettre à jour automatiquement le fichier CODEOWNERS
-        if: steps.apply.outcome == 'success'
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
-          script: |
-            const fs = require('fs');
-            const path = require('path');
-            const child_process = require('child_process');
-            const owner = context.repo.owner;
-            const codeownersPath = path.join('.github', 'CODEOWNERS');
-
-            let codeownersContent = '';
-            if (fs.existsSync(codeownersPath)) {
-              codeownersContent = fs.readFileSync(codeownersPath, 'utf8');
-            } else {
-              codeownersContent = `# CODEOWNERS\n* @${owner}/admins\n`;
-            }
-
-            // Détecter les applications dans declaration/
-            const decDir = 'declaration';
-            let changed = false;
-
-            if (fs.existsSync(decDir)) {
-              const entries = fs.readdirSync(decDir, { withFileTypes: true });
-
-              for (const dirent of entries) {
-                if (dirent.isDirectory() && !dirent.name.startsWith('_')) {
-                  const appName = dirent.name.toLowerCase();
-                  const rulePrefix = `/declaration/${appName}/`;
-
-                  if (!codeownersContent.includes(rulePrefix)) {
-                    console.log(`Nouvelle application détectée sans règle CODEOWNERS : ${appName}`);
-
-                    let teamSlug = 'admins';
-                    try {
-                      const log = child_process.execSync('git log -n 5 --pretty=%B').toString();
-                      const match = log.match(/GITHUB_TEAM:\s*([a-zA-Z0-9_-]+)/);
-                      if (match) {
-                        teamSlug = match[1];
-                      } else {
-                        const prMatch = log.match(/Merge pull request #(\d+)/);
-                        if (prMatch) {
-                          const prRes = await github.rest.pulls.get({
-                            owner: owner,
-                            repo: context.repo.repo,
-                            pull_number: parseInt(prMatch[1], 10)
-                          });
-                          const prBodyMatch = (prRes.data.body || '').match(/GITHUB_TEAM:\s*([a-zA-Z0-9_-]+)/);
-                          if (prBodyMatch) {
-                            teamSlug = prBodyMatch[1];
-                          }
-                        }
-                      }
-                    } catch (e) {
-                      console.log('Erreur extraction team:', e.message);
-                    }
-
-                    const newRule = `${rulePrefix} @${owner}/${teamSlug}`;
-                    codeownersContent += `\n${newRule}`;
-                    changed = true;
-                    console.log(`Ajout de la règle : ${newRule}`);
-                  }
-                }
-              }
-            }
-
-            if (changed) {
-              fs.writeFileSync(codeownersPath, codeownersContent.trim() + '\n', 'utf8');
-              console.log('Fichier CODEOWNERS actualisé.');
-            }
-
-      - name: Commiter la mise à jour de CODEOWNERS
-        if: steps.apply.outcome == 'success'
+      - name: 📝 Commiter la mise à jour automatique de CODEOWNERS
+        if: steps.deploy.outcome == 'success'
         run: |
           if [ -n "$(git status --porcelain .github/CODEOWNERS)" ]; then
             git config user.name "github-actions[bot]"
@@ -306,9 +97,3 @@ jobs:
             git commit -m "chore(governance): mise à jour automatique de CODEOWNERS [skip ci]"
             git push origin main
           fi
-
-      - name: Fail workflow if Apply failed
-        if: steps.apply.outcome != 'success'
-        run: |
-          echo "::error::Terraform apply a échoué."
-          exit 1

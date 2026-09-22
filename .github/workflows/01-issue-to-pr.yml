@@ -1,5 +1,5 @@
 # ============================================================================
-# Workflow : Issue -> Pull Request (Routage des 4 Scénarios)
+# Workflow : Issue -> Pull Request (Routage des 4 Scénarios - 100% PowerShell)
 # ============================================================================
 name: "🔄 Issue → Pull Request"
 
@@ -31,48 +31,39 @@ jobs:
           token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           fetch-depth: 0
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install dependencies
-        run: pip install pyyaml
-
       # -----------------------------------------------------------------------
-      # 1. Parsing du formulaire d'Issue
+      # 1. Parsing du formulaire d'Issue (PowerShell)
       # -----------------------------------------------------------------------
       - name: Parse Issue body
         id: parse
+        shell: pwsh
         env:
           ISSUE_BODY: ${{ github.event.issue.body }}
         run: |
-          python .github/scripts/parse-issue-body.py \
-            --body "$ISSUE_BODY" \
-            --output-dir ./parsed
+          & ./scripts/Traiter-DemandeIssue.ps1 -IssueBody $env:ISSUE_BODY -OutputDir ./parsed
 
-          OPERATION=$(cat ./parsed/operation_type.txt)
-          echo "operation=$OPERATION" >> $GITHUB_OUTPUT
+          $operation = (Get-Content ./parsed/operation_type.txt -Raw).Trim()
+          echo "operation=$operation" >> $env:GITHUB_OUTPUT
 
-          if [ -f ./parsed/app_name.txt ]; then
-            APP_NAME=$(cat ./parsed/app_name.txt)
-            echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
-          fi
+          if (Test-Path ./parsed/app_name.txt) {
+            $appName = (Get-Content ./parsed/app_name.txt -Raw).Trim()
+            echo "app_name=$appName" >> $env:GITHUB_OUTPUT
+          }
 
-          if [ -f ./parsed/github_team.txt ]; then
-            GITHUB_TEAM=$(cat ./parsed/github_team.txt)
-            echo "github_team=$GITHUB_TEAM" >> $GITHUB_OUTPUT
-          fi
+          if (Test-Path ./parsed/github_team.txt) {
+            $team = (Get-Content ./parsed/github_team.txt -Raw).Trim()
+            echo "github_team=$team" >> $env:GITHUB_OUTPUT
+          }
 
-          if [ -f ./parsed/zip_url.txt ]; then
-            ZIP_URL=$(cat ./parsed/zip_url.txt)
-            echo "zip_url=$ZIP_URL" >> $GITHUB_OUTPUT
-          fi
+          if (Test-Path ./parsed/zip_url.txt) {
+            $zipUrl = (Get-Content ./parsed/zip_url.txt -Raw).Trim()
+            echo "zip_url=$zipUrl" >> $env:GITHUB_OUTPUT
+          }
 
-          if [ -f ./parsed/target_applications.txt ]; then
-            TARGET_APPS=$(cat ./parsed/target_applications.txt)
-            echo "target_applications=$TARGET_APPS" >> $GITHUB_OUTPUT
-          fi
+          if (Test-Path ./parsed/target_applications.txt) {
+            $targets = (Get-Content ./parsed/target_applications.txt -Raw).Trim()
+            echo "target_applications=$targets" >> $env:GITHUB_OUTPUT
+          }
 
       # -----------------------------------------------------------------------
       # 2. Contrôle d'Accès RBAC pour les scénarios réservés aux Admins
@@ -168,13 +159,13 @@ jobs:
             const teamInput = process.env.GITHUB_TEAM.trim();
             const owner = context.repo.owner;
 
-            // 1. Vérifier si l'application existe déjà (Information, non bloquant pour les Admins)
+            // 1. Vérifier si l'application existe déjà
             const appDir = path.join('declaration', appName);
             if (fs.existsSync(appDir)) {
               console.log(`ℹ️ L'application '${appName}' existe déjà dans declaration/. Mise à jour autorisée pour l'administrateur.`);
             }
 
-            // 2. Vérifier l'existence de la Team GitHub dans l'organisation (insensible à la casse)
+            // 2. Vérifier l'existence de la Team GitHub dans l'organisation
             let matchedSlug = null;
             try {
               const teamsRes = await github.rest.teams.list({ org: owner, per_page: 100 });
@@ -187,7 +178,6 @@ jobs:
               }
             } catch (e) {
               console.log('Erreur requête teams:', e.message);
-              // Fallback si token n'a pas accès à la lecture globale d'org : accepter le slug fourni
               matchedSlug = teamInput.toLowerCase();
             }
 
@@ -210,25 +200,43 @@ jobs:
             }
 
       # -----------------------------------------------------------------------
-      # 5. Traitement Scénario C : Décompression du ZIP de masse (Admin)
+      # 5. Traitement Scénario C : Décompression du ZIP de masse (PowerShell)
       # -----------------------------------------------------------------------
       - name: "[Scénario C] Télécharger et traiter l'archive ZIP"
         if: steps.parse.outputs.operation == 'admin_bulk'
+        shell: pwsh
         env:
           ZIP_URL: ${{ steps.parse.outputs.zip_url }}
         run: |
-          if [ -z "$ZIP_URL" ]; then
-            echo "❌ Erreur : Aucune URL d'archive ZIP détectée dans l'Issue."
+          if (-not $env:ZIP_URL) {
+            Write-Error "❌ Aucune URL d'archive ZIP détectée dans l'Issue."
             exit 1
-          fi
+          }
 
-          echo "📥 Téléchargement de l'archive ZIP : $ZIP_URL"
-          curl -sL -H "User-Agent: GitHub-Actions" "$ZIP_URL" -o bulk_update.zip
+          Write-Host "📥 Téléchargement de l'archive ZIP : $env:ZIP_URL"
+          Invoke-WebRequest -Uri $env:ZIP_URL -OutFile "bulk_update.zip"
 
-          python .github/scripts/process-bulk-zip.py \
-            --zip-file bulk_update.zip \
-            --declaration-dir declaration \
-            --output-list ./parsed/modified_apps.txt
+          $extractDir = "./temp_extract"
+          if (Test-Path $extractDir) { Remove-Item $extractDir -Recurse -Force }
+          New-Item -ItemType Directory -Path $extractDir -Force | Out-Null
+
+          Expand-Archive -Path "bulk_update.zip" -DestinationPath $extractDir -Force
+
+          $yamlFiles = Get-ChildItem -Path $extractDir -Recurse -Filter "*.yaml"
+          $modified = [System.Collections.Generic.List[string]]::new()
+
+          foreach ($f in $yamlFiles) {
+            $appName = $f.BaseName.ToLowerInvariant()
+            $targetDir = "declaration/$appName"
+            if (-not (Test-Path $targetDir)) {
+              New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+            }
+            Copy-Item -Path $f.FullName -Destination "$targetDir/$appName.yaml" -Force
+            $modified.Add($appName)
+            Write-Host "✅ Application '$appName' mise à jour depuis l'archive." -ForegroundColor Green
+          }
+
+          [System.IO.File]::WriteAllLines("./parsed/modified_apps.txt", $modified.ToArray(), [System.Text.Encoding]::UTF8)
 
       # -----------------------------------------------------------------------
       # 6. Traitement Scénario D : Aspiration Entra ID (Reverse Engineering)
@@ -241,19 +249,21 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: "[Scénario D] Exécuter le Reverse Engineering"
+      - name: "[Scénario D] Exécuter le Reverse Engineering (PowerShell)"
         id: reverse-engineer
         if: steps.parse.outputs.operation == 'admin_import'
+        shell: pwsh
         env:
           TARGET_APPS: ${{ steps.parse.outputs.target_applications }}
           FALLBACK_APPROVER_EMAIL: "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
         run: |
-          python .github/scripts/reverse-engineer-entra.py \
-            --applications "$TARGET_APPS" \
-            --declaration-dir declaration \
-            --output-list ./parsed/imported_apps.txt \
-            --error-file ./parsed/import_errors.txt \
-            --summary-file ./parsed/import_summary.md
+          & ./scripts/Importer-DepuisEntra.ps1 `
+            -Applications $env:TARGET_APPS `
+            -DeclarationDir "declaration" `
+            -FallbackApproverEmail $env:FALLBACK_APPROVER_EMAIL `
+            -OutputList "./parsed/imported_apps.txt" `
+            -ErrorFile "./parsed/import_errors.txt" `
+            -SummaryFile "./parsed/import_summary.md"
 
       - name: "[Scénario D] Notification d'échec d'import sur l'Issue"
         if: steps.parse.outputs.operation == 'admin_import' && failure()
@@ -291,7 +301,6 @@ jobs:
           APP="${{ steps.parse.outputs.app_name }}"
           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 
-          # Slugification pour garantir un nom de branche Git valide (minuscules, tirets au lieu d'espaces)
           APP_SLUG=$(echo "$APP" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd 'a-z0-9-_')
           [ -z "$APP_SLUG" ] && APP_SLUG="app"
 
@@ -350,7 +359,6 @@ jobs:
             const branch = process.env.BRANCH;
             const issueNum = process.env.ISSUE_NUM;
 
-            // Vérifier si une PR existe déjà pour cette issue afin d'éviter tout doublon
             try {
               const existingPrs = await github.rest.pulls.list({
                 owner: context.repo.owner,
@@ -363,11 +371,11 @@ jobs:
                 (p.body && p.body.includes(`Closes #${issueNum}`))
               );
               if (duplicate) {
-                console.log(`⚠️ Une PR (#${duplicate.number}) existe déjà pour l'Issue #${issueNum}. Fin du workflow sans doublon.`);
+                console.log(`⚠️ Une PR (#${duplicate.number}) existe déjà pour l'Issue #${issueNum}. Fin du workflow.`);
                 return;
               }
             } catch (err) {
-              console.log('Vérification des doublons ignorée:', err.message);
+              console.log('Vérification doublons ignorée:', err.message);
             }
 
             let title = '';
@@ -400,7 +408,7 @@ jobs:
                   '---',
                   `Closes #${issueNum}`,
                   '',
-                  '> ℹ️ Le pipeline CI va valider le schéma, inspecter les ressources dans Entra ID et calculer le plan Terraform.'
+                  '> ℹ️ Le pipeline CI va valider le schéma, inspecter les ressources dans Entra ID et calculer le plan de déploiement (100% PowerShell).'
                 ].join('\n')
               : [
                   `## ${title}`,
@@ -410,7 +418,7 @@ jobs:
                   '---',
                   `Closes #${issueNum}`,
                   '',
-                  '> ℹ️ Le pipeline CI va valider le schéma, inspecter les ressources dans Entra ID et calculer le plan Terraform.'
+                  '> ℹ️ Le pipeline CI va valider le schéma, inspecter les ressources dans Entra ID et calculer le plan de déploiement (100% PowerShell).'
                 ].join('\n');
 
             const pr = await github.rest.pulls.create({
@@ -422,7 +430,6 @@ jobs:
               body: body
             });
 
-            // Commenter sur l'Issue avec lien vers la PR
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -430,7 +437,6 @@ jobs:
               body: `🚀 **Pull Request créée avec succès !**\n\nL'Issue est automatiquement clôturée et le traitement se poursuit sur la PR : #${pr.data.number} (${pr.data.html_url})`
             });
 
-            // Clôturer automatiquement l'Issue dès la création de la PR
             await github.rest.issues.update({
               owner: context.repo.owner,
               repo: context.repo.repo,
