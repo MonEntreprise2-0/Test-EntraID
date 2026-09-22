@@ -15,46 +15,65 @@
     Valide et décompose le nom d'un Access Package selon la règle de nomenclature obligatoire.
 .DESCRIPTION
     Convention attendue :
-    - Avec contexte : "[Context] [Privilege] - [Env]" (ex: "Credit Read Only - UAT")
-    - Sans contexte : "[Privilege] - [Env]" (ex: "Admin - Prod")
+    - Avec contexte : "{app_name} - [Context] [Privilege] - [Env]" (ex: "iCredit - SubApp Admin - PRD")
+    - Sans contexte : "{app_name} - [Privilege] - [Env]" (ex: "iCredit - Admin - PRD")
+    Contrainte stricte : Env doit faire partie de DEV, UAT, PRD, TST, GLB (insensible à la casse).
+    La casse saisie pour Env est préservée.
 .OUTPUTS
-    PSCustomObject contenant IsValid, ContextSubapp, PrivilegeLevel, Env, ErrorMessage.
+    PSCustomObject contenant IsValid, AppName, ContextSubapp, Privilege, Env, ErrorMessage.
 #>
 function Tester-NomenclatureAccessPackage {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
-        [string]$DisplayName
+        [string]$DisplayName,
+
+        [Parameter(Mandatory = $false)]
+        [string]$AppName = ""
     )
 
     $clean = $DisplayName.Trim()
-    
-    # Doit contenir au moins un tiret séparateur
-    if (-not $clean.Contains("-")) {
+    $allowedEnvs = @('DEV', 'UAT', 'PRD', 'TST', 'GLB')
+
+    # 1. Vérification du préfixe de l'application si fourni
+    $workingName = $clean
+    if (-not [string]::IsNullOrWhiteSpace($AppName)) {
+        $appPrefix = "$AppName - "
+        if (-not $clean.StartsWith($appPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+            return [PSCustomObject]@{
+                IsValid      = $false
+                DisplayName  = $clean
+                ErrorMessage = "Le nom '$clean' ne commence pas par le préfixe de l'application attendu '$appPrefix'."
+            }
+        }
+        $workingName = $clean.Substring($appPrefix.Length).Trim()
+    }
+
+    # 2. Doit contenir au moins un tiret séparateur pour l'environnement
+    if (-not $workingName.Contains("-")) {
         return [PSCustomObject]@{
             IsValid      = $false
             DisplayName  = $clean
-            ErrorMessage = "Le nom '$clean' ne contient aucun tiret '-' séparateur d'environnement."
+            ErrorMessage = "Le nom '$clean' ne contient aucun séparateur d'environnement ' - '."
         }
     }
 
     $prefix = ""
     $env = ""
 
-    # Cas 1 : Séparateur standard " - " (avec espaces)
-    $dashIndex = $clean.LastIndexOf(' - ')
+    # Cas standard : Dernier séparateur " - "
+    $dashIndex = $workingName.LastIndexOf(' - ')
     if ($dashIndex -gt 0) {
-        $prefix = $clean.Substring(0, $dashIndex).Trim()
-        $env = $clean.Substring($dashIndex + 3).Trim()
-    } elseif ($clean -match '^(?<prefix>.+?)\s*-\s*(?<env>[A-Za-z0-9_-]+)$') {
-        # Cas 2 : Séparateur sans espaces stricts
+        $prefix = $workingName.Substring(0, $dashIndex).Trim()
+        $env = $workingName.Substring($dashIndex + 3).Trim()
+    } elseif ($workingName -match '^(?<prefix>.+?)\s*-\s*(?<env>[A-Za-z0-9_-]+)$') {
         $prefix = $Matches['prefix'].Trim()
         $env = $Matches['env'].Trim()
     } else {
         return [PSCustomObject]@{
             IsValid      = $false
             DisplayName  = $clean
-            ErrorMessage = "Le nom '$clean' ne respecte pas le format '[Contexte] [Privilège] - [Environnement]' ou '[Privilège] - [Environnement]'."
+            ErrorMessage = "Le nom '$clean' ne respecte pas le format '{app_name} - [Contexte] [Privilège] - [Environnement]' ou '{app_name} - [Privilège] - [Environnement]'."
         }
     }
 
@@ -66,7 +85,16 @@ function Tester-NomenclatureAccessPackage {
         }
     }
 
-    # Décomposition du préfixe en [Contexte] et [Privilège]
+    # 3. Contrôle strict de la valeur de l'environnement (insensible à la casse)
+    if (-not ($allowedEnvs -contains $env.ToUpperInvariant())) {
+        return [PSCustomObject]@{
+            IsValid      = $false
+            DisplayName  = $clean
+            ErrorMessage = "L'environnement '$env' n'est pas autorisé pour '$clean'. Valeurs strictement autorisées : $($allowedEnvs -join ', ')."
+        }
+    }
+
+    # 4. Décomposition du préfixe en [Contexte] et [Privilège]
     $context = ""
     $privilege = ""
 
@@ -75,13 +103,11 @@ function Tester-NomenclatureAccessPackage {
         $context = ""
         $privilege = $prefix
     } elseif ($prefix.Contains(' ')) {
-        # S'il y a un espace, le premier mot constitue le contexte et le reste constitue le privilège
-        # Permet de supporter les contextes avec tirets (ex: "Test-import Admin" -> Contexte: "Test-import", Privilège: "Admin")
+        # Premier mot = contexte (supportant tirets/underscores), reste = privilège
         $firstSpaceIndex = $prefix.IndexOf(' ')
         $context = $prefix.Substring(0, $firstSpaceIndex).Trim()
         $privilege = $prefix.Substring($firstSpaceIndex + 1).Trim()
     } else {
-        # Un seul mot dans le préfixe -> c'est le niveau de privilège (ex: "Admin", "User")
         $context = ""
         $privilege = $prefix
     }
@@ -89,6 +115,7 @@ function Tester-NomenclatureAccessPackage {
     return [PSCustomObject]@{
         IsValid       = $true
         DisplayName   = $clean
+        AppName       = $AppName
         ContextSubapp = $context
         Privilege     = $privilege
         Env           = $env
@@ -110,7 +137,7 @@ function Exporter-CatalogueVersYaml {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
-        [string]$TargetCatalogOrAppName,
+        [string]$TargetCatalogName,
 
         [Parameter(Mandatory = $false)]
         [string]$DeclarationDir = "declaration",
@@ -119,83 +146,64 @@ function Exporter-CatalogueVersYaml {
         [string]$FallbackApproverEmail = "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
     )
 
-    $inputAppName = $TargetCatalogOrAppName.Trim()
+    $rawInput = $TargetCatalogName.Trim()
 
-    # 1. Vérification de l'existence préalable dans Git (règle d'écrasement / overwrite)
-    $existingDir = $null
-    if (Test-Path $DeclarationDir) {
-        $existingDir = Get-ChildItem -Path $DeclarationDir -Directory -ErrorAction SilentlyContinue | Where-Object {
-            $_.Name.Equals($inputAppName, [StringComparison]::OrdinalIgnoreCase)
-        }
+    # 1. Règle stricte de nomenclature : la saisie doit impérativement commencer par CAT-
+    if (-not $rawInput.StartsWith("CAT-", [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Le catalogue '$rawInput' ne respecte pas la nomenclature obligatoire 'CAT-{app_name}'. Vous devez impérativement saisir le nom complet du catalogue commençant par 'CAT-'."
     }
 
-    $appName = ""
+    $appName = $rawInput.Substring(4).Trim()
+    if ([string]::IsNullOrWhiteSpace($appName)) {
+        throw "Le nom de l'application dérivé de '$rawInput' est vide."
+    }
+
+    $targetCatalogName = "CAT-$appName"
+    $targetDir = Join-Path $DeclarationDir $targetCatalogName
+    $targetFile = Join-Path $targetDir "$targetCatalogName.yaml"
+
     $wasOverwritten = $false
     $existingDescription = ""
 
-    if ($existingDir) {
-        # L'application existe déjà : on conserve son nom de dossier exact
-        $appName = $existingDir.Name
-        $existingYamlFile = Join-Path $existingDir.FullName "$appName.yaml"
-        if (-not (Test-Path $existingYamlFile)) {
-            $f = Get-ChildItem -Path $existingDir.FullName -Filter "*.yaml" -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($f) { $existingYamlFile = $f.FullName }
-        }
-        if ($existingYamlFile -and (Test-Path $existingYamlFile)) {
-            $wasOverwritten = $true
-            Write-Host "⚠️ L'application '$appName' existe déjà dans Git ($existingYamlFile)." -ForegroundColor Yellow
-            Write-Host "   -> Le fichier sera écrasé et redéfini avec l'état réel d'Entra ID." -ForegroundColor Yellow
-            try {
-                $oldContent = Get-Content $existingYamlFile -Raw -Encoding UTF8
-                if ($oldContent -match '(?m)^\s*app_description\s*:\s*["'']?(.*?)["'']?\s*$') {
-                    $existingDescription = $Matches[1].Trim()
-                }
-            } catch {}
-        }
-    } else {
-        # Nouvelle application : formatage propre en kebab-case / snake_case selon la saisie
-        $appName = ($inputAppName -replace '[^a-zA-Z0-9_-]', '-').ToLowerInvariant().Trim('-').Trim('_')
-        while ($appName.Contains("--")) { $appName = $appName.Replace("--", "-") }
-        if ([string]::IsNullOrWhiteSpace($appName)) {
-            $appName = "app-" + [Guid]::NewGuid().ToString().Substring(0, 8)
-        }
+    if (Test-Path $targetFile) {
+        $wasOverwritten = $true
+        Write-Host "⚠️ L'application '$appName' existe déjà dans Git ($targetFile)." -ForegroundColor Yellow
+        Write-Host "   -> Le fichier sera écrasé et redéfini avec l'état réel d'Entra ID." -ForegroundColor Yellow
+        try {
+            $oldContent = Get-Content $targetFile -Raw -Encoding UTF8
+            if ($oldContent -match '(?m)^\s*app_description\s*:\s*["'']?(.*?)["'']?\s*$') {
+                $existingDescription = $Matches[1].Trim()
+            }
+        } catch {}
     }
 
-    Write-Host "🔍 Recherche du catalogue correspondant à l'application '$appName' dans Entra ID..." -ForegroundColor Cyan
+    Write-Host "🔍 Recherche du catalogue '$targetCatalogName' dans Entra ID..." -ForegroundColor Cyan
 
     $allCatalogs = Get-CatalogueEntra
     if (-not $allCatalogs -or $allCatalogs.Count -eq 0) {
         throw "Aucun catalogue trouvé dans Microsoft Entra ID."
     }
 
-    # Recherche multi-niveaux :
-    # 1. Correspondance exacte ou insensible à la casse sur displayName
-    # 2. Correspondance normalisée (sans séparateurs)
     $matchedCatalog = $null
-    $targetNorm = ($appName -replace '[^a-zA-Z0-9]', '').ToLowerInvariant()
-    $inputNorm = ($inputAppName -replace '[^a-zA-Z0-9]', '').ToLowerInvariant()
-
     foreach ($cat in $allCatalogs) {
-        if ($cat.displayName) {
-            if ($cat.displayName.Equals($inputAppName, [StringComparison]::OrdinalIgnoreCase) -or
-                $cat.displayName.Equals($appName, [StringComparison]::OrdinalIgnoreCase)) {
-                $matchedCatalog = $cat
-                break
-            }
-            $catNorm = ($cat.displayName -replace '[^a-zA-Z0-9]', '').ToLowerInvariant()
-            if ($catNorm -eq $targetNorm -or $catNorm -eq $inputNorm) {
-                $matchedCatalog = $cat
-            }
+        if ($cat.displayName -and $cat.displayName.Equals($targetCatalogName, [StringComparison]::OrdinalIgnoreCase)) {
+            $matchedCatalog = $cat
+            break
         }
     }
 
     if (-not $matchedCatalog) {
         $availableNames = ($allCatalogs | ForEach-Object { "- $($_.displayName)" }) -join "`n"
-        throw "Le catalogue pour l'application '$appName' (recherche: '$inputAppName') est introuvable dans Entra ID.`n`nCatalogues disponibles :`n$availableNames"
+        throw "Le catalogue '$targetCatalogName' est introuvable dans Entra ID.`n`nCatalogues disponibles :`n$availableNames"
     }
 
     $catalogId = $matchedCatalog.id
     $catalogName = $matchedCatalog.displayName
+
+    # Vérification stricte que le catalogue Entra ID commence bien par CAT-
+    if (-not $catalogName.StartsWith("CAT-", [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Le catalogue trouvé dans Entra ID '$catalogName' ne respecte pas la nomenclature obligatoire 'CAT-{app_name}'. Veuillez le renommer directement dans Entra ID avec le préfixe 'CAT-' avant de relancer l'import."
+    }
 
     Write-Host "✅ Catalogue Entra ID trouvé : '$catalogName' (ID : $catalogId) pour app_name '$appName'" -ForegroundColor Green
 
@@ -212,7 +220,7 @@ function Exporter-CatalogueVersYaml {
     $nomenclatureErrors = [System.Collections.Generic.List[string]]::new()
 
     foreach ($ap in $aps) {
-        $nomCheck = Tester-NomenclatureAccessPackage -DisplayName $ap.displayName
+        $nomCheck = Tester-NomenclatureAccessPackage -DisplayName $ap.displayName -AppName $appName
         if (-not $nomCheck.IsValid) {
             $nomenclatureErrors.Add("Access Package '$($ap.displayName)' : $($nomCheck.ErrorMessage)")
         } else {
@@ -225,7 +233,7 @@ function Exporter-CatalogueVersYaml {
 
     if ($nomenclatureErrors.Count -gt 0) {
         $errSummary = ($nomenclatureErrors -join "`n- ")
-        throw "Erreur de nomenclature obligatoire dans le catalogue '$catalogName' :`n- $errSummary`n`n👉 Pour corriger : Ajustez le nom des Access Packages directement dans le portail Entra ID pour respecter le format '[Contexte] [Privilège] - [Environnement]'."
+        throw "Erreur de nomenclature obligatoire dans le catalogue '$catalogName' :`n- $errSummary`n`n👉 Pour corriger : Ajustez le nom des Access Packages directement dans le portail Entra ID pour respecter le format '$appName - [Contexte] [Privilège] - [Environnement]' (ou '$appName - [Privilège] - [Environnement]'), avec un environnement strictement parmi DEV, UAT, PRD, TST, GLB."
     }
 
     # 2. Extraction des ressources et approbateurs pour chaque paquet d'accès
@@ -375,12 +383,12 @@ function Exporter-CatalogueVersYaml {
         $yamlLines.Add("")
     }
 
-    $targetDir = Join-Path $DeclarationDir $appName
+    $targetDir = Join-Path $DeclarationDir "CAT-$appName"
     if (-not (Test-Path $targetDir)) {
         New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
     }
 
-    $targetFile = Join-Path $targetDir "$appName.yaml"
+    $targetFile = Join-Path $targetDir "CAT-$appName.yaml"
     $yamlContent = $yamlLines -join "`r`n"
     [System.IO.File]::WriteAllText($targetFile, $yamlContent, [System.Text.Encoding]::UTF8)
 

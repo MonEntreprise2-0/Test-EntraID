@@ -1,11 +1,11 @@
-app_name: catalogue-test-v2
-catalog_name: catalogue-test-v2
-app_description: Description de mon test avec la nouvelle nomenclature
+﻿app_name: test-import-entraid
+catalog_name: Test_import_entraId
+app_description: Je crée cette application pour tester l'import de l'entreID
 access_packages:
-- context_subapp: SubApp
+- context_subapp: Application2
   privilege_level: Admin
   env: Dev
-  description: SubApp Admin Dev
+  description: Import EntraID
   authorization_owners:
   - OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com
   resources:
@@ -13,10 +13,10 @@ access_packages:
     group_name: Group_Test01
   - resource_type: EntraID Group
     group_name: Group_Test02
-- context_subapp: SubApp
-  privilege_level: Read Only
+- context_subapp: Application
+  privilege_level: Admin
   env: Dev
-  description: SubApp Read Only Dev
+  description: Application à importer dans Github
   authorization_owners:
   - OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com
   resources:

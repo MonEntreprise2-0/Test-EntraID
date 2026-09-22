@@ -406,10 +406,12 @@ jobs:
               echo "::error::Fichier ./parsed/app.yaml introuvable !"
               exit 1
             fi
-            mkdir -p "declaration/${APP_SLUG}"
-            cp ./parsed/app.yaml "declaration/${APP_SLUG}/${APP_SLUG}.yaml"
-            git add "declaration/${APP_SLUG}/${APP_SLUG}.yaml"
-            git commit --allow-empty -m "feat(entitlement): [${OP}] ${APP_SLUG} — via Issue #${{ github.event.issue.number }}"
+            CLEAN_SLUG=$(echo "$APP_SLUG" | sed -e 's/^cat-//I')
+            CAT_DIR="CAT-${CLEAN_SLUG}"
+            mkdir -p "declaration/${CAT_DIR}"
+            cp ./parsed/app.yaml "declaration/${CAT_DIR}/${CAT_DIR}.yaml"
+            git add "declaration/${CAT_DIR}/${CAT_DIR}.yaml"
+            git commit --allow-empty -m "feat(entitlement): [${OP}] ${CAT_DIR} — via Issue #${{ github.event.issue.number }}"
           elif [ "$OP" = "admin_bulk" ] || [ "$OP" = "admin_import" ]; then
             git add declaration/
             git commit --allow-empty -m "feat(entitlement): [${OP}] mise à jour déclarative — via Issue #${{ github.event.issue.number }}"

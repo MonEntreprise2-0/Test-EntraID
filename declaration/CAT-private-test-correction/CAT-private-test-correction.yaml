@@ -1,4 +1,4 @@
-app_name: "private-test-correction"
+﻿app_name: "private-test-correction"
 app_description: "private credit correction"
 
 access_packages:
@@ -26,7 +26,7 @@ access_packages:
 
   - context_subapp: "Credit"
     privilege_level: "Admin2"
-    env: "Prod"
+    env: "PRD"
     description: "Access Package Credit NonAdmin - Prod"
     authorization_owners:
       - "gorlainel_gmail.com#EXT#@monentreprise123.onmicrosoft.com"
@@ -41,7 +41,7 @@ access_packages:
 
   - context_subapp: "Application3"
     privilege_level: "Admin3"
-    env: "Prod"
+    env: "PRD"
     description: "Access Package Credit NonAdmin - Prod"
     authorization_owners:
       - "gorlainel_gmail.com#EXT#@monentreprise123.onmicrosoft.com"

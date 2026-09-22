@@ -21,11 +21,21 @@ function Calculer-NomAccessPackage {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
-        $AccessPackage
+        $AccessPackage,
+
+        [Parameter(Mandatory = $false)]
+        [string]$AppName = ""
     )
 
     if ($AccessPackage.display_name -and -not [string]::IsNullOrWhiteSpace($AccessPackage.display_name)) {
         return $AccessPackage.display_name.Trim()
+    }
+
+    $app = ""
+    if (-not [string]::IsNullOrWhiteSpace($AppName)) {
+        $app = $AppName.Trim()
+    } elseif ($AccessPackage.app_name -and -not [string]::IsNullOrWhiteSpace($AccessPackage.app_name)) {
+        $app = $AccessPackage.app_name.Trim()
     }
 
     $context = ""
@@ -36,7 +46,11 @@ function Calculer-NomAccessPackage {
     $privilege = if ($AccessPackage.privilege_level) { $AccessPackage.privilege_level.Trim() } else { "" }
     $env = if ($AccessPackage.env) { $AccessPackage.env.Trim() } else { "" }
 
-    return "$context$privilege - $env".Trim()
+    if (-not [string]::IsNullOrWhiteSpace($app)) {
+        return "$app - $context$privilege - $env".Trim()
+    } else {
+        return "$context$privilege - $env".Trim()
+    }
 }
 
 <#
@@ -284,12 +298,13 @@ function Valider-StructureYaml {
         if ($appName -notmatch '^[a-z0-9][a-z0-9-_]{1,62}[a-z0-9]$') {
             $errors.Add("Le champ 'app_name' ('$appName') doit respecter le format kebab-case ou snake_case (minuscules, chiffres, tirets, underscores) avec une longueur entre 3 et 64 caractères.")
         }
-        # Vérification règle 1 app = 1 dossier = 1 fichier
-        if ($fileName -ne "_example" -and $fileName -ne $appName) {
-            $errors.Add("Le nom du fichier ('$fileName.yaml') ne correspond pas au 'app_name' ('$appName').")
+        # Vérification règle 1 app = 1 dossier = 1 fichier avec préfixe obligatoire CAT-
+        $expectedName = "CAT-$appName"
+        if ($fileName -ne "_example" -and $fileName -ne $expectedName) {
+            $errors.Add("Le nom du fichier ('$fileName.yaml') ne respecte pas la nomenclature obligatoire. Attendu : '$expectedName.yaml'.")
         }
-        if ($parentDir -ne "_example" -and $parentDir -ne $appName) {
-            $errors.Add("Le dossier parent ('$parentDir') ne correspond pas au 'app_name' ('$appName').")
+        if ($parentDir -ne "_example" -and $parentDir -ne $expectedName) {
+            $errors.Add("Le dossier parent ('$parentDir') ne respecte pas la nomenclature obligatoire. Attendu : '$expectedName'.")
         }
     }
 
@@ -307,11 +322,12 @@ function Valider-StructureYaml {
         $errors.Add("La liste 'access_packages' doit contenir au moins 1 Access Package.")
     } else {
         $computedNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        $allowedEnvs = @('DEV', 'UAT', 'PRD', 'TST', 'GLB')
 
         $apIndex = 0
         foreach ($ap in $aps) {
             $apIndex++
-            $apName = Calculer-NomAccessPackage -AccessPackage $ap
+            $apName = Calculer-NomAccessPackage -AccessPackage $ap -AppName $appName
 
             if ([string]::IsNullOrWhiteSpace($apName)) {
                 $errors.Add("Access Package #$apIndex : Impossible de calculer le nom (privilege_level ou env manquant).")
@@ -324,6 +340,8 @@ function Valider-StructureYaml {
             }
             if ([string]::IsNullOrWhiteSpace($ap.env)) {
                 $errors.Add("Access Package '$apName' : Le champ 'env' est obligatoire.")
+            } elseif (-not ($allowedEnvs -contains $ap.env.Trim().ToUpperInvariant())) {
+                $errors.Add("Access Package '$apName' : L'environnement '$($ap.env)' n'est pas autorisé. Valeurs strictement autorisées : $($allowedEnvs -join ', ').")
             }
             if ([string]::IsNullOrWhiteSpace($ap.description) -or $ap.description.Length -lt 5) {
                 $errors.Add("Access Package '$apName' : Le champ 'description' est obligatoire (au moins 5 caractères).")

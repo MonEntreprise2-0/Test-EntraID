@@ -45,9 +45,9 @@ body:
     attributes:
       label: "Checklist de vérification"
       options:
-        - label: "L'application existe déjà dans le référentiel (`declaration/<app_name>/`)"
+        - label: "L'application existe déjà dans le référentiel (`declaration/CAT-<app_name>/`)"
           required: true
-        - label: "Le champ `app_name` dans le YAML correspond exactement au nom du fichier et du dossier"
+        - label: "Le fichier est nommé `CAT-<app_name>.yaml` et `app_name` contient le nom brut de l'application"
           required: true
         - label: "Les groupes et applications cibles pré-existent dans Entra ID (Mode Consommateur)"
           required: true

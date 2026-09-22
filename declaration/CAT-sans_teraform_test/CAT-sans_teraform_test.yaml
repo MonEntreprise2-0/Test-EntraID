@@ -15,7 +15,7 @@ access_packages:
 
   - context_subapp: "no_tf"
     privilege_level: "Admin3"
-    env: "Prod"
+    env: "PRD"
     description: "xxxdddddddeeeeeeee"
     authorization_owners:
       - "gorlainel@gmail.com"
@@ -29,7 +29,7 @@ access_packages:
 
   - context_subapp: "sans_teraform_Application"
     privilege_level: "Admin"
-    env: "Prod"
+    env: "PRD"
     description: "Access Package Credit NonAdmin - Prod"
     authorization_owners:
       - "gorlainel@gmail.com"
@@ -44,7 +44,7 @@ access_packages:
 
   - context_subapp: "sans_teraform_Credit"
     privilege_level: "Admin2"
-    env: "Prod"
+    env: "PRD"
     description: "Access Package Credit NonAdmin - Prod"
     authorization_owners:
       - "gorlainel@gmail.com"

@@ -1,4 +1,4 @@
-﻿# ============================================================================
+# ============================================================================
 # POLITIQUE DE GOUVERNANCE — CODEOWNERS
 # ============================================================================
 # Ce fichier définit les équipes GitHub propriétaires de chaque répertoire.
@@ -12,24 +12,22 @@
 # ----------------------------------------------------------------------------
 # Propriétaires par Application (Mise à jour automatique par le Scénario B)
 # ----------------------------------------------------------------------------
-/declaration/catalogue-test-v1/ @MonEntreprise2-0/admins
-/declaration/catalogue-test-v2/ @MonEntreprise2-0/admins
-/declaration/cat-test03/ @MonEntreprise2-0/admins
+/declaration/CAT-catalogue-test-v1/ @MonEntreprise2-0/admins
+/declaration/CAT-catalogue-test-v2/ @MonEntreprise2-0/admins
+/declaration/CAT-cat-test03/ @MonEntreprise2-0/admins
 
-/declaration/private-credit/ @MonEntreprise2-0/dev
+/declaration/CAT-private-credit/ @MonEntreprise2-0/dev
 
-/declaration/private-test/ @MonEntreprise2-0/dev
+/declaration/CAT-private-test/ @MonEntreprise2-0/dev
 
-/declaration/test-import-entraid/ @MonEntreprise2-0/admins
+/declaration/CAT-test-import-entraid/ @MonEntreprise2-0/admins
 
-/declaration/test-import/ @MonEntreprise2-0/admins
+/declaration/CAT-test-import/ @MonEntreprise2-0/admins
 
-/declaration/private-test-correction/ @MonEntreprise2-0/dev
+/declaration/CAT-private-test-correction/ @MonEntreprise2-0/dev
 
-/declaration/test-import2/ @MonEntreprise2-0/admins
+/declaration/CAT-test-import2/ @MonEntreprise2-0/admins
 
-/declaration/test_sans_teraform/ @MonEntreprise2-0/admins
+/declaration/CAT-test_sans_teraform/ @MonEntreprise2-0/admins
 
-/declaration/sans_teraform_test/ @MonEntreprise2-0/admins
-
-/declaration/sans-teraform-test/ @MonEntreprise2-0/admins
+/declaration/CAT-sans_teraform_test/ @MonEntreprise2-0/admins

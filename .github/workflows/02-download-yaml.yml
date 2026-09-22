@@ -68,8 +68,11 @@ jobs:
           fi
 
           # --- CAS 2 : Nom fourni → afficher le contenu + télécharger ---
-          APP_NAME_LOWER=$(echo "$APP_NAME" | tr '[:upper:]' '[:lower:]')
-          FILE_PATH="declaration/${APP_NAME_LOWER}/${APP_NAME_LOWER}.yaml"
+          APP_NAME_CLEAN=$(echo "$APP_NAME" | tr '[:upper:]' '[:lower:]' | sed -e 's/^cat-//I')
+          FILE_PATH="declaration/CAT-${APP_NAME_CLEAN}/CAT-${APP_NAME_CLEAN}.yaml"
+          if [ ! -f "$FILE_PATH" ] && [ -f "declaration/${APP_NAME_CLEAN}/${APP_NAME_CLEAN}.yaml" ]; then
+            FILE_PATH="declaration/${APP_NAME_CLEAN}/${APP_NAME_CLEAN}.yaml"
+          fi
 
           if [ ! -f "$FILE_PATH" ]; then
             echo "## ❌ Application introuvable" >> $GITHUB_STEP_SUMMARY

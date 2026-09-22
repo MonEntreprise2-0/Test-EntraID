@@ -1,4 +1,4 @@
-app_name: "private-test"
+﻿app_name: "private-credit"
 app_description: "private credit"
 
 access_packages:
@@ -25,7 +25,7 @@ access_packages:
   # ==========================================================================
 
   - context_subapp: "Credit"
-    privilege_level: "Admin"
+    privilege_level: "Write"
     env: "UAT"
     description: "Access Package Credit Write - UAT"
     authorization_owners:

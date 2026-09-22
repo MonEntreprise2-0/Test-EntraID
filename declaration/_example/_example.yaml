@@ -5,7 +5,7 @@
 #
 # Convention Ardian :
 #   1 répertoire = 1 fichier YAML = 1 Application = 1 Catalogue Entitlement Management
-#   Emplacement : declaration/<nomapplication>/<nomapplication>.yaml
+#   Emplacement : declaration/CAT-<nomapplication>/CAT-<nomapplication>.yaml
 #
 # Rappel "Mode Consommateur" :
 #   Ce pipeline ne crée AUCUNE ressource cible (groupes, apps, sites SharePoint).
@@ -17,10 +17,10 @@
 # NIVEAU 1 : LE CATALOGUE (APPLICATION)
 # ============================================================================
 # Ces champs décrivent l'application et son catalogue dans Entra ID.
-# Le catalogue sera créé automatiquement s'il n'existe pas déjà (Smart Discovery).
+# Le catalogue sera créé sous le nom CAT-<app_name> (ex: CAT-mon-application).
 
-app_name: "mon-application"                   # [OBLIGATOIRE] Nom du catalogue / de l'application
-                                              #   Doit correspondre EXACTEMENT au nom du dossier et du fichier (kebab-case).
+app_name: "mon-application"                   # [OBLIGATOIRE] Nom brut de l'application.
+                                              #   Le catalogue Entra ID et le dossier Git seront CAT-mon-application.
 
 app_description: "Description fonctionnelle de l'application"
                                               # [OBLIGATOIRE] Description du catalogue.
@@ -32,13 +32,14 @@ app_description: "Description fonctionnelle de l'application"
 #
 # IMPORTANT — Nommage automatique :
 #   Le nom de l'Access Package est CONSTRUIT automatiquement par le pipeline :
-#   Formule : [Context/Subapp] [Privilege Level] - [Env]
-#   Si "context_subapp" est vide, il est omis du nom.
+#   Formule : [app_name] - [Context/Subapp] [Privilege Level] - [Env]
+#   Si "context_subapp" est vide : [app_name] - [Privilege Level] - [Env]
 #   Exemples :
-#     - context_subapp: "SubApp", privilege_level: "Read Only", env: "Prod"
-#       → Nom généré : "SubApp Read Only - Prod"
+#     - context_subapp: "SubApp", privilege_level: "Read Only", env: "PRD"
+#       → Nom généré : "mon-application - SubApp Read Only - PRD"
 #     - context_subapp: "", privilege_level: "Admin", env: "UAT"
-#       → Nom généré : "Admin - UAT"
+#       → Nom généré : "mon-application - Admin - UAT"
+#   Contrainte stricte : env DOIT être l'une des valeurs : DEV, UAT, PRD, TST, GLB
 # ============================================================================
 
 access_packages:
@@ -48,7 +49,7 @@ access_packages:
   # ==========================================================================
   - context_subapp: "SubApp"          # [FACULTATIF] Notion métier / sous-application.
     privilege_level: "Read Only"      # [OBLIGATOIRE] Intention métier de l'accès.
-    env: "Prod"                       # [OBLIGATOIRE] Environnement cible (Dev, UAT, Prod).
+    env: "PRD"                        # [OBLIGATOIRE] Environnement (DEV, UAT, PRD, TST, GLB).
     description: "Accès en lecture seule aux modules SubApp en production"
     authorization_owners:             # [OBLIGATOIRE] Emails des approbateurs / propriétaires.
       - "data-owner@ardian.com"
@@ -63,7 +64,7 @@ access_packages:
   # ==========================================================================
   - context_subapp: ""
     privilege_level: "Admin"
-    env: "Prod"
+    env: "PRD"
     description: "Accès administrateur complet"
     authorization_owners:
       - "admin-owner@ardian.com"

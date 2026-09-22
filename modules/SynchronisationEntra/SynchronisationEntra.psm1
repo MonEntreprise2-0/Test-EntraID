@@ -67,7 +67,7 @@ function Comparer-EtatEntra {
 
     foreach ($doc in $Declarations) {
         $appName = $doc.app_name
-        $catName = $(if ($doc.catalog_name) { $doc.catalog_name.Trim() } else { $appName })
+        $catName = $(if ($doc.catalog_name) { $doc.catalog_name.Trim() } elseif ($appName -like "CAT-*") { $appName } else { "CAT-$appName" })
         $appDesc = $(if ($doc.app_description) { $doc.app_description.Trim() } else { "Catalogue $catName" })
 
         $catKey = $catName.ToLowerInvariant()
@@ -149,7 +149,7 @@ function Comparer-EtatEntra {
         $declaredApNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 
         foreach ($ap in $doc.access_packages) {
-            $apName = Calculer-NomAccessPackage -AccessPackage $ap
+            $apName = Calculer-NomAccessPackage -AccessPackage $ap -AppName $appName
             $declaredApNames.Add($apName) | Out-Null
             $apKey = $apName.ToLowerInvariant()
             $apDesc = $(if ($ap.description) { $ap.description.Trim() } else { "Access Package $apName" })
@@ -276,7 +276,7 @@ function Synchroniser-EtatEntra {
 
     foreach ($doc in $Declarations) {
         $appName = $doc.app_name
-        $catName = $(if ($doc.catalog_name) { $doc.catalog_name.Trim() } else { $appName })
+        $catName = $(if ($doc.catalog_name) { $doc.catalog_name.Trim() } elseif ($appName -like "CAT-*") { $appName } else { "CAT-$appName" })
         $appDesc = $(if ($doc.app_description) { $doc.app_description.Trim() } else { "Catalogue $catName" })
 
         Write-Host "`n📦 Application : $appName (Catalogue : '$catName')" -ForegroundColor Yellow
@@ -391,7 +391,7 @@ function Synchroniser-EtatEntra {
         $activeApNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 
         foreach ($ap in $doc.access_packages) {
-            $apName = Calculer-NomAccessPackage -AccessPackage $ap
+            $apName = Calculer-NomAccessPackage -AccessPackage $ap -AppName $appName
             $activeApNames.Add($apName) | Out-Null
             $apKey = $apName.ToLowerInvariant()
             $apDesc = $(if ($ap.description) { $ap.description.Trim() } else { "Access Package $apName" })

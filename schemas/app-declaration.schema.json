@@ -14,7 +14,7 @@
     "app_name": {
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9-_]{1,62}[a-z0-9]$",
-      "description": "Nom du catalogue et identifiant unique de l'application en kebab-case ou snake_case. Doit correspondre au nom du fichier (sans extension)."
+      "description": "Identifiant unique de l'application en kebab-case ou snake_case. Le repertoire et le fichier YAML doivent obligatoirement etre nommes CAT-{app_name}."
     },
     "catalog_name": {
       "type": "string",
@@ -64,9 +64,8 @@
         },
         "env": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 50,
-          "description": "Environnement cible (ex: Dev, UAT, Prod)."
+          "pattern": "^(?i)(DEV|UAT|PRD|TST|GLB)$",
+          "description": "Environnement cible obligatoire parmi : DEV, UAT, PRD, TST, GLB (insensible a la casse)."
         },
         "description": {
           "type": "string",

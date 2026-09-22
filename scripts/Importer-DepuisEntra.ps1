@@ -76,7 +76,7 @@ $summaryRows = [System.Collections.Generic.List[string]]::new()
 foreach ($appName in $appNames) {
     Write-Host "`nTraitement de l'application : '$appName'..." -ForegroundColor Yellow
     try {
-        $res = Exporter-CatalogueVersYaml -TargetCatalogOrAppName $appName -DeclarationDir $DeclarationDir -FallbackApproverEmail $FallbackApproverEmail
+        $res = Exporter-CatalogueVersYaml -TargetCatalogName $appName -DeclarationDir $DeclarationDir -FallbackApproverEmail $FallbackApproverEmail
         if ($res.Success) {
             $importedApps.Add($res.AppName)
             $statusText = if ($res.WasOverwritten) { "✅ Réécrit / Écrasé avec succès" } else { "✅ Importé avec succès" }

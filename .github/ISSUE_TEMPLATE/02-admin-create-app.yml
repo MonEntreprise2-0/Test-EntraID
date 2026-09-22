@@ -14,7 +14,7 @@ body:
         > ⛔ **RESTRICTION DE SÉCURITÉ :**
         > Ce formulaire est **strictement réservé aux administrateurs**. Si vous êtes un utilisateur standard, cette demande sera automatiquement clôturée.
 
-        Ce formulaire permet d'enregistrer une nouvelle application dans le référentiel GitOps, de créer son dossier `declaration/<nomapplication>/<nomapplication>.yaml`, et d'assigner automatiquement la **Team GitHub Owner** dans le fichier `CODEOWNERS` dès la fusion de la Pull Request.
+        Ce formulaire permet d'enregistrer une nouvelle application dans le référentiel GitOps, de créer son dossier `declaration/CAT-<nomapplication>/CAT-<nomapplication>.yaml`, et d'assigner automatiquement la **Team GitHub Owner** dans le fichier `CODEOWNERS` dès la fusion de la Pull Request.
 
         ### 👥 Mini-tutoriel : Comment trouver le nom de votre Team GitHub ?
         1. Rendez-vous sur l'onglet **Teams** de l'organisation : [`https://github.com/orgs/MonEntreprise2-0/teams`](https://github.com/orgs/MonEntreprise2-0/teams).

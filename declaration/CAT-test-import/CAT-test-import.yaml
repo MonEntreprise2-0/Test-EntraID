@@ -1,10 +1,10 @@
-app_name: test-import
+﻿app_name: test-import
 catalog_name: Test_import
 app_description: poifggxcv
 access_packages:
 - context_subapp: APPtest
   privilege_level: Admin
-  env: Prod
+  env: "PRD"
   description: gfhjhklk
   authorization_owners:
   - marcell@monentreprise123.onmicrosoft.com

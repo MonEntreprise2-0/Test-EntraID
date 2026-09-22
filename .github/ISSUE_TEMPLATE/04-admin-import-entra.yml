@@ -15,17 +15,18 @@ body:
         > Ce formulaire est **strictement réservé aux administrateurs IAM**.
         >
         > Ce scénario permet d'exporter l'état réel des applications Entra ID vers le référentiel Git.
-        > Le système créera ou mettra à jour l'arborescence normalisée `declaration/<app_name>/<app_name>.yaml`.
+        > Le système créera ou mettra à jour l'arborescence normalisée `declaration/CAT-<app_name>/CAT-<app_name>.yaml`.
         >
-        > ⚠️ **Règle d'écrasement (*Overwrite*) :**
-        > Si l'application (`app_name`) saisie est déjà présente dans GitHub, son fichier existant sera **automatiquement écrasé et redéfini** par l'état réel extrait d'Entra ID.
+        > ⚠️ **Règle de nomenclature et d'écrasement (*Overwrite*) :**
+        > Dans Entra ID, le catalogue doit obligatoirement être nommé `CAT-{app_name}`.
+        > Si le fichier existe déjà sous `declaration/CAT-<app_name>/`, il sera **automatiquement écrasé et redéfini** par l'état réel extrait d'Entra ID.
 
   - type: textarea
     id: target_applications
     attributes:
-      label: "Noms exacts des applications à importer (app_name)"
-      description: "Saisissez les identifiants d'applications (app_name) séparés par des virgules (ex: test_sans_teraform, salesforce-crm, icredit). Si le fichier existe déjà sous declaration/<app_name>/, il sera écrasé avec la nouvelle définition."
-      placeholder: "app_name1, app_name2..."
+      label: "Noms exacts des catalogues à importer (CAT-{app_name})"
+      description: "Saisissez les noms exacts des catalogues Entra ID préfixés par 'CAT-' séparés par des virgules (ex: CAT-test_sans_teraform, CAT-salesforce-crm, CAT-icredit). Le préfixe 'CAT-' est strictement obligatoire."
+      placeholder: "CAT-app1, CAT-app2..."
     validations:
       required: true
 

@@ -1,4 +1,4 @@
-app_name: "cat-test03"
+﻿app_name: "cat-test03"
 catalog_name: "Cat_Test01"
 app_description: "Application cat-test03 avec auto-decouverte du catalogue Cat_Test01"
 
@@ -6,7 +6,7 @@ access_packages:
   - display_name: "AP_Test03"
     context_subapp: ""
     privilege_level: "AP_Test03"
-    env: "Prod"
+    env: "PRD"
     description: "Access Package AP_Test03 gere dans Cat_Test01"
     authorization_owners:
       - "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
