@@ -1,4 +1,4 @@
-# ============================================================================
+﻿# ============================================================================
 # POLITIQUE DE GOUVERNANCE — CODEOWNERS
 # ============================================================================
 # Ce fichier définit les équipes GitHub propriétaires de chaque répertoire.
@@ -31,3 +31,15 @@
 /declaration/CAT-test_sans_teraform/ @MonEntreprise2-0/admins
 
 /declaration/CAT-sans_teraform_test/ @MonEntreprise2-0/admins
+
+/declaration/cat-cat-test03/ @MonEntreprise2-0/admins
+/declaration/cat-catalogue-test-v1/ @MonEntreprise2-0/admins
+/declaration/cat-catalogue-test-v2/ @MonEntreprise2-0/admins
+/declaration/cat-private-credit/ @MonEntreprise2-0/admins
+/declaration/cat-private-test/ @MonEntreprise2-0/admins
+/declaration/cat-private-test-correction/ @MonEntreprise2-0/admins
+/declaration/cat-sans_teraform_test/ @MonEntreprise2-0/admins
+/declaration/cat-test_sans_teraform/ @MonEntreprise2-0/admins
+/declaration/cat-test-import/ @MonEntreprise2-0/admins
+/declaration/cat-test-import-entraid/ @MonEntreprise2-0/admins
+/declaration/cat-test-import2/ @MonEntreprise2-0/admins
