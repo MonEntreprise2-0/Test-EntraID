@@ -1,53 +1,53 @@
-app_name: "new_nomenclature"
+﻿app_name: "new_nomenclature"
 app_description: "private credit correction"
 
 access_packages:
-
-  # ==========================================================================
-  # AP 1 : "Private Credit Read Only - UAT"
-  # ==========================================================================
-
-  - context_subapp: "Credit"
+  - context_subapp: "test-import"
     privilege_level: "Admin"
-    env: "dev"
-    description: "Access Package Credit Admin - UAT"
+    env: "Prd"
+    description: "erhjkfghjrtyui"
     authorization_owners:
-      - "gorlainel_gmail.com#EXT#@monentreprise123.onmicrosoft.com"
       - "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
-
-    resources:
-      - resource_type: "EntraID Group"
-        group_name: "Group_Test01"
-
-
-  # ==========================================================================
-  # AP 2 
-  # ==========================================================================
-
-  - context_subapp: "iCredit"
-    privilege_level: "Admin2"
-    env: "UAT"
-    description: "Access Package Credit NonAdmin - Prod"
-    authorization_owners:
-      - "gorlainel_gmail.com#EXT#@monentreprise123.onmicrosoft.com"
-      - "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
-
     resources:
       - resource_type: "EntraID Group"
         group_name: "Group_Test02"
+        role: "Owner"
 
   - context_subapp: "Application"
     privilege_level: "Admin"
     env: "Prd"
     description: "Access Package Credit NonAdmin - Prod"
     authorization_owners:
-      - "gorlainel_gmail.com#EXT#@monentreprise123.onmicrosoft.com"
+      - "gorlainel@gmail.com"
       - "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
+    resources:
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test02"
+        role: "Member"
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test01"
+        role: "Member"
 
+  - context_subapp: "iCredit"
+    privilege_level: "Admin2"
+    env: "UAT"
+    description: "Access Package Credit NonAdmin - Prod"
+    authorization_owners:
+      - "gorlainel@gmail.com"
+      - "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
+    resources:
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test02"
+        role: "Member"
+
+  - context_subapp: "Credit"
+    privilege_level: "Admin"
+    env: "dev"
+    description: "Access Package Credit Admin - UAT"
+    authorization_owners:
+      - "gorlainel@gmail.com"
+      - "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
     resources:
       - resource_type: "EntraID Group"
         group_name: "Group_Test01"
-
-      - resource_type: "EntraID Group"
-        group_name: "Group_Test02"
-
+        role: "Member"
