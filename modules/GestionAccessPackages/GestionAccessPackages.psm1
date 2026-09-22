@@ -379,8 +379,9 @@ function New-PolitiqueAssignationEntra {
 
     $approvalRequired = ($ApproverUserIds -and $ApproverUserIds.Count -gt 0)
 
-    $primaryApprovers = [System.Collections.Generic.List[object]]::new()
+    $approvalSettings = $null
     if ($approvalRequired) {
+        $primaryApprovers = [System.Collections.Generic.List[object]]::new()
         foreach ($userId in $ApproverUserIds) {
             if (-not [string]::IsNullOrWhiteSpace($userId)) {
                 $primaryApprovers.Add(@{
@@ -389,35 +390,63 @@ function New-PolitiqueAssignationEntra {
                 })
             }
         }
-    }
 
-    $approvalSettings = @{
-        isApprovalRequiredForAdd    = $approvalRequired
-        isApprovalRequiredForUpdate = $false
-        isRequestorJustificationRequired = false
-    }
-
-    if ($approvalRequired) {
-        $approvalSettings["stages"] = @(
-            @{
-                approvalStageTimeOutInDays      = $ApprovalTimeoutInDays
-                isApproverJustificationRequired = false
-                primaryApprovers                = $primaryApprovers.ToArray()
-            }
-        )
-    }
-
-    $body = @{
-        displayName             = $DisplayName
-        description             = "Politique gérée par GitOps - $DisplayName"
-        accessPackage           = @{ id = $AccessPackageId }
-        canExtend               = $false
-        durationInDays          = $DurationInDays
-        requestorSettings       = @{
-            scopeType       = "AllExistingDirectoryMemberUsers"
-            acceptRequests  = $true
+        $approvalSettings = [ordered]@{
+            isApprovalRequiredForAdd    = $true
+            isApprovalRequiredForUpdate = $false
+            stages                      = @(
+                [ordered]@{
+                    durationBeforeAutomaticDenial   = "P$($ApprovalTimeoutInDays)D"
+                    isApproverJustificationRequired = $false
+                    isEscalationEnabled             = $false
+                    durationBeforeEscalation        = "PT0S"
+                    primaryApprovers                = $primaryApprovers.ToArray()
+                    fallbackPrimaryApprovers        = @()
+                    escalationApprovers             = @()
+                    fallbackEscalationApprovers     = @()
+                }
+            )
         }
-        requestApprovalSettings = $approvalSettings
+    } else {
+        $approvalSettings = [ordered]@{
+            isApprovalRequiredForAdd    = $false
+            isApprovalRequiredForUpdate = $false
+            stages                      = @()
+        }
+    }
+
+    $expirationObj = $(if ($DurationInDays -and $DurationInDays -gt 0) {
+        [ordered]@{
+            type     = "afterDuration"
+            duration = "P$($DurationInDays)D"
+        }
+    } else {
+        [ordered]@{
+            type = "noExpiration"
+        }
+    })
+
+    $reqSettings = [ordered]@{
+        enableTargetsToSelfAddAccess           = $true
+        enableTargetsToSelfUpdateAccess        = $false
+        enableTargetsToSelfRemoveAccess        = $true
+        allowCustomAssignmentSchedule          = $false
+        enableOnBehalfRequestorsToAddAccess    = $false
+        enableOnBehalfRequestorsToUpdateAccess = $false
+        enableOnBehalfRequestorsToRemoveAccess = $false
+        onBehalfRequestors                     = @()
+    }
+
+    $body = [ordered]@{
+        displayName              = $DisplayName
+        description              = "Politique gérée par GitOps - $DisplayName"
+        allowedTargetScope       = "allDirectoryUsers"
+        specificAllowedTargets   = @()
+        automaticRequestSettings = $null
+        expiration               = $expirationObj
+        requestorSettings        = $reqSettings
+        requestApprovalSettings  = $approvalSettings
+        accessPackage            = @{ id = $AccessPackageId }
     }
 
     Write-Verbose "Création de la politique d'assignation pour l'Access Package '$AccessPackageId'..."
@@ -435,6 +464,9 @@ function Set-PolitiqueAssignationEntra {
         [string]$PolicyId,
 
         [Parameter(Mandatory = $false)]
+        [string]$AccessPackageId,
+
+        [Parameter(Mandatory = $false)]
         [string]$DisplayName,
 
         [Parameter(Mandatory = $false)]
@@ -449,8 +481,9 @@ function Set-PolitiqueAssignationEntra {
 
     $approvalRequired = ($ApproverUserIds -and $ApproverUserIds.Count -gt 0)
 
-    $primaryApprovers = [System.Collections.Generic.List[object]]::new()
+    $approvalSettings = $null
     if ($approvalRequired) {
+        $primaryApprovers = [System.Collections.Generic.List[object]]::new()
         foreach ($userId in $ApproverUserIds) {
             if (-not [string]::IsNullOrWhiteSpace($userId)) {
                 $primaryApprovers.Add(@{
@@ -459,54 +492,82 @@ function Set-PolitiqueAssignationEntra {
                 })
             }
         }
+
+        $approvalSettings = [ordered]@{
+            isApprovalRequiredForAdd    = $true
+            isApprovalRequiredForUpdate = $false
+            stages                      = @(
+                [ordered]@{
+                    durationBeforeAutomaticDenial   = "P$($ApprovalTimeoutInDays)D"
+                    isApproverJustificationRequired = $false
+                    isEscalationEnabled             = $false
+                    durationBeforeEscalation        = "PT0S"
+                    primaryApprovers                = $primaryApprovers.ToArray()
+                    fallbackPrimaryApprovers        = @()
+                    escalationApprovers             = @()
+                    fallbackEscalationApprovers     = @()
+                }
+            )
+        }
+    } else {
+        $approvalSettings = [ordered]@{
+            isApprovalRequiredForAdd    = $false
+            isApprovalRequiredForUpdate = $false
+            stages                      = @()
+        }
     }
 
-    $approvalSettings = @{
-        isApprovalRequiredForAdd         = $approvalRequired
-        isApprovalRequiredForUpdate      = $false
-        isRequestorJustificationRequired = false
-    }
+    $expirationObj = $(if ($DurationInDays -and $DurationInDays -gt 0) {
+        [ordered]@{
+            type     = "afterDuration"
+            duration = "P$($DurationInDays)D"
+        }
+    } else {
+        [ordered]@{
+            type = "noExpiration"
+        }
+    })
 
-    if ($approvalRequired) {
-        $approvalSettings["stages"] = @(
-            @{
-                approvalStageTimeOutInDays      = $ApprovalTimeoutInDays
-                isApproverJustificationRequired = false
-                primaryApprovers                = $primaryApprovers.ToArray()
-            }
-        )
+    $reqSettings = [ordered]@{
+        enableTargetsToSelfAddAccess           = $true
+        enableTargetsToSelfUpdateAccess        = $false
+        enableTargetsToSelfRemoveAccess        = $true
+        allowCustomAssignmentSchedule          = $false
+        enableOnBehalfRequestorsToAddAccess    = $false
+        enableOnBehalfRequestorsToUpdateAccess = $false
+        enableOnBehalfRequestorsToRemoveAccess = $false
+        onBehalfRequestors                     = @()
     }
 
     # Récupération de la politique existante pour conserver ses métadonnées requises par le PUT
     $existing = Invoke-GraphRequest -Endpoint "/identityGovernance/entitlementManagement/assignmentPolicies/$PolicyId" -Method GET -IgnoreNotFound
-    $apId = $(if ($existing -and $existing.accessPackage -and $existing.accessPackage.id) { $existing.accessPackage.id } else { $null })
-    $reqSettings = $(if ($existing -and $existing.requestorSettings) {
-        @{
-            scopeType      = $existing.requestorSettings.scopeType
-            acceptRequests = $existing.requestorSettings.acceptRequests
-        }
+    $targetApId = $(if (-not [string]::IsNullOrWhiteSpace($AccessPackageId)) {
+        $AccessPackageId
+    } elseif ($existing -and $existing.accessPackage -and $existing.accessPackage.id) {
+        $existing.accessPackage.id
     } else {
-        @{
-            scopeType      = "AllExistingDirectoryMemberUsers"
-            acceptRequests = $true
-        }
+        $null
     })
 
+    $targetScope = $(if ($existing -and $existing.allowedTargetScope) { $existing.allowedTargetScope } else { "allDirectoryUsers" })
+    $specificTargets = $(if ($existing -and $existing.specificAllowedTargets) { $existing.specificAllowedTargets } else { @() })
     $policyDesc = $(if ($existing -and $existing.description) { $existing.description } else { "Politique gérée par GitOps" })
     $finalDisplayName = $(if (-not [string]::IsNullOrWhiteSpace($DisplayName)) { $DisplayName } elseif ($existing -and $existing.displayName) { $existing.displayName } else { "Politique d'assignation standard" })
 
     $body = [ordered]@{
-        id                      = $PolicyId
-        displayName             = $finalDisplayName
-        description             = $policyDesc
-        durationInDays          = $DurationInDays
-        canExtend               = $false
-        requestorSettings       = $reqSettings
-        requestApprovalSettings = $approvalSettings
+        id                       = $PolicyId
+        displayName              = $finalDisplayName
+        description              = $policyDesc
+        allowedTargetScope       = $targetScope
+        specificAllowedTargets   = $specificTargets
+        automaticRequestSettings = $null
+        expiration               = $expirationObj
+        requestorSettings        = $reqSettings
+        requestApprovalSettings  = $approvalSettings
     }
 
-    if ($apId) {
-        $body["accessPackage"] = @{ id = $apId }
+    if ($targetApId) {
+        $body["accessPackage"] = @{ id = $targetApId }
     }
 
     Write-Verbose "Mise à jour de la politique d'assignation '$PolicyId'..."
