@@ -17,12 +17,14 @@ param(
     [string]$Stage = "All",
 
     [Parameter(Mandatory = $false)]
+    [Alias("Dir", "Directory")]
     [string]$DeclarationsDir = "declaration",
 
     [Parameter(Mandatory = $false)]
     [string]$OutputPlanFile = "plan_summary.md",
 
     [Parameter(Mandatory = $false)]
+    [Alias("File", "Files", "Path", "Target")]
     [string[]]$ChangedFiles = @()
 )
 
@@ -45,14 +47,40 @@ $targetFiles = [System.Collections.Generic.List[string]]::new()
 
 if ($ChangedFiles -and $ChangedFiles.Count -gt 0) {
     foreach ($f in $ChangedFiles) {
-        if (-not [string]::IsNullOrWhiteSpace($f) -and (Test-Path $f) -and ($f.EndsWith(".yaml") -or $f.EndsWith(".yml"))) {
-            $targetFiles.Add($f)
+        if (-not [string]::IsNullOrWhiteSpace($f) -and (Test-Path $f)) {
+            $item = Get-Item $f
+            if ($item.PSIsContainer) {
+                Get-ChildItem -Path $item.FullName -Recurse -Filter "*.yaml" | Where-Object { $_.Name -notlike "_*" } | ForEach-Object { $targetFiles.Add($_.FullName) }
+            } elseif ($f.EndsWith(".yaml") -or $f.EndsWith(".yml")) {
+                $targetFiles.Add($item.FullName)
+            }
         }
     }
 } else {
-    $allYamls = Get-ChildItem -Path $DeclarationsDir -Recurse -Filter "*.yaml" | Where-Object { $_.Name -notlike "_*" }
-    foreach ($yf in $allYamls) {
-        $targetFiles.Add($yf.FullName)
+    # Résolution intelligente du répertoire des déclarations
+    $searchDir = $DeclarationsDir
+    if (-not (Test-Path $searchDir)) {
+        # Fallback 1 : vérifier dans le dossier courant "." s'il contient des fichiers YAML
+        $currentYamls = Get-ChildItem -Path "." -Filter "*.yaml" | Where-Object { $_.Name -notlike "_*" }
+        if ($currentYamls.Count -gt 0) {
+            $searchDir = "."
+        } else {
+            # Fallback 2 : chemin relatif au dépôt (<PSScriptRoot>/../declaration)
+            $repoDeclaration = Join-Path $PSScriptRoot "..\declaration"
+            if (Test-Path $repoDeclaration) {
+                $searchDir = $repoDeclaration
+            }
+        }
+    }
+
+    # Si le chemin pointé est un fichier YAML directement
+    if ((Test-Path $searchDir) -and -not (Get-Item $searchDir).PSIsContainer) {
+        $targetFiles.Add((Get-Item $searchDir).FullName)
+    } elseif (Test-Path $searchDir) {
+        $allYamls = Get-ChildItem -Path $searchDir -Recurse -Filter "*.yaml" | Where-Object { $_.Name -notlike "_*" }
+        foreach ($yf in $allYamls) {
+            $targetFiles.Add($yf.FullName)
+        }
     }
 }
 

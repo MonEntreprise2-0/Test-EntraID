@@ -78,9 +78,21 @@ L'argument `-ExecutionPolicy Bypass` permet de lever temporairement cette restri
 
 > **Objectif :** Démontrer à votre manager la capacité du moteur à vérifier la grammaire YAML, le respect du schéma JSON v2 et les normes strictes de nommage Ardian en quelques secondes, sans aucun appel réseau.
 
-#### Commande :
+#### Commandes :
+
+**Option A — Analyser toutes les déclarations du dépôt :**
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\Tester-Declarations.ps1 -Stage SchemaOnly
+```
+
+**Option B — Cibler un fichier YAML spécifique (paramètre `-Path` ou `-File`) :**
+```powershell
+# Depuis la racine du projet :
+powershell -ExecutionPolicy Bypass -File scripts\Tester-Declarations.ps1 -Stage SchemaOnly -Path declaration\CAT-new_nomenclature\CAT-new_nomenclature.yaml
+
+# Si vous êtes déjà positionné dans le sous-dossier contenant le fichier :
+powershell -ExecutionPolicy Bypass -File ..\..\scripts\Tester-Declarations.ps1 -Stage SchemaOnly -File .\CAT-new_nomenclature.yaml
+# (Note : même sans spécifier -File, le script détecte automatiquement les fichiers YAML du dossier courant)
 ```
 
 #### Ce que le script effectue :
