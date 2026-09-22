@@ -321,41 +321,27 @@ function Get-PolitiqueAssignationEntra {
         $policies = Invoke-GraphRequest -Endpoint "/identityGovernance/entitlementManagement/assignmentPolicies?`$filter=$([System.Uri]::EscapeDataString($filter))&`$top=999" -Method GET -AllPages -IgnoreNotFound
         if ($policies -and $policies.Count -gt 0) {
             if (-not [string]::IsNullOrWhiteSpace($DisplayName)) {
-                $namedMatch = $policies | Where-Object { $_.displayName -eq $DisplayName }
-                if ($namedMatch) {
-                    return $namedMatch[0]
+                $cleanName = $DisplayName.Trim()
+                foreach ($p in $policies) {
+                    if ($p -and $p.displayName -and $p.displayName.Trim().Equals($cleanName, [System.StringComparison]::OrdinalIgnoreCase) -and -not [string]::IsNullOrWhiteSpace($p.id)) {
+                        return $p
+                    }
                 }
+                # Un nom spécifique a été demandé mais n'a pas été trouvé parmi les politiques existantes
+                return $null
             }
 
-            # Ignorer "Initial Policy" générée automatiquement par Entra ID (réservée à l'assignation directe)
-            $customPolicies = $policies | Where-Object { $_.displayName -ne "Initial Policy" }
+            # Si aucun DisplayName n'est spécifié : chercher une politique personnalisée (autre que "Initial Policy")
+            $customPolicies = $policies | Where-Object { $_.displayName -ne "Initial Policy" -and -not [string]::IsNullOrWhiteSpace($_.id) }
             if ($customPolicies -and $customPolicies.Count -gt 0) {
                 return $customPolicies[0]
             }
 
-            if ([string]::IsNullOrWhiteSpace($DisplayName)) {
-                return $policies[0]
+            # En dernier recours, retourner la première politique valide
+            $validPolicies = $policies | Where-Object { -not [string]::IsNullOrWhiteSpace($_.id) }
+            if ($validPolicies -and $validPolicies.Count -gt 0) {
+                return $validPolicies[0]
             }
-        }
-
-        # Fallback endpoint beta
-        try {
-            $policiesBeta = Invoke-GraphRequest -Endpoint "/identityGovernance/entitlementManagement/accessPackageAssignmentPolicies?`$filter=$([System.Uri]::EscapeDataString($filter))&`$top=999" -ApiVersion "beta" -Method GET -AllPages -IgnoreNotFound
-            if ($policiesBeta -and $policiesBeta.Count -gt 0) {
-                if (-not [string]::IsNullOrWhiteSpace($DisplayName)) {
-                    $namedBeta = $policiesBeta | Where-Object { $_.displayName -eq $DisplayName }
-                    if ($namedBeta) {
-                        return $namedBeta[0]
-                    }
-                }
-                $customBeta = $policiesBeta | Where-Object { $_.displayName -ne "Initial Policy" }
-                if ($customBeta -and $customBeta.Count -gt 0) {
-                    return $customBeta[0]
-                }
-                return $policiesBeta[0]
-            }
-        } catch {
-            Write-Verbose "Endpoint beta non disponible pour la politique : $_"
         }
     }
 

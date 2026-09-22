@@ -327,22 +327,30 @@ function Synchroniser-EtatEntra {
             foreach ($res in $ap.resources) {
                 $rType = $res.resource_type
                 if ($rType -eq "EntraID Group" -or $rType -eq "Group") {
+                    $grpKey = $res.group_name.ToLowerInvariant()
+                    if ($onboardedResourcesMap.ContainsKey($grpKey)) {
+                        continue
+                    }
                     $grpObj = Resolve-GraphGroup -GroupName $res.group_name
                     if ($grpObj) {
                         try {
                             Add-RessourceCatalogue -CatalogId $catalogId -OriginId $grpObj.id -OriginSystem "AadGroup" | Out-Null
-                            $onboardedResourcesMap[$res.group_name.ToLowerInvariant()] = $grpObj.id
+                            $onboardedResourcesMap[$grpKey] = $grpObj.id
                             Write-Host "  📁 Groupe '$($res.group_name)' associé au catalogue." -ForegroundColor Gray
                         } catch {
                             Write-Warning "  ⚠️ Erreur onboarding groupe '$($res.group_name)' : $_"
                         }
                     }
                 } elseif ($rType -eq "Application Role" -or $rType -eq "Application") {
+                    $appKey = $res.enterprise_app.ToLowerInvariant()
+                    if ($onboardedResourcesMap.ContainsKey($appKey)) {
+                        continue
+                    }
                     $spObj = Resolve-GraphServicePrincipal -DisplayName $res.enterprise_app
                     if ($spObj) {
                         try {
                             Add-RessourceCatalogue -CatalogId $catalogId -OriginId $spObj.id -OriginSystem "AadApplication" | Out-Null
-                            $onboardedResourcesMap[$res.enterprise_app.ToLowerInvariant()] = $spObj.id
+                            $onboardedResourcesMap[$appKey] = $spObj.id
                             Write-Host "  📱 Application '$($res.enterprise_app)' associée au catalogue." -ForegroundColor Gray
                         } catch {
                             Write-Warning "  ⚠️ Erreur onboarding application '$($res.enterprise_app)' : $_"
@@ -384,6 +392,12 @@ function Synchroniser-EtatEntra {
                     Write-Host "  ✏️ Mise à jour de la description de '$apName'..." -ForegroundColor Cyan
                     Set-AccessPackageEntra -AccessPackageId $apObj.id -Description $apDesc | Out-Null
                 }
+            }
+
+            if (-not $apObj -or [string]::IsNullOrWhiteSpace($apObj.id)) {
+                Write-Warning "  ⚠️ Impossible de récupérer ou créer l'Access Package '$apName'."
+                $errors.Add("Échec création Access Package '$apName'")
+                continue
             }
 
             $apId = $apObj.id
@@ -439,34 +453,39 @@ function Synchroniser-EtatEntra {
             # ---------------------------------------------------------------
             # ÉTAPE 6 : Politique d'Assignation (Approval & Duration)
             # ---------------------------------------------------------------
-            $approverIds = [System.Collections.Generic.List[string]]::new()
-            if ($ap.authorization_owners) {
-                foreach ($email in $ap.authorization_owners) {
-                    $u = Resolve-GraphUser -UserEmailOrUpn $email
-                    if ($u) {
-                        $approverIds.Add($u.id)
+            try {
+                $approverIds = [System.Collections.Generic.List[string]]::new()
+                if ($ap.authorization_owners) {
+                    foreach ($email in $ap.authorization_owners) {
+                        $u = Resolve-GraphUser -UserEmailOrUpn $email
+                        if ($u) {
+                            $approverIds.Add($u.id)
+                        }
                     }
                 }
-            }
 
-            $policyName = "Politique - $apName"
-            $policy = Get-PolitiqueAssignationEntra -AccessPackageId $apId -DisplayName $policyName
+                $policyName = "Politique - $apName"
+                $policy = Get-PolitiqueAssignationEntra -AccessPackageId $apId -DisplayName $policyName
 
-            if (-not $policy) {
-                Write-Host "  📜 Création de la politique d'assignation pour '$apName'..." -ForegroundColor Green
-                $policy = New-PolitiqueAssignationEntra -AccessPackageId $apId -DisplayName $policyName -ApproverUserIds $approverIds.ToArray()
-            } else {
-                Write-Host "  ✅ Politique d'assignation existante trouvée ($($policy.id))." -ForegroundColor Gray
-                Set-PolitiqueAssignationEntra -PolicyId $policy.id -AccessPackageId $apId -DisplayName $policyName -ApproverUserIds $approverIds.ToArray() | Out-Null
-            }
+                if (-not $policy -or [string]::IsNullOrWhiteSpace($policy.id)) {
+                    Write-Host "  📜 Création de la politique d'assignation pour '$apName'..." -ForegroundColor Green
+                    $policy = New-PolitiqueAssignationEntra -AccessPackageId $apId -DisplayName $policyName -ApproverUserIds $approverIds.ToArray()
+                } else {
+                    Write-Host "  ✅ Politique d'assignation existante trouvée ($($policy.id))." -ForegroundColor Gray
+                    Set-PolitiqueAssignationEntra -PolicyId $policy.id -AccessPackageId $apId -DisplayName $policyName -ApproverUserIds $approverIds.ToArray() | Out-Null
+                }
 
-            if ($policy) {
-                $deployedResources.Add([PSCustomObject]@{
-                    Type        = "Politique d'Assignation"
-                    DisplayName = $policyName
-                    Id          = $policy.id
-                    Status      = "Actif"
-                })
+                if ($policy -and -not [string]::IsNullOrWhiteSpace($policy.id)) {
+                    $deployedResources.Add([PSCustomObject]@{
+                        Type        = "Politique d'Assignation"
+                        DisplayName = $policyName
+                        Id          = $policy.id
+                        Status      = "Actif"
+                    })
+                }
+            } catch {
+                Write-Warning "  ⚠️ Erreur lors de la configuration de la politique pour '$apName' : $_"
+                $errors.Add("Erreur politique '$apName' : $_")
             }
         }
 
