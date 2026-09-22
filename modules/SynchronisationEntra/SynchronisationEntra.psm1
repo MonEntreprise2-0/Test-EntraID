@@ -35,10 +35,16 @@ function Comparer-EtatEntra {
     # Récupération de tous les catalogues existants dans Entra ID
     $existingCatalogs = Get-CatalogueEntra
     $catalogMapByName = @{}
+    $catalogMapNormalized = @{}
     if ($existingCatalogs) {
         foreach ($c in $existingCatalogs) {
             if ($c.displayName) {
-                $catalogMapByName[$c.displayName.Trim().ToLowerInvariant()] = $c
+                $rawKey = $c.displayName.Trim().ToLowerInvariant()
+                $catalogMapByName[$rawKey] = $c
+                $normKey = ($c.displayName -replace '[^a-zA-Z0-9]', '').ToLowerInvariant()
+                if (-not $catalogMapNormalized.ContainsKey($normKey)) {
+                    $catalogMapNormalized[$normKey] = $c
+                }
             }
         }
     }
@@ -65,7 +71,16 @@ function Comparer-EtatEntra {
         $appDesc = $(if ($doc.app_description) { $doc.app_description.Trim() } else { "Catalogue $catName" })
 
         $catKey = $catName.ToLowerInvariant()
-        $existingCat = $(if ($catalogMapByName.ContainsKey($catKey)) { $catalogMapByName[$catKey] } else { $null })
+        $normKey = ($catName -replace '[^a-zA-Z0-9]', '').ToLowerInvariant()
+        $existingCat = $(
+            if ($catalogMapByName.ContainsKey($catKey)) { 
+                $catalogMapByName[$catKey] 
+            } elseif ($catalogMapNormalized.ContainsKey($normKey)) {
+                $catalogMapNormalized[$normKey]
+            } else { 
+                $null 
+            }
+        )
 
         # 1. Analyse du catalogue
         if (-not $existingCat) {

@@ -14,18 +14,18 @@ body:
         > ⛔ **RESTRICTION DE SÉCURITÉ ADMIN :**
         > Ce formulaire est **strictement réservé aux administrateurs IAM**.
         >
-        > Ce scénario permet d'exporter l'état réel des catalogues Entra ID vers le référentiel Git.
-        > Le système créera l'arborescence normalisée `declaration/<nomapplication>/<nomapplication>.yaml`.
+        > Ce scénario permet d'exporter l'état réel des applications Entra ID vers le référentiel Git.
+        > Le système créera ou mettra à jour l'arborescence normalisée `declaration/<app_name>/<app_name>.yaml`.
         >
         > ⚠️ **Règle d'écrasement (*Overwrite*) :**
-        > Si certaines des applications saisies sont déjà présentes dans GitHub, leurs fichiers existants seront **automatiquement écrasés** par l'état réel extrait d'Entra ID.
+        > Si l'application (`app_name`) saisie est déjà présente dans GitHub, son fichier existant sera **automatiquement écrasé et redéfini** par l'état réel extrait d'Entra ID.
 
   - type: textarea
     id: target_applications
     attributes:
-      label: "Noms exacts des applications à importer"
-      description: "Saisissez les noms des catalogues Entra ID séparés par des virgules (insensible à la casse). Exemple : Cat_Test01, Salesforce CRM, Icredit"
-      placeholder: "appli1, appli2, appli3..."
+      label: "Noms exacts des applications à importer (app_name)"
+      description: "Saisissez les identifiants d'applications (app_name) séparés par des virgules (ex: test_sans_teraform, salesforce-crm, icredit). Si le fichier existe déjà sous declaration/<app_name>/, il sera écrasé avec la nouvelle définition."
+      placeholder: "app_name1, app_name2..."
     validations:
       required: true
 

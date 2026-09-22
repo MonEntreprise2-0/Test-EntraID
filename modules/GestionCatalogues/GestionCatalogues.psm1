@@ -49,6 +49,15 @@ function Get-CatalogueEntra {
                 return $cat
             }
         }
+        $normSearch = ($cleanName -replace '[^a-zA-Z0-9]', '').ToLowerInvariant()
+        foreach ($cat in $allCatalogs) {
+            if ($cat.displayName) {
+                $catNorm = ($cat.displayName -replace '[^a-zA-Z0-9]', '').ToLowerInvariant()
+                if ($catNorm -eq $normSearch) {
+                    return $cat
+                }
+            }
+        }
         return $null
     }
 

@@ -94,25 +94,71 @@ function Exporter-CatalogueVersYaml {
         [string]$FallbackApproverEmail = "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
     )
 
-    Write-Host "🔍 Recherche du catalogue '$TargetCatalogOrAppName' dans Entra ID..." -ForegroundColor Cyan
+    $inputAppName = $TargetCatalogOrAppName.Trim()
+
+    # 1. Vérification de l'existence préalable dans Git (règle d'écrasement / overwrite)
+    $existingDir = $null
+    if (Test-Path $DeclarationDir) {
+        $existingDir = Get-ChildItem -Path $DeclarationDir -Directory -ErrorAction SilentlyContinue | Where-Object {
+            $_.Name.Equals($inputAppName, [StringComparison]::OrdinalIgnoreCase)
+        }
+    }
+
+    $appName = ""
+    $wasOverwritten = $false
+    $existingDescription = ""
+
+    if ($existingDir) {
+        # L'application existe déjà : on conserve son nom de dossier exact
+        $appName = $existingDir.Name
+        $existingYamlFile = Join-Path $existingDir.FullName "$appName.yaml"
+        if (-not (Test-Path $existingYamlFile)) {
+            $f = Get-ChildItem -Path $existingDir.FullName -Filter "*.yaml" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($f) { $existingYamlFile = $f.FullName }
+        }
+        if ($existingYamlFile -and (Test-Path $existingYamlFile)) {
+            $wasOverwritten = $true
+            Write-Host "⚠️ L'application '$appName' existe déjà dans Git ($existingYamlFile)." -ForegroundColor Yellow
+            Write-Host "   -> Le fichier sera écrasé et redéfini avec l'état réel d'Entra ID." -ForegroundColor Yellow
+            try {
+                $oldContent = Get-Content $existingYamlFile -Raw -Encoding UTF8
+                if ($oldContent -match '(?m)^\s*app_description\s*:\s*["'']?(.*?)["'']?\s*$') {
+                    $existingDescription = $Matches[1].Trim()
+                }
+            } catch {}
+        }
+    } else {
+        # Nouvelle application : formatage propre en kebab-case / snake_case selon la saisie
+        $appName = ($inputAppName -replace '[^a-zA-Z0-9_-]', '-').ToLowerInvariant().Trim('-').Trim('_')
+        while ($appName.Contains("--")) { $appName = $appName.Replace("--", "-") }
+        if ([string]::IsNullOrWhiteSpace($appName)) {
+            $appName = "app-" + [Guid]::NewGuid().ToString().Substring(0, 8)
+        }
+    }
+
+    Write-Host "🔍 Recherche du catalogue correspondant à l'application '$appName' dans Entra ID..." -ForegroundColor Cyan
 
     $allCatalogs = Get-CatalogueEntra
     if (-not $allCatalogs -or $allCatalogs.Count -eq 0) {
         throw "Aucun catalogue trouvé dans Microsoft Entra ID."
     }
 
-    # Recherche multi-niveaux : exacte -> insensible à la casse -> normalisée
+    # Recherche multi-niveaux :
+    # 1. Correspondance exacte ou insensible à la casse sur displayName
+    # 2. Correspondance normalisée (sans séparateurs)
     $matchedCatalog = $null
-    $targetNorm = ($TargetCatalogOrAppName -replace '[^a-zA-Z0-9]', '').ToLowerInvariant()
+    $targetNorm = ($appName -replace '[^a-zA-Z0-9]', '').ToLowerInvariant()
+    $inputNorm = ($inputAppName -replace '[^a-zA-Z0-9]', '').ToLowerInvariant()
 
     foreach ($cat in $allCatalogs) {
         if ($cat.displayName) {
-            if ($cat.displayName.Equals($TargetCatalogOrAppName, [StringComparison]::OrdinalIgnoreCase)) {
+            if ($cat.displayName.Equals($inputAppName, [StringComparison]::OrdinalIgnoreCase) -or
+                $cat.displayName.Equals($appName, [StringComparison]::OrdinalIgnoreCase)) {
                 $matchedCatalog = $cat
                 break
             }
             $catNorm = ($cat.displayName -replace '[^a-zA-Z0-9]', '').ToLowerInvariant()
-            if ($catNorm -eq $targetNorm) {
+            if ($catNorm -eq $targetNorm -or $catNorm -eq $inputNorm) {
                 $matchedCatalog = $cat
             }
         }
@@ -120,15 +166,13 @@ function Exporter-CatalogueVersYaml {
 
     if (-not $matchedCatalog) {
         $availableNames = ($allCatalogs | ForEach-Object { "- $($_.displayName)" }) -join "`n"
-        throw "Le catalogue '$TargetCatalogOrAppName' est introuvable dans Entra ID.`n`nCatalogues disponibles :`n$availableNames"
+        throw "Le catalogue pour l'application '$appName' (recherche: '$inputAppName') est introuvable dans Entra ID.`n`nCatalogues disponibles :`n$availableNames"
     }
 
     $catalogId = $matchedCatalog.id
     $catalogName = $matchedCatalog.displayName
-    $appSlug = ($catalogName -replace '[^a-zA-Z0-9]', '-').ToLowerInvariant().Trim('-')
-    while ($appSlug.Contains("--")) { $appSlug = $appSlug.Replace("--", "-") }
 
-    Write-Host "✅ Catalogue trouvé : '$catalogName' (ID : $catalogId, Slug : '$appSlug')" -ForegroundColor Green
+    Write-Host "✅ Catalogue Entra ID trouvé : '$catalogName' (ID : $catalogId) pour app_name '$appName'" -ForegroundColor Green
 
     # Récupération des Access Packages du catalogue
     $aps = Get-AccessPackageEntra -CatalogId $catalogId
@@ -262,11 +306,18 @@ function Exporter-CatalogueVersYaml {
         $yamlAccessPackages.Add($apDict)
     }
 
-    # 3. Génération du fichier YAML
+    # 3. Génération du fichier YAML (strictement app_name, AUCUN catalogue_name / catalog_name)
+    $catalogDesc = if ($matchedCatalog.description -and -not [string]::IsNullOrWhiteSpace($matchedCatalog.description)) {
+        $matchedCatalog.description.Trim()
+    } elseif ($existingDescription) {
+        $existingDescription
+    } else {
+        "Description importée pour $appName"
+    }
+
     $yamlLines = [System.Collections.Generic.List[string]]::new()
-    $yamlLines.Add("app_name: `"$appSlug`"")
-    $yamlLines.Add("catalog_name: `"$catalogName`"")
-    $yamlLines.Add("app_description: `"Description importée pour $catalogName`"")
+    $yamlLines.Add("app_name: `"$appName`"")
+    $yamlLines.Add("app_description: `"$catalogDesc`"")
     $yamlLines.Add("")
     $yamlLines.Add("access_packages:")
 
@@ -299,23 +350,25 @@ function Exporter-CatalogueVersYaml {
         $yamlLines.Add("")
     }
 
-    $targetDir = Join-Path $DeclarationDir $appSlug
+    $targetDir = Join-Path $DeclarationDir $appName
     if (-not (Test-Path $targetDir)) {
         New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
     }
 
-    $targetFile = Join-Path $targetDir "$appSlug.yaml"
+    $targetFile = Join-Path $targetDir "$appName.yaml"
     $yamlContent = $yamlLines -join "`r`n"
     [System.IO.File]::WriteAllText($targetFile, $yamlContent, [System.Text.Encoding]::UTF8)
 
-    Write-Host "🎉 Déclaration YAML générée avec succès : $targetFile" -ForegroundColor Green
+    $actionMsg = if ($wasOverwritten) { "écrasée et redéfinie" } else { "générée" }
+    Write-Host "🎉 Déclaration YAML $actionMsg avec succès : $targetFile" -ForegroundColor Green
 
     return [PSCustomObject]@{
         Success           = $true
-        AppName           = $appSlug
+        AppName           = $appName
         CatalogName       = $catalogName
         TargetFile        = $targetFile
         PackagesImported  = $yamlAccessPackages.Count
+        WasOverwritten    = $wasOverwritten
     }
 }
 

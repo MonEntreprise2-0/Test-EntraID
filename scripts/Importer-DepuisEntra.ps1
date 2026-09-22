@@ -79,7 +79,8 @@ foreach ($appName in $appNames) {
         $res = Exporter-CatalogueVersYaml -TargetCatalogOrAppName $appName -DeclarationDir $DeclarationDir -FallbackApproverEmail $FallbackApproverEmail
         if ($res.Success) {
             $importedApps.Add($res.AppName)
-            $summaryRows.Add("| 📦 **$($res.CatalogName)** | ``$($res.AppName)`` | $($res.PackagesImported) | ✅ Importé avec succès |")
+            $statusText = if ($res.WasOverwritten) { "✅ Réécrit / Écrasé avec succès" } else { "✅ Importé avec succès" }
+            $summaryRows.Add("| 📦 **$($res.CatalogName)** | ``$($res.AppName)`` | $($res.PackagesImported) | $statusText |")
         }
     } catch {
         $err = $_.Exception.Message
