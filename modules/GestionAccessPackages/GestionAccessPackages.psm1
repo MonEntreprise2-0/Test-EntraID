@@ -477,12 +477,36 @@ function Set-PolitiqueAssignationEntra {
         )
     }
 
+    # Récupération de la politique existante pour conserver ses métadonnées requises par le PUT
+    $existing = Invoke-GraphRequest -Endpoint "/identityGovernance/entitlementManagement/assignmentPolicies/$PolicyId" -Method GET -IgnoreNotFound
+    $apId = $(if ($existing -and $existing.accessPackage -and $existing.accessPackage.id) { $existing.accessPackage.id } else { $null })
+    $reqSettings = $(if ($existing -and $existing.requestorSettings) {
+        @{
+            scopeType      = $existing.requestorSettings.scopeType
+            acceptRequests = $existing.requestorSettings.acceptRequests
+        }
+    } else {
+        @{
+            scopeType      = "AllExistingDirectoryMemberUsers"
+            acceptRequests = $true
+        }
+    })
+
+    $policyDesc = $(if ($existing -and $existing.description) { $existing.description } else { "Politique gérée par GitOps" })
+    $finalDisplayName = $(if (-not [string]::IsNullOrWhiteSpace($DisplayName)) { $DisplayName } elseif ($existing -and $existing.displayName) { $existing.displayName } else { "Politique d'assignation standard" })
+
     $body = [ordered]@{
+        id                      = $PolicyId
+        displayName             = $finalDisplayName
+        description             = $policyDesc
         durationInDays          = $DurationInDays
+        canExtend               = $false
+        requestorSettings       = $reqSettings
         requestApprovalSettings = $approvalSettings
     }
-    if (-not [string]::IsNullOrWhiteSpace($DisplayName)) {
-        $body["displayName"] = $DisplayName
+
+    if ($apId) {
+        $body["accessPackage"] = @{ id = $apId }
     }
 
     Write-Verbose "Mise à jour de la politique d'assignation '$PolicyId'..."

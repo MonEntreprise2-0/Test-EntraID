@@ -242,7 +242,7 @@ function Get-ProprietairesCatalogue {
         [string]$CatalogId
     )
 
-    $filter = "directoryScopeId eq '/AccessPackageCatalog/$CatalogId' and roleDefinitionId eq '$($script:CATALOG_OWNER_ROLE_ID)'"
+    $filter = "appScopeId eq '/AccessPackageCatalog/$CatalogId' and roleDefinitionId eq '$($script:CATALOG_OWNER_ROLE_ID)'"
     $endpoint = "/roleManagement/entitlementManagement/roleAssignments?`$filter=$([System.Uri]::EscapeDataString($filter))"
 
     return Invoke-GraphRequest -Endpoint $endpoint -Method GET -AllPages -IgnoreNotFound
@@ -276,7 +276,7 @@ function Add-ProprietaireCatalogue {
     $body = @{
         roleDefinitionId = $script:CATALOG_OWNER_ROLE_ID
         principalId      = $UserId
-        directoryScopeId = "/AccessPackageCatalog/$CatalogId"
+        appScopeId       = "/AccessPackageCatalog/$CatalogId"
     }
 
     Write-Verbose "Assignation du rôle Catalog Owner à l'utilisateur '$UserId' sur le catalogue '$CatalogId'..."
