@@ -34,6 +34,9 @@ access_packages:
 
     resources:
       - resource_type: "EntraID Group"
+        group_name: "Group_Test02"
+
+      - resource_type: "EntraID Group"
         group_name: "Group_Test01"
 
   - context_subapp: "Application"
