@@ -38,7 +38,7 @@ access_packages:
 
   - context_subapp: "Application"
     privilege_level: "Admin"
-    env: "Prod"
+    env: "Prd"
     description: "Access Package Credit NonAdmin - Prod"
     authorization_owners:
       - "gorlainel_gmail.com#EXT#@monentreprise123.onmicrosoft.com"
