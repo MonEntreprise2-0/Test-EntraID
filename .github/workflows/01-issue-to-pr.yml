@@ -1,4 +1,4 @@
-# ============================================================================
+﻿# ============================================================================
 # Workflow : Issue -> Pull Request (Routage des 4 Scénarios - 100% PowerShell)
 # ============================================================================
 name: "🔄 Issue → Pull Request"
@@ -89,141 +89,13 @@ jobs:
             core.setFailed('Scénario inconnu (unknown).');
 
       # -----------------------------------------------------------------------
-      # 2. Contrôle d'Accès RBAC pour les scénarios réservés aux Admins
+      # 2. Contrôle d'Accès & Habilitations (RBAC & CODEOWNERS) et Vérification des Équipes
       # -----------------------------------------------------------------------
-      - name: Vérifier les privilèges d'administration
-        id: rbac
-        if: steps.parse.outputs.operation != 'user_modify'
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
-          script: |
-            const author = context.payload.issue.user.login;
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-
-            let isAdmin = false;
-            try {
-              const perm = await github.rest.repos.getCollaboratorPermissionLevel({
-                owner: owner,
-                repo: repo,
-                username: author,
-              });
-              const level = perm.data.permission;
-              isAdmin = (level === 'admin' || level === 'write');
-            } catch (e) {
-              console.log('Erreur permission repo:', e.message);
-            }
-
-            if (!isAdmin) {
-              await github.rest.issues.createComment({
-                owner: owner,
-                repo: repo,
-                issue_number: context.payload.issue.number,
-                body: `⛔ **Accès refusé** : L'utilisateur @${author} n'est pas autorisé à exécuter ce scénario réservé aux administrateurs.\n\nL'Issue est automatiquement clôturée.`
-              });
-              await github.rest.issues.update({
-                owner: owner,
-                repo: repo,
-                issue_number: context.payload.issue.number,
-                state: 'closed'
-              });
-              core.setFailed(`Utilisateur non-admin : ${author}`);
-            }
-
-      # -----------------------------------------------------------------------
-      # 3. Traitement Scénario A : Modification d'application existante (User)
-      # -----------------------------------------------------------------------
-      - name: "[Scénario A] Valider existence préalable de l'application"
-        if: steps.parse.outputs.operation == 'user_modify'
+      - name: Vérifier les habilitations (RBAC & CODEOWNERS) et l'existence des équipes
+        id: auth
         uses: actions/github-script@v7
         env:
-          APP_NAME: ${{ steps.parse.outputs.app_name }}
-        with:
-          github-token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
-          script: |
-            const fs = require('fs');
-            const path = require('path');
-            const rawAppName = (process.env.APP_NAME || '').trim();
-
-            if (!rawAppName) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.issue.number,
-                body: `❌ **Erreur bloquante** : Aucun nom d'application (\`app_name\`) n'a pu être extrait du fichier YAML.`
-              });
-              await github.rest.issues.update({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.issue.number,
-                state: 'closed'
-              });
-              core.setFailed('app_name manquant.');
-              return;
-            }
-
-            const cleanName = rawAppName.replace(/^cat-/i, '').trim();
-            const candidates = [
-              rawAppName,
-              `CAT-${cleanName}`,
-              `CAT-${rawAppName}`,
-              cleanName
-            ];
-
-            let foundDir = null;
-            try {
-              const entries = fs.readdirSync('declaration');
-              for (const entry of entries) {
-                if (entry.startsWith('_')) continue;
-                const fullPath = path.join('declaration', entry);
-                if (!fs.statSync(fullPath).isDirectory()) continue;
-
-                const entryClean = entry.replace(/^cat-/i, '').trim();
-                const normEntry = entryClean.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
-                const normClean = cleanName.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
-
-                if (
-                  candidates.some(c => c.toLowerCase() === entry.toLowerCase()) ||
-                  entryClean.toLowerCase() === cleanName.toLowerCase() ||
-                  (normEntry.length > 0 && normEntry === normClean)
-                ) {
-                  foundDir = entry;
-                  break;
-                }
-              }
-            } catch (e) {
-              console.log('Erreur lecture declaration/:', e.message);
-            }
-
-            if (!foundDir) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.issue.number,
-                body: `❌ **Erreur bloquante** : L'application \`${rawAppName}\` (recherchée sous \`CAT-${cleanName}\`) n'existe pas dans \`declaration/\`.\n\nLe formulaire utilisateur est strictement réservé à la **modification d'applications existantes**.\nPour créer une nouvelle application, veuillez contacter un administrateur IAM.`
-              });
-              await github.rest.issues.update({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.issue.number,
-                state: 'closed'
-              });
-              core.setFailed(`L'application ${rawAppName} (CAT-${cleanName}) n'existe pas.`);
-              return;
-            }
-
-            console.log(`✅ Application existante trouvée dans declaration/ : ${foundDir}`);
-            core.setOutput('target_dir', foundDir);
-
-      # -----------------------------------------------------------------------
-      # 4. Traitement Scénario B : Création d'application (Admin)
-      # -----------------------------------------------------------------------
-      - name: "[Scénario B] Valider absence d'application et existence de la Team"
-        id: validate-team
-        if: steps.parse.outputs.operation == 'admin_create'
-        uses: actions/github-script@v7
-        env:
+          OPERATION: ${{ steps.parse.outputs.operation }}
           APP_NAME: ${{ steps.parse.outputs.app_name }}
           GITHUB_TEAM: ${{ steps.parse.outputs.github_team }}
         with:
@@ -231,88 +103,280 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
-            const appName = (process.env.APP_NAME || '').toLowerCase();
-            const teamInput = (process.env.GITHUB_TEAM || '').trim();
+            const author = context.payload.issue.user.login;
             const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const op = process.env.OPERATION;
+            const rawAppName = (process.env.APP_NAME || '').trim();
+            const teamInput = (process.env.GITHUB_TEAM || '').trim();
 
-            if (!appName) {
-              await github.rest.issues.createComment({
-                owner: owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.issue.number,
-                body: `❌ **Erreur bloquante** : Aucun nom d'application (\`app_name\`) n'a pu être extrait du fichier YAML joint ou du formulaire.`
-              });
-              await github.rest.issues.update({
-                owner: owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.issue.number,
-                state: 'closed'
-              });
-              core.setFailed('app_name manquant pour la création.');
-              return;
-            }
-
-            if (!teamInput) {
-              await github.rest.issues.createComment({
-                owner: owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.issue.number,
-                body: `❌ **Erreur bloquante** : Aucune Team GitHub Owner n'a été spécifiée dans le formulaire.`
-              });
-              await github.rest.issues.update({
-                owner: owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.issue.number,
-                state: 'closed'
-              });
-              core.setFailed('Team GitHub manquante pour la création.');
-              return;
-            }
-
-            // 1. Vérifier si l'application existe déjà
-            const cleanName = appName.replace(/^cat-/i, '');
-            const candidates = [appName, `CAT-${cleanName}`, `CAT-${appName}`, cleanName];
-            let alreadyExists = false;
+            // 1. Détermination du statut Administrateur du dépôt
+            let isRepoAdmin = false;
             try {
-              const entries = fs.readdirSync('declaration');
-              alreadyExists = entries.some(entry => candidates.some(c => c.toLowerCase() === entry.toLowerCase()) && fs.statSync(path.join('declaration', entry)).isDirectory());
-            } catch (e) {}
-            if (alreadyExists) {
-              console.log(`ℹ️ L'application '${appName}' existe déjà dans declaration/. Mise à jour autorisée pour l'administrateur.`);
-            }
-
-            // 2. Vérifier l'existence de la Team GitHub dans l'organisation
-            let matchedSlug = null;
-            try {
-              const teamsRes = await github.rest.teams.list({ org: owner, per_page: 100 });
-              const match = teamsRes.data.find(t => 
-                t.slug.toLowerCase() === teamInput.toLowerCase() || 
-                t.name.toLowerCase() === teamInput.toLowerCase()
-              );
-              if (match) {
-                matchedSlug = match.slug;
-              }
+              const perm = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: owner,
+                repo: repo,
+                username: author,
+              });
+              const level = perm.data.permission;
+              isRepoAdmin = (level === 'admin' || level === 'write');
             } catch (e) {
-              console.log('Erreur requête teams:', e.message);
-              matchedSlug = teamInput.toLowerCase();
+              console.log('Erreur permission repo:', e.message);
             }
 
-            if (!matchedSlug) {
-              await github.rest.issues.createComment({
-                owner: owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.issue.number,
-                body: `❌ **Erreur bloquante** : La Team GitHub \`${teamInput}\` est introuvable dans l'organisation \`${owner}\`.\n\nVeuillez vérifier le nom exact de l'équipe sur [Teams ${owner}](https://github.com/orgs/${owner}/teams).`
-              });
-              await github.rest.issues.update({
-                owner: owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.issue.number,
-                state: 'closed'
-              });
-              core.setFailed(`Team ${teamInput} introuvable dans l'organisation.`);
-            } else {
-              core.setOutput('team_slug', matchedSlug);
+            // 2. Contrôle pour les scénarios réservés aux Administrateurs (B, C, D)
+            if (op === 'admin_create' || op === 'admin_bulk' || op === 'admin_import') {
+              if (!isRepoAdmin) {
+                const actionLabel = (op === 'admin_create') ? "créer une nouvelle application" :
+                                    (op === 'admin_bulk') ? "exécuter une modification de masse" :
+                                    "importer des applications depuis Microsoft Entra ID";
+                await github.rest.issues.createComment({
+                  owner: owner,
+                  repo: repo,
+                  issue_number: context.payload.issue.number,
+                  body: `⛔ **Accès refusé** : Vous n'êtes pas autorisé à ${actionLabel}.\n\nCette opération est strictement réservée aux administrateurs IAM.\nVeuillez contacter un administrateur IAM pour cette demande.`
+                });
+                await github.rest.issues.update({
+                  owner: owner,
+                  repo: repo,
+                  issue_number: context.payload.issue.number,
+                  state: 'closed'
+                });
+                core.setFailed(`Utilisateur non-admin (@${author}) sur ${op}`);
+                return;
+              }
+            }
+
+            // 3. Contrôle de l'existence de la Team pour le Scénario B (Création)
+            if (op === 'admin_create') {
+              if (!teamInput) {
+                await github.rest.issues.createComment({
+                  owner: owner,
+                  repo: repo,
+                  issue_number: context.payload.issue.number,
+                  body: `❌ **Erreur bloquante** : Aucune Team GitHub Owner n'a été spécifiée dans le formulaire.`
+                });
+                await github.rest.issues.update({
+                  owner: owner,
+                  repo: repo,
+                  issue_number: context.payload.issue.number,
+                  state: 'closed'
+                });
+                core.setFailed('Team GitHub manquante pour la création.');
+                return;
+              }
+
+              let matchedTeam = null;
+              try {
+                const teamsRes = await github.rest.teams.list({ org: owner, per_page: 100 });
+                matchedTeam = teamsRes.data.find(t => 
+                  t.slug.toLowerCase() === teamInput.toLowerCase() || 
+                  t.name.toLowerCase() === teamInput.toLowerCase()
+                );
+              } catch (e) {
+                console.log('Erreur requête teams:', e.message);
+              }
+
+              if (!matchedTeam) {
+                await github.rest.issues.createComment({
+                  owner: owner,
+                  repo: repo,
+                  issue_number: context.payload.issue.number,
+                  body: `❌ **Erreur bloquante** : L'équipe GitHub \`${teamInput}\` est introuvable dans l'organisation \`${owner}\`.\n\nVeuillez vérifier l'orthographe exacte de l'équipe sur [Teams ${owner}](https://github.com/orgs/${owner}/teams).\nL'Issue est automatiquement clôturée.`
+                });
+                await github.rest.issues.update({
+                  owner: owner,
+                  repo: repo,
+                  issue_number: context.payload.issue.number,
+                  state: 'closed'
+                });
+                core.setFailed(`Team ${teamInput} introuvable dans l'organisation.`);
+                return;
+              }
+              core.setOutput('team_slug', matchedTeam.slug);
+            }
+
+            // 4. Contrôle de l'existence de TOUTES les Teams pour le Scénario D (Import)
+            if (op === 'admin_import') {
+              let teamsToCheck = [];
+              if (fs.existsSync('./parsed/teams_to_validate.txt')) {
+                teamsToCheck = fs.readFileSync('./parsed/teams_to_validate.txt', 'utf8')
+                  .split(/\r?\n/)
+                  .map(t => t.trim())
+                  .filter(t => t.length > 0 && t.toLowerCase() !== 'admins');
+              }
+
+              if (teamsToCheck.length > 0) {
+                let orgTeams = [];
+                try {
+                  const teamsRes = await github.rest.teams.list({ org: owner, per_page: 100 });
+                  orgTeams = teamsRes.data;
+                } catch (e) {
+                  console.log('Erreur requête teams org:', e.message);
+                }
+
+                const missingTeams = [];
+                for (const reqTeam of teamsToCheck) {
+                  const found = orgTeams.some(t => 
+                    t.slug.toLowerCase() === reqTeam.toLowerCase() || 
+                    t.name.toLowerCase() === reqTeam.toLowerCase()
+                  );
+                  if (!found) {
+                    missingTeams.push(reqTeam);
+                  }
+                }
+
+                if (missingTeams.length > 0) {
+                  const missingStr = missingTeams.map(t => `\`${t}\``).join(', ');
+                  await github.rest.issues.createComment({
+                    owner: owner,
+                    repo: repo,
+                    issue_number: context.payload.issue.number,
+                    body: `❌ **Erreur bloquante** : L'équipe GitHub ${missingStr} est introuvable dans l'organisation \`${owner}\`.\n\nVeuillez vérifier l'orthographe exacte des équipes sur [Teams ${owner}](https://github.com/orgs/${owner}/teams).\nL'Issue est automatiquement clôturée.`
+                  });
+                  await github.rest.issues.update({
+                    owner: owner,
+                    repo: repo,
+                    issue_number: context.payload.issue.number,
+                    state: 'closed'
+                  });
+                  core.setFailed(`Équipes introuvables : ${missingStr}`);
+                  return;
+                }
+              }
+            }
+
+            // 5. Contrôle d'habilitation CODEOWNERS pour le Scénario A (Modification)
+            if (op === 'user_modify') {
+              if (!rawAppName) {
+                await github.rest.issues.createComment({
+                  owner: owner,
+                  repo: repo,
+                  issue_number: context.payload.issue.number,
+                  body: `❌ **Erreur bloquante** : Aucun nom d'application (\`app_name\`) n'a pu être extrait du formulaire ou du fichier YAML.`
+                });
+                await github.rest.issues.update({
+                  owner: owner,
+                  repo: repo,
+                  issue_number: context.payload.issue.number,
+                  state: 'closed'
+                });
+                core.setFailed('app_name manquant.');
+                return;
+              }
+
+              const cleanName = rawAppName.replace(/^cat-/i, '').trim().toLowerCase();
+              const normClean = cleanName.replace(/[^a-zA-Z0-9]/g, '');
+
+              // Identification du dossier cible existant
+              let targetDir = null;
+              try {
+                const entries = fs.readdirSync('declaration');
+                for (const entry of entries) {
+                  if (entry.startsWith('_')) continue;
+                  const fullPath = path.join('declaration', entry);
+                  if (!fs.statSync(fullPath).isDirectory()) continue;
+                  const entryClean = entry.replace(/^cat-/i, '').trim().toLowerCase();
+                  const normEntry = entryClean.replace(/[^a-zA-Z0-9]/g, '');
+                  if (entryClean === cleanName || (normClean.length > 0 && normClean === normEntry)) {
+                    targetDir = entry;
+                    break;
+                  }
+                }
+              } catch (e) {
+                console.log('Erreur lecture declaration/:', e.message);
+              }
+              if (targetDir) {
+                core.setOutput('target_dir', targetDir);
+              }
+
+              if (isRepoAdmin) {
+                console.log(`✅ L'utilisateur @${author} est administrateur du dépôt. Modification autorisée.`);
+              } else {
+                // Recherche des propriétaires dans .github/CODEOWNERS
+                let codeownersText = '';
+                if (fs.existsSync('.github/CODEOWNERS')) {
+                  codeownersText = fs.readFileSync('.github/CODEOWNERS', 'utf8');
+                }
+
+                const lines = codeownersText.split(/\r?\n/);
+                let matchedRule = null;
+                let fallbackDeclarationRule = null;
+
+                for (const line of lines) {
+                  const trimmed = line.trim();
+                  if (!trimmed || trimmed.startsWith('#')) continue;
+
+                  if (trimmed.startsWith('/declaration/')) {
+                    const parts = trimmed.split(/\s+/);
+                    const pathPattern = parts[0];
+                    const owners = parts.slice(1);
+
+                    if (pathPattern === '/declaration/') {
+                      fallbackDeclarationRule = owners;
+                    } else {
+                      const dirMatch = pathPattern.match(/^\/declaration\/([^/]+)\/?$/i);
+                      if (dirMatch) {
+                        const dirName = dirMatch[1].replace(/^cat-/i, '').trim().toLowerCase();
+                        const normDir = dirName.replace(/[^a-zA-Z0-9]/g, '');
+                        if (dirName === cleanName || (normClean.length > 0 && normClean === normDir)) {
+                          matchedRule = owners;
+                        }
+                      }
+                    }
+                  }
+                }
+
+                const effectiveOwners = matchedRule || fallbackDeclarationRule || [];
+                console.log(`Propriétaires identifiés pour ${rawAppName} :`, effectiveOwners);
+
+                let isOwnerMember = false;
+                for (const ownerToken of effectiveOwners) {
+                  if (ownerToken.startsWith('@')) {
+                    const handle = ownerToken.substring(1);
+                    if (handle.includes('/')) {
+                      const [teamOrg, teamSlug] = handle.split('/');
+                      try {
+                        const memRes = await github.rest.teams.getMembershipForUserInOrg({
+                          org: teamOrg,
+                          team_slug: teamSlug,
+                          username: author,
+                        });
+                        if (memRes.data && memRes.data.state === 'active') {
+                          isOwnerMember = true;
+                          console.log(`✅ L'utilisateur @${author} est membre actif de l'équipe @${handle}.`);
+                          break;
+                        }
+                      } catch (e) {
+                        // Non-membre (404/403)
+                      }
+                    } else {
+                      if (handle.toLowerCase() === author.toLowerCase()) {
+                        isOwnerMember = true;
+                        break;
+                      }
+                    }
+                  }
+                }
+
+                if (!isOwnerMember) {
+                  const ownersDisplay = (effectiveOwners.length > 0) ? effectiveOwners.join(' ') : '`@admins`';
+                  await github.rest.issues.createComment({
+                    owner: owner,
+                    repo: repo,
+                    issue_number: context.payload.issue.number,
+                    body: `⛔ **Accès refusé** : Vous n'êtes pas autorisé à modifier l'application \`${rawAppName}\`.\n\nSelon le fichier de gouvernance \`.github/CODEOWNERS\`, cette application est gérée par : ${ownersDisplay}.\n\nVeuillez contacter un administrateur IAM ou un membre de cette équipe pour effectuer cette modification.`
+                  });
+                  await github.rest.issues.update({
+                    owner: owner,
+                    repo: repo,
+                    issue_number: context.payload.issue.number,
+                    state: 'closed'
+                  });
+                  core.setFailed(`Utilisateur @${author} non habilité sur l'application ${rawAppName}.`);
+                  return;
+                }
+              }
             }
 
       # -----------------------------------------------------------------------
@@ -518,7 +582,7 @@ jobs:
               echo "::error::Fichier ./parsed/app.yaml introuvable !"
               exit 1
             fi
-            TARGET_DIR="${{ steps.validate-exist.outputs.target_dir }}"
+            TARGET_DIR="${{ steps.auth.outputs.target_dir }}"
             if [ "$OP" = "user_modify" ] && [ -n "$TARGET_DIR" ]; then
               CAT_DIR="$TARGET_DIR"
             else
@@ -545,7 +609,7 @@ jobs:
         env:
           OPERATION: ${{ steps.parse.outputs.operation }}
           APP_NAME: ${{ steps.parse.outputs.app_name }}
-          GITHUB_TEAM: ${{ steps.validate-team.outputs.team_slug }}
+          GITHUB_TEAM: ${{ steps.auth.outputs.team_slug }}
           BRANCH: ${{ steps.branch.outputs.name }}
           ISSUE_NUM: ${{ github.event.issue.number }}
         with:
@@ -584,7 +648,7 @@ jobs:
               desc = `Modification de l'application déclarative **${app}** soumise via l'Issue #${issueNum}.`;
             } else if (op === 'admin_create') {
               title = `🆕 [Création Admin] ${app} (Issue #${issueNum})`;
-              desc = `Création de la nouvelle application **${app}**.\n\n<!-- GITHUB_TEAM: ${team} -->\n**Team GitHub Owner assignée :** \`@${context.repo.owner}/${team}\` (sera enregistrée dans \`CODEOWNERS\` lors du merge).`;
+              desc = `Création de la nouvelle application **${app}**.\n\n<!-- GITHUB_TEAM: ${team} -->\n**Team GitHub Owner assignée :** \`@${context.repo.owner}/${team}\` (sera enregistrée dans \`CODEOWNERS\` avec les admins lors du merge).`;
             } else if (op === 'admin_bulk') {
               title = `⚡ [Masse Admin] Modification groupée (Issue #${issueNum})`;
               desc = `Modification en masse de plusieurs fichiers YAML via archive ZIP (Issue #${issueNum}).`;
@@ -595,7 +659,15 @@ jobs:
               if (fs.existsSync('./parsed/import_summary.md')) {
                 summaryMd = fs.readFileSync('./parsed/import_summary.md', 'utf8').trim();
               }
-              desc = summaryMd || `Import déclaratif d'applications depuis Microsoft Entra ID (Issue #${issueNum}).`;
+              let teamsMapTag = '';
+              if (fs.existsSync('./parsed/catalog_teams_map.txt')) {
+                const mapRaw = fs.readFileSync('./parsed/catalog_teams_map.txt', 'utf8').trim();
+                if (mapRaw) {
+                  const singleMap = mapRaw.split(/\r?\n/).filter(l => l.includes('=')).join(';');
+                  teamsMapTag = `\n\n<!-- GITHUB_TEAMS_MAP: ${singleMap} -->`;
+                }
+              }
+              desc = (summaryMd || `Import déclaratif d'applications depuis Microsoft Entra ID (Issue #${issueNum}).`) + teamsMapTag;
             }
 
             if (!title) {
@@ -633,11 +705,16 @@ jobs:
               body: body
             });
 
+            const scenarioText = (op === 'user_modify') ? `modifier l'application **${app}** (propriétaire CODEOWNERS ou administrateur)` :
+                                 (op === 'admin_create') ? `créer la nouvelle application **${app}** (administrateur IAM)` :
+                                 (op === 'admin_bulk') ? `exécuter une modification en masse (administrateur IAM)` :
+                                 `importer des applications depuis Microsoft Entra ID (administrateur IAM)`;
+
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issueNum,
-              body: `🚀 **Pull Request créée avec succès !**\n\nL'Issue est automatiquement clôturée et le traitement se poursuit sur la PR : #${pr.data.number} (${pr.data.html_url})`
+              body: `✅ **Vous êtes autorisé à ${scenarioText}.**\n\n🚀 **Pull Request créée avec succès !**\nL'Issue est automatiquement clôturée et le traitement se poursuit sur la PR : [#${pr.data.number} (${title})](${pr.data.html_url})`
             });
 
             await github.rest.issues.update({

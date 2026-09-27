@@ -1,4 +1,4 @@
-# ============================================================================
+﻿# ============================================================================
 # Workflow : CI — Pipeline de Validation à 3 Étapes (100% PowerShell)
 # ============================================================================
 # Étape 1 : Syntaxe et conformité (Schéma YAML v2, nommage 1 app = 1 dossier)
@@ -57,6 +57,7 @@ jobs:
           fi
 
       - name: Valider la syntaxe et la structure des déclarations YAML
+        id: validate
         if: steps.changed.outputs.count != '0'
         shell: pwsh
         run: |
@@ -65,7 +66,35 @@ jobs:
           "@
           $fileList = $rawFiles -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
 
-          & ./scripts/Tester-Declarations.ps1 -Stage SchemaOnly -ChangedFiles $fileList
+          $planExit = 0
+          try {
+            & ./scripts/Tester-Declarations.ps1 -Stage SchemaOnly -ChangedFiles $fileList -OutputSyntaxErrorFile syntax_errors.md
+          } catch {
+            $planExit = 1
+          }
+          if ($LASTEXITCODE -ne 0) { $planExit = $LASTEXITCODE }
+          echo "exit_code=$planExit" >> $env:GITHUB_OUTPUT
+          exit $planExit
+
+      - name: Publier les erreurs de syntaxe sur la PR
+        if: failure() && steps.validate.outputs.exit_code != '0'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            let content = '';
+            if (fs.existsSync('syntax_errors.md')) {
+              content = fs.readFileSync('syntax_errors.md', 'utf8');
+            } else {
+              content = '## ❌ Étape 1 : Erreur de Syntaxe & Conformité du Schéma YAML\n\nDes anomalies bloquantes ont été détectées dans les fichiers déclaratifs modifiés. Veuillez consulter les logs du workflow pour le détail.';
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: content
+            });
 
   # ===========================================================================
   # ÉTAPE 2 : Détection des Ressources Entra ID (SSoT) & Calcul du Plan

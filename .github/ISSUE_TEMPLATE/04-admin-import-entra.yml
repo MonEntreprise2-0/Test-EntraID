@@ -1,4 +1,4 @@
-name: "🔄 [ADMIN ONLY] Import depuis Entra ID (Reverse Engineering)"
+﻿name: "🔄 [ADMIN ONLY] Import depuis Entra ID (Reverse Engineering)"
 description: "Aspirer des applications existantes dans Entra ID et générer leurs fichiers déclaratifs (Réservé aux Administrateurs)"
 title: "[Import Entra ID] Import d'applications existantes"
 labels:
@@ -24,9 +24,9 @@ body:
   - type: textarea
     id: target_applications
     attributes:
-      label: "Noms exacts des catalogues à importer (CAT-{app_name})"
-      description: "Saisissez les noms exacts des catalogues Entra ID préfixés par 'CAT-' séparés par des virgules (ex: CAT-test_sans_teraform, CAT-salesforce-crm, CAT-icredit). Le préfixe 'CAT-' est strictement obligatoire."
-      placeholder: "CAT-app1, CAT-app2..."
+      label: "Catalogues à importer et équipes propriétaires : (CAT-{app_name}, {Team_name})"
+      description: "Saisissez les couples sous la forme `(CAT-app_name, Team_name); (CAT-app_name2, Team_name2)`. Chaque catalogue sera extrait d'Entra ID et l'équipe GitHub associée sera enregistrée dans CODEOWNERS (avec l'équipe admins). Toutes les équipes doivent impérativement exister dans l'organisation."
+      placeholder: "(CAT-latence, team-latence); (CAT-salesforce, team-sales)"
     validations:
       required: true
 

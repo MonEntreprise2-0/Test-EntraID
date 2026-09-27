@@ -211,14 +211,50 @@ if ($operation -eq "admin_bulk") {
 }
 
 # ---------------------------------------------------------------------------
-# 5. Extraction des applications cibles (Scénario D - Import)
+# 5. Extraction des applications cibles et des équipes (Scénario D - Import)
 # ---------------------------------------------------------------------------
 if ($operation -eq "admin_import") {
     $importMatch = [regex]::Match($IssueBody, '(?i)###\s*.*?(?:catalogues?|applications?).*?import.*?\r?\n([\s\S]*?)(?:\r?\n###|\Z)')
     if ($importMatch.Success) {
-        $targetApps = $importMatch.Groups[1].Value.Trim()
-        [System.IO.File]::WriteAllText((Join-Path $OutputDir "target_applications.txt"), $targetApps, [System.Text.Encoding]::UTF8)
-        Write-Host "🎯 Catalogues/Applications cibles pour import : $targetApps" -ForegroundColor Gray
+        $rawImportInput = $importMatch.Groups[1].Value.Trim()
+
+        # 5.1 Recherche de tuples du type (CAT-app, team)
+        $tuplePattern = '\(\s*([^,\(\)]+?)\s*,\s*([^,\(\)]+?)\s*\)'
+        $tupleMatches = [regex]::Matches($rawImportInput, $tuplePattern)
+
+        $targetAppsList = [System.Collections.Generic.List[string]]::new()
+        $teamsToValidate = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        $teamsMapLines = [System.Collections.Generic.List[string]]::new()
+
+        if ($tupleMatches.Count -gt 0) {
+            foreach ($m in $tupleMatches) {
+                $cat = $m.Groups[1].Value.Trim()
+                $team = $m.Groups[2].Value.Trim()
+                if (-not [string]::IsNullOrWhiteSpace($cat)) {
+                    $targetAppsList.Add($cat)
+                    if (-not [string]::IsNullOrWhiteSpace($team)) {
+                        $teamsToValidate.Add($team) | Out-Null
+                        $teamsMapLines.Add("$cat=$team")
+                    }
+                }
+            }
+        } else {
+            # 5.2 Fallback : liste de catalogues séparés par virgules sans équipe spécifiée
+            $rawApps = $rawImportInput -split '[,;\r\n]+' | ForEach-Object { $_.Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+            foreach ($app in $rawApps) {
+                $targetAppsList.Add($app)
+                $teamsMapLines.Add("$app=admins")
+            }
+            $teamsToValidate.Add("admins") | Out-Null
+        }
+
+        $targetAppsStr = ($targetAppsList -join ', ')
+        [System.IO.File]::WriteAllText((Join-Path $OutputDir "target_applications.txt"), $targetAppsStr, [System.Text.Encoding]::UTF8)
+        [System.IO.File]::WriteAllLines((Join-Path $OutputDir "teams_to_validate.txt"), [string[]]$teamsToValidate, [System.Text.Encoding]::UTF8)
+        [System.IO.File]::WriteAllLines((Join-Path $OutputDir "catalog_teams_map.txt"), [string[]]$teamsMapLines, [System.Text.Encoding]::UTF8)
+
+        Write-Host "🎯 Catalogues cibles pour import : $targetAppsStr" -ForegroundColor Gray
+        Write-Host "👥 Équipes à vérifier pour l'import : $($teamsToValidate -join ', ')" -ForegroundColor Gray
     }
 }
 

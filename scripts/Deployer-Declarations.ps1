@@ -294,39 +294,123 @@ Write-Host "📝 ACTUALISATION DE LA GOUVERNANCE (CODEOWNERS)" -ForegroundColor 
 Write-Host "====================================================" -ForegroundColor Cyan
 
 $codeownersPath = Join-Path $PSScriptRoot "..\.github\CODEOWNERS"
-$codeownersContent = if (Test-Path $codeownersPath) { Get-Content $codeownersPath -Raw -Encoding UTF8 } else { "# CODEOWNERS`n* @MonEntreprise2-0/admins`n" }
+$codeownersContent = if (Test-Path $codeownersPath) { Get-Content $codeownersPath -Raw -Encoding UTF8 } else { "# CODEOWNERS`n* @MonEntreprise2-0/admins`n/declaration/ @MonEntreprise2-0/admins`n" }
 
-$changedCodeowners = $false
 $ownerOrg = if ($env:GITHUB_REPOSITORY_OWNER) { $env:GITHUB_REPOSITORY_OWNER } else { "MonEntreprise2-0" }
 
-# Extraction de l'équipe assignée depuis le commit de merge ou les variables
+# Extraction des métadonnées d'équipes depuis le commit de merge ou l'historique git
 $assignedTeam = "admins"
+$appToTeam = @{}
+
 try {
     $gitLogRaw = git log -n 5 --pretty=%B 2>$null
     $gitLogText = if ($gitLogRaw) { ($gitLogRaw | Out-String) } else { "" }
     if ($gitLogText -match 'GITHUB_TEAM:\s*([a-zA-Z0-9_-]+)') {
         $assignedTeam = $Matches[1].Trim()
     }
+    if ($gitLogText -match 'GITHUB_TEAMS_MAP:\s*([^\r\n]+)') {
+        $pairs = $Matches[1].Trim() -split ';'
+        foreach ($p in $pairs) {
+            if ($p -match '^\s*([^=]+?)\s*=\s*(.+?)\s*$') {
+                $catKey = $Matches[1].Trim().ToLowerInvariant()
+                $teamVal = $Matches[2].Trim()
+                $appToTeam[$catKey] = $teamVal
+            }
+        }
+    }
 } catch {
-    Write-Verbose "Impossible d'extraire la team depuis git log : $_"
+    Write-Verbose "Impossible d'extraire les équipes depuis git log : $_"
 }
 
+$lines = [System.Collections.Generic.List[string]]::new(($codeownersContent -split "`r?`n"))
+
+# S'assurer de la présence de la règle par défaut /declaration/
+$hasDeclDefault = $false
+foreach ($l in $lines) {
+    if ($l.Trim() -match '^\/declaration\/\s+@') {
+        $hasDeclDefault = $true
+        break
+    }
+}
+if (-not $hasDeclDefault) {
+    $inserted = $false
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i].Trim() -match '^\*\s+@') {
+            $lines.Insert($i + 1, "/declaration/ @$ownerOrg/admins")
+            $inserted = $true
+            break
+        }
+    }
+    if (-not $inserted) {
+        $lines.Add("/declaration/ @$ownerOrg/admins")
+    }
+}
+
+$changedCodeowners = $false
 $appDirs = Get-ChildItem -Path $DeclarationsDir -Directory | Where-Object { $_.Name -notlike "_*" }
 foreach ($appDir in $appDirs) {
-    $appName = $appDir.Name.ToLowerInvariant()
-    $rulePrefix = "/declaration/$appName/"
+    $dirName = $appDir.Name
+    $appKey = $dirName.ToLowerInvariant()
+    $cleanKey = ($appKey -replace '^(?i)cat-', '')
 
-    if (-not $codeownersContent.Contains($rulePrefix)) {
-        $newRule = "$rulePrefix @$ownerOrg/$assignedTeam"
-        Write-Host "➕ Nouvelle application détectée sans règle CODEOWNERS : $appName" -ForegroundColor Yellow
-        Write-Host "   Ajout de la règle : $newRule" -ForegroundColor Green
-        $codeownersContent += "`n$newRule"
-        $changedCodeowners = $true
+    # Équipe cible pour cette application
+    $targetTeam = if ($appToTeam.ContainsKey($appKey)) {
+        $appToTeam[$appKey]
+    } elseif ($appToTeam.ContainsKey("cat-$cleanKey")) {
+        $appToTeam["cat-$cleanKey"]
+    } elseif ($appToTeam.ContainsKey($cleanKey)) {
+        $appToTeam[$cleanKey]
+    } elseif ($assignedTeam -and $assignedTeam -ne "admins") {
+        $assignedTeam
+    } else {
+        $null
+    }
+
+    # Recherche si une règle existe déjà pour ce catalogue
+    $foundIndex = -1
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $l = $lines[$i].Trim()
+        if ($l -match "^\/declaration\/$([regex]::Escape($dirName))\/?\s+" -or
+            $l -match "^\/declaration\/CAT-$([regex]::Escape($cleanKey))\/?\s+" -or
+            $l -match "^\/declaration\/cat-$([regex]::Escape($cleanKey))\/?\s+") {
+            $foundIndex = $i
+            break
+        }
+    }
+
+    if ($targetTeam) {
+        # Double validation : équipe métier + admins
+        $newRule = if ($targetTeam.ToLowerInvariant() -eq "admins") {
+            "/declaration/$dirName/ @$ownerOrg/admins"
+        } else {
+            "/declaration/$dirName/ @$ownerOrg/$targetTeam @$ownerOrg/admins"
+        }
+
+        if ($foundIndex -ge 0) {
+            if ($lines[$foundIndex] -ne $newRule) {
+                Write-Host "🔄 Mise à jour de la règle CODEOWNERS pour $($dirName) : $newRule" -ForegroundColor Green
+                $lines[$foundIndex] = $newRule
+                $changedCodeowners = $true
+            }
+        } else {
+            Write-Host "➕ Ajout de la règle CODEOWNERS pour $($dirName) : $newRule" -ForegroundColor Green
+            $lines.Add($newRule)
+            $changedCodeowners = $true
+        }
+    } else {
+        # Si aucune team spécifique n'est passée dans le commit, mais qu'il n'y a pas de règle du tout pour ce dossier
+        if ($foundIndex -lt 0) {
+            $newRule = "/declaration/$dirName/ @$ownerOrg/admins"
+            Write-Host "➕ Nouvelle application sans règle spécifique, assignation @admins : $newRule" -ForegroundColor Yellow
+            $lines.Add($newRule)
+            $changedCodeowners = $true
+        }
     }
 }
 
 if ($changedCodeowners) {
-    [System.IO.File]::WriteAllText($codeownersPath, ($codeownersContent.Trim() + "`n"), [System.Text.Encoding]::UTF8)
+    $newContent = ($lines -join "`n").Trim() + "`n"
+    [System.IO.File]::WriteAllText($codeownersPath, $newContent, [System.Text.Encoding]::UTF8)
     Write-Host "✅ Fichier CODEOWNERS actualisé." -ForegroundColor Green
 } else {
     Write-Host "ℹ️ Le fichier CODEOWNERS est déjà à jour." -ForegroundColor Gray

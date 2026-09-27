@@ -24,6 +24,9 @@ param(
     [string]$OutputPlanFile = "plan_summary.md",
 
     [Parameter(Mandatory = $false)]
+    [string]$OutputSyntaxErrorFile = "syntax_errors.md",
+
+    [Parameter(Mandatory = $false)]
     [Alias("File", "Files", "Path", "Target")]
     [string[]]$ChangedFiles = @()
 )
@@ -118,6 +121,21 @@ if ($Stage -in @("All", "SchemaOnly")) {
     }
 
     if ($syntaxErrors.Count -gt 0) {
+        if ($OutputSyntaxErrorFile) {
+            $sbErr = [System.Text.StringBuilder]::new()
+            $sbErr.AppendLine("## ❌ Étape 1 : Erreur de Syntaxe & Conformité du Schéma YAML") | Out-Null
+            $sbErr.AppendLine() | Out-Null
+            $sbErr.AppendLine("> [!WARNING]") | Out-Null
+            $sbErr.AppendLine("> ### ⚠️ Fichiers déclaratifs non conformes détectés") | Out-Null
+            $sbErr.AppendLine("> Des erreurs de syntaxe, de structure ou de nomenclature empêchent la validation de cette Pull Request.") | Out-Null
+            $sbErr.AppendLine("> Vous pouvez corriger directement le fichier sur votre branche sans réouvrir d'Issue.") | Out-Null
+            $sbErr.AppendLine() | Out-Null
+            $sbErr.AppendLine("### 📋 Détail des anomalies :") | Out-Null
+            foreach ($e in $syntaxErrors) {
+                $sbErr.AppendLine("- ❌ $e") | Out-Null
+            }
+            [System.IO.File]::WriteAllText($OutputSyntaxErrorFile, $sbErr.ToString(), [System.Text.Encoding]::UTF8)
+        }
         Write-Error "❌ $($syntaxErrors.Count) erreur(s) de syntaxe ou de schéma détectée(s)."
         exit 1
     }

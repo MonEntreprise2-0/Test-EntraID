@@ -4,54 +4,32 @@
 # Ce fichier définit les équipes GitHub propriétaires de chaque répertoire.
 # Toute modification d'un répertoire requiert obligatoirement l'approbation
 # d'un membre de l'équipe associée avant merge.
+# Double validation : Équipe Métier + Administrateurs IAM.
 # ============================================================================
 
 # Règle globale par défaut (Administrateurs de l'Organisation)
 * @MonEntreprise2-0/admins
 
+# Règle de repli pour les catalogues sans dossier spécifique
+/declaration/ @MonEntreprise2-0/admins
+
 # ----------------------------------------------------------------------------
-# Propriétaires par Application (Mise à jour automatique par le Scénario B)
+# Propriétaires par Application (Double Validation : Métier + Admins)
 # ----------------------------------------------------------------------------
+/declaration/CAT-cat-test03/ @MonEntreprise2-0/admins
 /declaration/CAT-catalogue-test-v1/ @MonEntreprise2-0/admins
 /declaration/CAT-catalogue-test-v2/ @MonEntreprise2-0/admins
-/declaration/CAT-cat-test03/ @MonEntreprise2-0/admins
-
-/declaration/CAT-private-credit/ @MonEntreprise2-0/dev
-
-/declaration/CAT-private-test/ @MonEntreprise2-0/dev
-
-/declaration/CAT-test-import-entraid/ @MonEntreprise2-0/admins
-
-/declaration/CAT-test-import/ @MonEntreprise2-0/admins
-
-/declaration/CAT-private-test-correction/ @MonEntreprise2-0/dev
-
-/declaration/CAT-test-import2/ @MonEntreprise2-0/admins
-
-/declaration/CAT-test_sans_teraform/ @MonEntreprise2-0/admins
-
+/declaration/CAT-jimporte/ @MonEntreprise2-0/admins
+/declaration/CAT-latence/ @MonEntreprise2-0/team-latence @MonEntreprise2-0/admins
+/declaration/CAT-latence2/ @MonEntreprise2-0/team-latence @MonEntreprise2-0/admins
+/declaration/CAT-new_nomenclature/ @MonEntreprise2-0/admins
+/declaration/CAT-nouvel_app/ @MonEntreprise2-0/admins
+/declaration/CAT-private-credit/ @MonEntreprise2-0/dev @MonEntreprise2-0/admins
+/declaration/CAT-private-test/ @MonEntreprise2-0/dev @MonEntreprise2-0/admins
+/declaration/CAT-private-test-correction/ @MonEntreprise2-0/dev @MonEntreprise2-0/admins
 /declaration/CAT-sans_teraform_test/ @MonEntreprise2-0/admins
-
-/declaration/cat-cat-test03/ @MonEntreprise2-0/admins
-/declaration/cat-catalogue-test-v1/ @MonEntreprise2-0/admins
-/declaration/cat-catalogue-test-v2/ @MonEntreprise2-0/admins
-/declaration/cat-private-credit/ @MonEntreprise2-0/admins
-/declaration/cat-private-test/ @MonEntreprise2-0/admins
-/declaration/cat-private-test-correction/ @MonEntreprise2-0/admins
-/declaration/cat-sans_teraform_test/ @MonEntreprise2-0/admins
-/declaration/cat-test_sans_teraform/ @MonEntreprise2-0/admins
-/declaration/cat-test-import/ @MonEntreprise2-0/admins
-/declaration/cat-test-import-entraid/ @MonEntreprise2-0/admins
-/declaration/cat-test-import2/ @MonEntreprise2-0/admins
-
-/declaration/cat-new_nomenclature/ @MonEntreprise2-0/admins
-
-/declaration/cat-nouvel_app/ @MonEntreprise2-0/admins
-
-/declaration/cat-latence/ @MonEntreprise2-0/admins
-
-/declaration/cat-latence2/ @MonEntreprise2-0/admins
-
-/declaration/cat-jimporte/ @MonEntreprise2-0/admins
-
-/declaration/cat-jimporte2/ @MonEntreprise2-0/admins
+/declaration/CAT-jimporte2/ @MonEntreprise2-0/admins
+/declaration/CAT-test-import/ @MonEntreprise2-0/admins
+/declaration/CAT-test-import-entraid/ @MonEntreprise2-0/admins
+/declaration/CAT-test-import2/ @MonEntreprise2-0/admins
+/declaration/CAT-test_sans_teraform/ @MonEntreprise2-0/admins
