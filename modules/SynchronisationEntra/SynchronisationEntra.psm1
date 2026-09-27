@@ -111,6 +111,8 @@ function Comparer-EtatEntra {
         # 2. Analyse des Access Packages et ressources si le catalogue existe
         $existingApsMap = @{}
         $existingCatResourcesMap = @{}
+        $originIdToName = @{}
+        $nameToOriginId = @{}
 
         if ($existingCat) {
             $catId = $existingCat.id
@@ -143,7 +145,46 @@ function Comparer-EtatEntra {
             if ($catResources) {
                 foreach ($res in $catResources) {
                     if ($res.originId) {
-                        $existingCatResourcesMap[$res.originId.Trim().ToLowerInvariant()] = $res
+                        $oId = $res.originId.Trim().ToLowerInvariant()
+                        $existingCatResourcesMap[$oId] = $res
+                        if ($res.displayName) {
+                            $originIdToName[$oId] = $res.displayName.Trim()
+                            $nameToOriginId[$res.displayName.Trim().ToLowerInvariant()] = $res.originId.Trim()
+                        }
+                    }
+                }
+            }
+        }
+
+        # Intégration des résolutions SSoT pour les correspondances d'identifiants
+        if ($SSoTPrerequisites) {
+            if ($SSoTPrerequisites.ResolvedGroups) {
+                foreach ($k in $SSoTPrerequisites.ResolvedGroups.Keys) {
+                    $g = $SSoTPrerequisites.ResolvedGroups[$k]
+                    if ($g -and $g.id) {
+                        $gId = $g.id.Trim().ToLowerInvariant()
+                        $originIdToName[$gId] = $k.Trim()
+                        $nameToOriginId[$k.Trim().ToLowerInvariant()] = $g.id.Trim()
+                    }
+                }
+            }
+            if ($SSoTPrerequisites.ResolvedApps) {
+                foreach ($k in $SSoTPrerequisites.ResolvedApps.Keys) {
+                    $a = $SSoTPrerequisites.ResolvedApps[$k]
+                    if ($a -and $a.id) {
+                        $aId = $a.id.Trim().ToLowerInvariant()
+                        $originIdToName[$aId] = $k.Trim()
+                        $nameToOriginId[$k.Trim().ToLowerInvariant()] = $a.id.Trim()
+                    }
+                }
+            }
+            if ($SSoTPrerequisites.ResolvedSites) {
+                foreach ($k in $SSoTPrerequisites.ResolvedSites.Keys) {
+                    $s = $SSoTPrerequisites.ResolvedSites[$k]
+                    if ($s -and $s.id) {
+                        $sId = $s.id.Trim().ToLowerInvariant()
+                        $originIdToName[$sId] = $k.Trim()
+                        $nameToOriginId[$k.Trim().ToLowerInvariant()] = $s.id.Trim()
                     }
                 }
             }
@@ -198,7 +239,11 @@ function Comparer-EtatEntra {
                         }
                     }
 
+                    # Détection des rôles de ressources (Resource Roles)
                     $declaredResourceNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+                    $declaredRoleKeysForAp = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+                    $seenDeclaredInAp = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+
                     if ($ap.resources) {
                         foreach ($res in $ap.resources) {
                             $rType = $res.resource_type
@@ -221,23 +266,86 @@ function Comparer-EtatEntra {
                                 $expectedRole = if ($res.role) { $res.role.Trim() } else { "Member" }
                             }
 
-                            if (-not [string]::IsNullOrWhiteSpace($resName)) {
-                                $declaredResourceNames.Add($resName.Trim()) | Out-Null
+                            if ([string]::IsNullOrWhiteSpace($resName)) {
+                                continue
+                            }
+
+                            # Éviter les doublons stricts au sein du même Access Package
+                            $dedupKey = "$($resName.Trim().ToLowerInvariant())|$($expectedRole.Trim().ToLowerInvariant())"
+                            if ($seenDeclaredInAp.Contains($dedupKey)) {
+                                continue
+                            }
+                            $seenDeclaredInAp.Add($dedupKey) | Out-Null
+                            $declaredResourceNames.Add($resName.Trim()) | Out-Null
+                            $declaredRoleKeysForAp.Add($dedupKey) | Out-Null
+
+                            # Résolution de l'originId cible de la ressource
+                            $targetOriginId = if ($nameToOriginId.ContainsKey($resName.Trim().ToLowerInvariant())) {
+                                $nameToOriginId[$resName.Trim().ToLowerInvariant()]
+                            } else {
+                                try {
+                                    if ($rType -eq "EntraID Group" -or $rType -eq "Group") {
+                                        $resolvedG = Resolve-GraphGroup -GroupName $resName -ErrorAction SilentlyContinue
+                                        if ($resolvedG) {
+                                            $nameToOriginId[$resName.Trim().ToLowerInvariant()] = $resolvedG.id.Trim()
+                                            $originIdToName[$resolvedG.id.Trim().ToLowerInvariant()] = $resName.Trim()
+                                            $resolvedG.id.Trim()
+                                        } else { $null }
+                                    } elseif ($rType -eq "Application Role" -or $rType -eq "Application") {
+                                        $resolvedA = Resolve-GraphServicePrincipal -DisplayName $resName -ErrorAction SilentlyContinue
+                                        if ($resolvedA) {
+                                            $nameToOriginId[$resName.Trim().ToLowerInvariant()] = $resolvedA.id.Trim()
+                                            $originIdToName[$resolvedA.id.Trim().ToLowerInvariant()] = $resName.Trim()
+                                            $resolvedA.id.Trim()
+                                        } else { $null }
+                                    } elseif ($rType -in @("Sharepoint Group", "SharePoint Group", "SharePoint Online", "SharePoint Site")) {
+                                        $resolvedS = Resolve-SharepointSite -SiteUrl $res.sharepoint_url -ErrorAction SilentlyContinue
+                                        if ($resolvedS) {
+                                            $nameToOriginId[$resName.Trim().ToLowerInvariant()] = $resolvedS.id.Trim()
+                                            $originIdToName[$resolvedS.id.Trim().ToLowerInvariant()] = $resName.Trim()
+                                            $resolvedS.id.Trim()
+                                        } else { $null }
+                                    } else { $null }
+                                } catch {
+                                    $null
+                                }
+                            }
+
+                            if ($targetOriginId) {
+                                $declaredRoleKeysForAp.Add("$($targetOriginId.ToLowerInvariant())|$($expectedRole.ToLowerInvariant())") | Out-Null
                             }
 
                             # Vérifier si ce rôle de ressource est déjà lié à l'Access Package
                             $isAlreadyLinked = $false
                             if ($currentRoleScopes) {
                                 foreach ($crs in $currentRoleScopes) {
-                                    $scopeName = if ($crs.accessPackageResourceScope -and $crs.accessPackageResourceScope.displayName) {
+                                    $crsOriginId = if ($crs.accessPackageResourceScope -and $crs.accessPackageResourceScope.originId) {
+                                        $crs.accessPackageResourceScope.originId.Trim().ToLowerInvariant()
+                                    } else { "" }
+
+                                    $crsScopeName = if ($crs.accessPackageResourceScope -and $crs.accessPackageResourceScope.displayName) {
                                         $crs.accessPackageResourceScope.displayName.Trim()
                                     } else { "" }
+
                                     $crsRole = if ($crs.accessPackageResourceRole -and $crs.accessPackageResourceRole.displayName) {
                                         $crs.accessPackageResourceRole.displayName.Trim()
                                     } else { "" }
 
-                                    if ($scopeName.Equals($resName.Trim(), [System.StringComparison]::OrdinalIgnoreCase) -and 
-                                        $crsRole.Equals($expectedRole, [System.StringComparison]::OrdinalIgnoreCase)) {
+                                    if (-not $crsRole.Equals($expectedRole, [System.StringComparison]::OrdinalIgnoreCase)) {
+                                        continue
+                                    }
+
+                                    # Correspondance prioritaire par originId, ou par nom résolu via originIdToName, ou par displayName si != "Root"
+                                    $isScopeMatch = $false
+                                    if ($targetOriginId -and $crsOriginId -and $crsOriginId.Equals($targetOriginId.ToLowerInvariant(), [System.StringComparison]::OrdinalIgnoreCase)) {
+                                        $isScopeMatch = $true
+                                    } elseif ($crsOriginId -and $originIdToName.ContainsKey($crsOriginId) -and $originIdToName[$crsOriginId].Equals($resName.Trim(), [System.StringComparison]::OrdinalIgnoreCase)) {
+                                        $isScopeMatch = $true
+                                    } elseif (-not [string]::IsNullOrWhiteSpace($crsScopeName) -and $crsScopeName -ne "Root" -and $crsScopeName.Equals($resName.Trim(), [System.StringComparison]::OrdinalIgnoreCase)) {
+                                        $isScopeMatch = $true
+                                    }
+
+                                    if ($isScopeMatch) {
                                         $isAlreadyLinked = $true
                                         break
                                     }
@@ -248,7 +356,7 @@ function Comparer-EtatEntra {
                                 $resourceRolesToAdd.Add(@{
                                     CatalogName       = $catName
                                     AccessPackageName = $apName
-                                    ResourceName      = $resName
+                                    ResourceName      = $resName.Trim()
                                     ResourceType      = $rType
                                     Role              = $expectedRole
                                 })
@@ -259,19 +367,48 @@ function Comparer-EtatEntra {
                     # Détection des rôles de ressources obsolètes à retirer de l'Access Package
                     if ($currentRoleScopes) {
                         foreach ($crs in $currentRoleScopes) {
-                            $scopeName = if ($crs.accessPackageResourceScope -and $crs.accessPackageResourceScope.displayName) {
+                            $crsOriginId = if ($crs.accessPackageResourceScope -and $crs.accessPackageResourceScope.originId) {
+                                $crs.accessPackageResourceScope.originId.Trim().ToLowerInvariant()
+                            } else { "" }
+
+                            $crsScopeName = if ($crs.accessPackageResourceScope -and $crs.accessPackageResourceScope.displayName) {
                                 $crs.accessPackageResourceScope.displayName.Trim()
                             } else { "" }
+
                             $crsRole = if ($crs.accessPackageResourceRole -and $crs.accessPackageResourceRole.displayName) {
                                 $crs.accessPackageResourceRole.displayName.Trim()
                             } else { "" }
+
                             $crsId = $crs.id
 
-                            if (-not [string]::IsNullOrWhiteSpace($scopeName) -and -not $declaredResourceNames.Contains($scopeName)) {
+                            # Résolution du nom convivial de la ressource (éviter d'afficher "Root")
+                            $friendlyScopeName = if ($crsOriginId -and $originIdToName.ContainsKey($crsOriginId)) {
+                                $originIdToName[$crsOriginId]
+                            } elseif ($existingCatResourcesMap.ContainsKey($crsOriginId) -and $existingCatResourcesMap[$crsOriginId].displayName) {
+                                $existingCatResourcesMap[$crsOriginId].displayName
+                            } elseif (-not [string]::IsNullOrWhiteSpace($crsScopeName) -and $crsScopeName -ne "Root") {
+                                $crsScopeName
+                            } elseif ($crsOriginId) {
+                                $crsOriginId
+                            } else {
+                                "Ressource inconnue"
+                            }
+
+                            # Vérification si le rôle/ressource est déclaré
+                            $isDeclared = $false
+                            if ($crsOriginId -and $declaredRoleKeysForAp.Contains("$crsOriginId|$($crsRole.ToLowerInvariant())")) {
+                                $isDeclared = $true
+                            } elseif ($friendlyScopeName -and $declaredRoleKeysForAp.Contains("$($friendlyScopeName.ToLowerInvariant())|$($crsRole.ToLowerInvariant())")) {
+                                $isDeclared = $true
+                            } elseif ($crsScopeName -and $crsScopeName -ne "Root" -and $declaredRoleKeysForAp.Contains("$($crsScopeName.ToLowerInvariant())|$($crsRole.ToLowerInvariant())")) {
+                                $isDeclared = $true
+                            }
+
+                            if (-not $isDeclared) {
                                 $resourceRolesToDelete.Add(@{
                                     CatalogName       = $catName
                                     AccessPackageName = $apName
-                                    ResourceName      = $scopeName
+                                    ResourceName      = $friendlyScopeName
                                     Role              = $crsRole
                                     RoleScopeId       = $crsId
                                 })
@@ -444,7 +581,18 @@ function Synchroniser-EtatEntra {
         Update-LiveProgress "### 🚀 Déploiement Microsoft Entra ID en cours...`n`n| Étape | Statut |`n|---|---|`n| 📦 Catalogues | ✅ Prêts |`n| 📁 Ressources (Groupes, Apps, SharePoint) | ⏳ En cours... |`n| 🎁 Access Packages | ⏸️ En attente |`n| 📜 Politiques d'Assignation | ⏸️ En attente |"
 
         $onboardedResourcesMap = @{}
+        $originIdToName = @{}
         $existingCatResources = Get-RessourcesCatalogue -CatalogId $catalogId
+        if ($existingCatResources) {
+            foreach ($r in $existingCatResources) {
+                if ($r.originId) {
+                    $oId = $r.originId.Trim().ToLowerInvariant()
+                    if ($r.displayName) {
+                        $originIdToName[$oId] = $r.displayName.Trim()
+                    }
+                }
+            }
+        }
 
         if ($doc.access_packages) {
             foreach ($ap in $doc.access_packages) {
@@ -461,6 +609,7 @@ function Synchroniser-EtatEntra {
                             try {
                                 Add-RessourceCatalogue -CatalogId $catalogId -OriginId $grpObj.id -OriginSystem "AadGroup" -ExistingResources $existingCatResources | Out-Null
                                 $onboardedResourcesMap[$grpKey] = $grpObj.id
+                                $originIdToName[$grpObj.id.Trim().ToLowerInvariant()] = $res.group_name.Trim()
                                 Write-Host "  📁 Groupe '$($res.group_name)' associé au catalogue." -ForegroundColor Gray
                             } catch {
                                 Write-Warning "  ⚠️ Erreur onboarding groupe '$($res.group_name)' : $_"
@@ -476,6 +625,7 @@ function Synchroniser-EtatEntra {
                             try {
                                 Add-RessourceCatalogue -CatalogId $catalogId -OriginId $spObj.id -OriginSystem "AadApplication" -ExistingResources $existingCatResources | Out-Null
                                 $onboardedResourcesMap[$appKey] = $spObj.id
+                                $originIdToName[$spObj.id.Trim().ToLowerInvariant()] = $res.enterprise_app.Trim()
                                 Write-Host "  📱 Application '$($res.enterprise_app)' associée au catalogue." -ForegroundColor Gray
                             } catch {
                                 Write-Warning "  ⚠️ Erreur onboarding application '$($res.enterprise_app)' : $_"
@@ -491,6 +641,7 @@ function Synchroniser-EtatEntra {
                             try {
                                 Add-RessourceCatalogue -CatalogId $catalogId -OriginId $siteObj.webUrl -OriginSystem "SharePointOnline" -ExistingResources $existingCatResources | Out-Null
                                 $onboardedResourcesMap[$siteKey] = $siteObj.id
+                                $originIdToName[$siteObj.id.Trim().ToLowerInvariant()] = $res.sharepoint_url.Trim()
                                 Write-Host "  🌐 Site SharePoint '$($res.sharepoint_url)' associé au catalogue." -ForegroundColor Gray
                             } catch {
                                 Write-Warning "  ⚠️ Erreur onboarding site SharePoint '$($res.sharepoint_url)' : $_"
@@ -628,9 +779,16 @@ function Synchroniser-EtatEntra {
                         $rsKey = "$scopeOriginId|$($scopeRoleName.ToLowerInvariant())"
 
                         if ($scopeOriginId -and -not $declaredRoleKeys.Contains($rsKey)) {
-                            $scopeDisplay = if ($rs.accessPackageResourceScope -and $rs.accessPackageResourceScope.displayName) {
+                            $scopeDisplay = if ($scopeOriginId -and $originIdToName.ContainsKey($scopeOriginId)) {
+                                $originIdToName[$scopeOriginId]
+                            } elseif ($existingCatResources) {
+                                $matchedCatRes = $existingCatResources | Where-Object { $_.originId -and $_.originId.Equals($scopeOriginId, [StringComparison]::OrdinalIgnoreCase) } | Select-Object -First 1
+                                if ($matchedCatRes -and $matchedCatRes.displayName) { $matchedCatRes.displayName } else { $scopeOriginId }
+                            } elseif ($rs.accessPackageResourceScope -and $rs.accessPackageResourceScope.displayName -and $rs.accessPackageResourceScope.displayName -ne "Root") {
                                 $rs.accessPackageResourceScope.displayName
-                            } else { $scopeOriginId }
+                            } else {
+                                $scopeOriginId
+                            }
 
                             Write-Host "  🗑️ Suppression de la ressource retirée de l'Access Package '$apName' : '$scopeDisplay' (Rôle: '$scopeRoleName')..." -ForegroundColor Yellow
                             try {
