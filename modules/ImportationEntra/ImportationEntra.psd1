@@ -1,4 +1,4 @@
-@{
+﻿@{
     # Manifeste du module ImportationEntra
     RootModule           = 'ImportationEntra.psm1'
     ModuleVersion        = '1.0.0'

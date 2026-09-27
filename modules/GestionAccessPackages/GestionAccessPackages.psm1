@@ -320,6 +320,7 @@ function Get-PolitiqueAssignationEntra {
         $filter = "accessPackage/id eq '$AccessPackageId'"
         $policies = Invoke-GraphRequest -Endpoint "/identityGovernance/entitlementManagement/assignmentPolicies?`$filter=$([System.Uri]::EscapeDataString($filter))&`$top=999" -Method GET -AllPages -IgnoreNotFound
         if ($policies -and $policies.Count -gt 0) {
+            # Si un DisplayName précis est cherché et trouvé
             if (-not [string]::IsNullOrWhiteSpace($DisplayName)) {
                 $cleanName = $DisplayName.Trim()
                 foreach ($p in $policies) {
@@ -327,17 +328,10 @@ function Get-PolitiqueAssignationEntra {
                         return $p
                     }
                 }
-                # Un nom spécifique a été demandé mais n'a pas été trouvé parmi les politiques existantes
-                return $null
             }
 
-            # Si aucun DisplayName n'est spécifié : chercher une politique personnalisée (autre que "Initial Policy")
-            $customPolicies = $policies | Where-Object { $_.displayName -ne "Initial Policy" -and -not [string]::IsNullOrWhiteSpace($_.id) }
-            if ($customPolicies -and $customPolicies.Count -gt 0) {
-                return $customPolicies[0]
-            }
-
-            # En dernier recours, retourner la première politique valide
+            # Règle d'or (1 seule politique par Access Package) :
+            # Retourne la première politique valide existante (ex: 'Initial Policy' ou renommée) pour la mettre à jour
             $validPolicies = $policies | Where-Object { -not [string]::IsNullOrWhiteSpace($_.id) }
             if ($validPolicies -and $validPolicies.Count -gt 0) {
                 return $validPolicies[0]

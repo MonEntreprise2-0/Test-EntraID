@@ -33,12 +33,62 @@ Import-Module GestionAccessPackages -Force
 Import-Module SynchronisationEntra -Force
 Import-Module RapportsEtNotifications -Force
 
+# Détection automatique du numéro de Pull Request
+if ($PrNumber -le 0) {
+    if ($env:PR_NUMBER) {
+        $PrNumber = [int]$env:PR_NUMBER
+    } else {
+        # 1. Analyse de l'historique git log récent (conversion explicite en chaîne unique pour $Matches)
+        try {
+            $gitLogRaw = git log -n 10 --pretty=%B 2>$null
+            $gitLogText = if ($gitLogRaw) { ($gitLogRaw | Out-String) } else { "" }
+            if ($gitLogText -match 'Merge pull request #(\d+)') {
+                $PrNumber = [int]$Matches[1]
+            } elseif ($gitLogText -match '\(#(\d+)\)') {
+                $PrNumber = [int]$Matches[1]
+            }
+        } catch {
+            Write-Verbose "Impossible d'extraire le numéro de PR depuis git log : $_"
+        }
+
+        # 2. Fallback robuste via GitHub REST API si commit SHA et repository disponibles
+        if ($PrNumber -le 0 -and ($env:GITHUB_TOKEN -or $env:GH_PAT) -and $env:GITHUB_REPOSITORY -and $env:GITHUB_SHA) {
+            try {
+                $ghToken = if ($env:GITHUB_TOKEN) { $env:GITHUB_TOKEN } else { $env:GH_PAT }
+                $ghUri = "https://api.github.com/repos/$($env:GITHUB_REPOSITORY)/commits/$($env:GITHUB_SHA)/pulls"
+                $ghHeaders = @{
+                    "Authorization" = "Bearer $ghToken"
+                    "Accept"        = "application/vnd.github.v3+json"
+                    "User-Agent"    = "Ardian-GitOps-Engine"
+                }
+                $ghPulls = Invoke-RestMethod -Uri $ghUri -Headers $ghHeaders -Method Get -ErrorAction Stop
+                if ($ghPulls -and $ghPulls.Count -gt 0 -and $ghPulls[0].number) {
+                    $PrNumber = [int]$ghPulls[0].number
+                    Write-Host "🔍 PR #$PrNumber détectée via l'API GitHub pour le commit $($env:GITHUB_SHA)." -ForegroundColor Cyan
+                }
+            } catch {
+                Write-Verbose "Impossible de récupérer la PR associée au commit via l'API GitHub : $_"
+            }
+        }
+    }
+}
+
+# Initialisation du Live PR Logging
+$liveCommentId = 0
+if ($PrNumber -gt 0) {
+    Write-Host "📡 Initialisation du Live Logging sur la Pull Request #$PrNumber..." -ForegroundColor Cyan
+    $liveCommentId = New-LivePRComment -PrNumber $PrNumber -InitialMessage "### 🚀 Déploiement Microsoft Entra ID en cours...`n`n*Initialisation de l'orchestration CD PowerShell...*"
+}
+
 # 1. Connexion à Microsoft Graph
 try {
     Connect-GraphSession | Out-Null
     Write-Host "✅ Connecté avec succès à Microsoft Graph API." -ForegroundColor Green
 } catch {
     Write-Error "Échec de connexion à Microsoft Graph API : $_"
+    if ($liveCommentId -gt 0) {
+        Update-LivePRComment -CommentId $liveCommentId -Message "### ❌ Échec du déploiement Microsoft Entra ID`n`nImpossible de se connecter à Microsoft Graph API : $_"
+    }
     exit 1
 }
 
@@ -46,6 +96,9 @@ try {
 $yamlFiles = Get-ChildItem -Path $DeclarationsDir -Recurse -Filter "*.yaml" | Where-Object { $_.Name -notlike "_*" }
 if ($yamlFiles.Count -eq 0) {
     Write-Host "ℹ️ Aucun fichier YAML à déployer dans $DeclarationsDir." -ForegroundColor Cyan
+    if ($liveCommentId -gt 0) {
+        Update-LivePRComment -CommentId $liveCommentId -Message "### ℹ️ Déploiement Microsoft Entra ID`n`nAucun fichier YAML à déployer dans le répertoire `$DeclarationsDir`."
+    }
     exit 0
 }
 
@@ -56,12 +109,15 @@ foreach ($yf in $yamlFiles) {
         $declarations.Add($doc)
     } catch {
         Write-Error "Erreur lors de la lecture de $($yf.FullName) : $_"
+        if ($liveCommentId -gt 0) {
+            Update-LivePRComment -CommentId $liveCommentId -Message "### ❌ Erreur de lecture YAML`n`nErreur lors de la lecture de ``$($yf.FullName)`` : $_"
+        }
         exit 1
     }
 }
 
-# 3. Synchronisation ordonnée vers Entra ID
-$syncResult = Synchroniser-EtatEntra -Declarations $declarations
+# 3. Synchronisation ordonnée vers Entra ID avec retour en direct
+$syncResult = Synchroniser-EtatEntra -Declarations $declarations -LiveCommentId $liveCommentId
 
 if (-not $syncResult.Success) {
     Write-Error "❌ Le déploiement Entra ID s'est achevé avec des erreurs."
@@ -77,6 +133,12 @@ if ($OutputSummaryFile) {
 
 if ($env:GITHUB_STEP_SUMMARY) {
     Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $summaryMd -Encoding UTF8
+}
+
+# Si le live comment n'avait pas été initialisé mais qu'on a un numéro de PR, on poste le rapport final
+if ($liveCommentId -le 0 -and $PrNumber -gt 0) {
+    Write-Host "📡 Publication du rapport final sur la Pull Request #$PrNumber..." -ForegroundColor Cyan
+    $null = New-LivePRComment -PrNumber $PrNumber -InitialMessage $summaryMd
 }
 
 Write-Host "`n" + $summaryMd
@@ -95,8 +157,9 @@ $ownerOrg = if ($env:GITHUB_REPOSITORY_OWNER) { $env:GITHUB_REPOSITORY_OWNER } e
 # Extraction de l'équipe assignée depuis le commit de merge ou les variables
 $assignedTeam = "admins"
 try {
-    $gitLog = git log -n 5 --pretty=%B 2>$null
-    if ($gitLog -match 'GITHUB_TEAM:\s*([a-zA-Z0-9_-]+)') {
+    $gitLogRaw = git log -n 5 --pretty=%B 2>$null
+    $gitLogText = if ($gitLogRaw) { ($gitLogRaw | Out-String) } else { "" }
+    if ($gitLogText -match 'GITHUB_TEAM:\s*([a-zA-Z0-9_-]+)') {
         $assignedTeam = $Matches[1].Trim()
     }
 } catch {

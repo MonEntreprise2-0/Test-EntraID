@@ -1,4 +1,4 @@
-@{
+﻿@{
     # Manifeste du module GestionAccessPackages
     RootModule           = 'GestionAccessPackages.psm1'
     ModuleVersion        = '1.0.0'

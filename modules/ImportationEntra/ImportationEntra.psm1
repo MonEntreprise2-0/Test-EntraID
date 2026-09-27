@@ -143,7 +143,7 @@ function Exporter-CatalogueVersYaml {
         [string]$DeclarationDir = "declaration",
 
         [Parameter(Mandatory = $false)]
-        [string]$FallbackApproverEmail = "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
+        [string]$FallbackApproverEmail = ""
     )
 
     $rawInput = $TargetCatalogName.Trim()
@@ -248,29 +248,28 @@ function Exporter-CatalogueVersYaml {
 
         # Approbateurs depuis la politique
         $approverEmails = [System.Collections.Generic.List[string]]::new()
-        $policy = Get-PolitiqueAssignationEntra -AccessPackageId $apId
+        $basePolicy = Get-PolitiqueAssignationEntra -AccessPackageId $apId
 
-        if ($policy -and $policy.requestApprovalSettings -and $policy.requestApprovalSettings.stages) {
-            foreach ($stage in $policy.requestApprovalSettings.stages) {
-                if ($stage.primaryApprovers) {
-                    foreach ($appr in $stage.primaryApprovers) {
-                        $uid = $appr.userId
-                        if ($uid) {
-                            $userObj = Invoke-GraphRequest -Endpoint "/users/$uid" -Method GET -IgnoreNotFound
-                            if ($userObj) {
-                                $mail = if ($userObj.mail) { $userObj.mail } else { $userObj.userPrincipalName }
-                                if ($mail) { $approverEmails.Add($mail.Trim()) }
+        if ($basePolicy -and -not [string]::IsNullOrWhiteSpace($basePolicy.id)) {
+            $fullPolicy = Invoke-GraphRequest -Endpoint "/identityGovernance/entitlementManagement/assignmentPolicies/$($basePolicy.id)" -Method GET -IgnoreNotFound
+            if ($fullPolicy -and $fullPolicy.requestApprovalSettings -and $fullPolicy.requestApprovalSettings.stages) {
+                foreach ($stage in $fullPolicy.requestApprovalSettings.stages) {
+                    if ($stage.primaryApprovers) {
+                        foreach ($appr in $stage.primaryApprovers) {
+                            $uid = $appr.userId
+                            if ($uid) {
+                                $userObj = Invoke-GraphRequest -Endpoint "/users/$uid?`$select=id,displayName,mail,userPrincipalName" -Method GET -IgnoreNotFound
+                                if ($userObj) {
+                                    $mail = if (-not [string]::IsNullOrWhiteSpace($userObj.mail)) { $userObj.mail.Trim() } else { $userObj.userPrincipalName.Trim() }
+                                    if ($mail -and -not $approverEmails.Contains($mail)) {
+                                        $approverEmails.Add($mail)
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
-        }
-
-        # Fallback si aucun approbateur configuré
-        if ($approverEmails.Count -eq 0 -and -not [string]::IsNullOrWhiteSpace($FallbackApproverEmail)) {
-            Write-Verbose "Aucun approbateur dans la politique de '$($ap.displayName)'. Utilisation de l'approbateur de secours : $FallbackApproverEmail"
-            $approverEmails.Add($FallbackApproverEmail.Trim())
         }
 
         # Ressources rattachées à cet Access Package
@@ -311,7 +310,14 @@ function Exporter-CatalogueVersYaml {
                     $resourcesList.Add([ordered]@{
                         resource_type  = "Application Role"
                         enterprise_app = $appNameVal
-                        app_role       = $roleName
+                    })
+                } elseif ($originSys -eq "SharePointOnline") {
+                    $siteUrl = if ($scopeObj) { $scopeObj.originId } else { "https://ardian.sharepoint.com/sites/Unknown" }
+                    $grpNameVal = if ($roleObj -and $roleObj.displayName) { $roleObj.displayName } else { "SharePoint Group" }
+                    $resourcesList.Add([ordered]@{
+                        resource_type         = "Sharepoint Group"
+                        sharepoint_url        = $siteUrl
+                        sharepoint_group_name = $grpNameVal
                     })
                 }
             }

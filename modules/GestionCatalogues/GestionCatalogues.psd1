@@ -1,4 +1,4 @@
-@{
+﻿@{
     # Manifeste du module GestionCatalogues
     RootModule           = 'GestionCatalogues.psm1'
     ModuleVersion        = '1.0.0'
@@ -18,9 +18,7 @@
         'Remove-CatalogueEntra',
         'Get-RessourcesCatalogue',
         'Add-RessourceCatalogue',
-        'Remove-RessourceCatalogue',
-        'Get-ProprietairesCatalogue',
-        'Add-ProprietaireCatalogue'
+        'Remove-RessourceCatalogue'
     )
     CmdletsToExport      = @()
     VariablesToExport    = @()

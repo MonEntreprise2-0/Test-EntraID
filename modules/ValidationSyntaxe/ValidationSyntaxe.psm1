@@ -103,6 +103,22 @@ function ConvertFrom-ArdianYamlInternal {
     $inOwners = $false
     $accessPackagesList = [System.Collections.Generic.List[object]]::new()
 
+    function Clean-YamlValue {
+        param([string]$RawVal)
+        if ($null -eq $RawVal) { return "" }
+        $v = $RawVal.Trim()
+        if ($v -match '^"(?<quoted>[^"]*)"\s*(?:#.*)?$') {
+            return $Matches['quoted']
+        }
+        if ($v -match "^'(?<quoted>[^']*)'\s*(?:#.*)?$") {
+            return $Matches['quoted']
+        }
+        if ($v -match '^(?<unquoted>[^#]+?)\s*(?:#.*)?$') {
+            return $Matches['unquoted'].Trim()
+        }
+        return $v
+    }
+
     foreach ($rawLine in $lines) {
         # Nettoyage des commentaires pleine ligne et espaces superflus
         $trimmed = $rawLine.Trim()
@@ -119,8 +135,7 @@ function ConvertFrom-ArdianYamlInternal {
         # 1. Clés de niveau racine
         if (-not $inAccessPackages -and $trimmed -match '^([a-zA-Z0-9_-]+)\s*:\s*(.*)$') {
             $key = $Matches[1].Trim()
-            $val = $Matches[2].Trim()
-            if ($val -match '^["''](.*)["'']$') { $val = $Matches[1] }
+            $val = Clean-YamlValue $Matches[2]
 
             if ($key -eq "access_packages") {
                 $inAccessPackages = $true
@@ -159,8 +174,7 @@ function ConvertFrom-ArdianYamlInternal {
 
                     if ($afterDash -match '^([a-zA-Z0-9_-]+)\s*:\s*(.*)$') {
                         $k = $Matches[1].Trim()
-                        $v = $Matches[2].Trim()
-                        if ($v -match '^["''](.*)["'']$') { $v = $Matches[1] }
+                        $v = Clean-YamlValue $Matches[2]
                         $currentAp[$k] = $v
                     }
                     continue
@@ -169,9 +183,9 @@ function ConvertFrom-ArdianYamlInternal {
 
             # Éléments de liste sous authorization_owners
             if ($inOwners) {
-                if ($trimmed -match '^-\s*["'']?([^"'']+)["'']?$') {
-                    $ownerEmail = $Matches[1].Trim()
-                    if ($currentAp) {
+                if ($trimmed -match '^-\s*(.*)$') {
+                    $ownerEmail = Clean-YamlValue $Matches[1]
+                    if ($currentAp -and -not [string]::IsNullOrWhiteSpace($ownerEmail)) {
                         $currentAp.authorization_owners.Add($ownerEmail)
                     }
                     continue
@@ -190,15 +204,13 @@ function ConvertFrom-ArdianYamlInternal {
                     }
                     if ($resLine -match '^([a-zA-Z0-9_-]+)\s*:\s*(.*)$') {
                         $rk = $Matches[1].Trim()
-                        $rv = $Matches[2].Trim()
-                        if ($rv -match '^["''](.*)["'']$') { $rv = $Matches[1] }
+                        $rv = Clean-YamlValue $Matches[2]
                         $currentResource[$rk] = $rv
                     }
                     continue
-                } elseif ($currentResource -and $trimmed -match '^(group_name|role|enterprise_app|app_role|sharepoint_url|catalog_id)\s*:\s*(.*)$') {
+                } elseif ($currentResource -and $trimmed -match '^(group_name|role|enterprise_app|app_role|sharepoint_url|sharepoint_group_name|catalog_id)\s*:\s*(.*)$') {
                     $rk = $Matches[1].Trim()
-                    $rv = $Matches[2].Trim()
-                    if ($rv -match '^["''](.*)["'']$') { $rv = $Matches[1] }
+                    $rv = Clean-YamlValue $Matches[2]
                     $currentResource[$rk] = $rv
                     continue
                 } else {
@@ -209,8 +221,7 @@ function ConvertFrom-ArdianYamlInternal {
             # Propriétés directes de l'Access Package
             if ($trimmed -match '^([a-zA-Z0-9_-]+)\s*:\s*(.*)$') {
                 $k = $Matches[1].Trim()
-                $v = $Matches[2].Trim()
-                if ($v -match '^["''](.*)["'']$') { $v = $Matches[1] }
+                $v = Clean-YamlValue $Matches[2]
 
                 if ($k -eq "resources") {
                     $inResources = $true
@@ -290,14 +301,11 @@ function Valider-StructureYaml {
     $fileName = [System.IO.Path]::GetFileNameWithoutExtension($FilePath)
     $parentDir = [System.IO.Path]::GetFileName([System.IO.Path]::GetDirectoryName($FilePath))
 
-    # 1. Validation app_name
+    # 1. Validation app_name (sans restriction kebab-case : espaces et majuscules autorisés)
     $appName = $ParsedDoc.app_name
     if ([string]::IsNullOrWhiteSpace($appName)) {
         $errors.Add("Le champ obligatoire 'app_name' est manquant ou vide.")
     } else {
-        if ($appName -notmatch '^[a-z0-9][a-z0-9-_]{1,62}[a-z0-9]$') {
-            $errors.Add("Le champ 'app_name' ('$appName') doit respecter le format kebab-case ou snake_case (minuscules, chiffres, tirets, underscores) avec une longueur entre 3 et 64 caractères.")
-        }
         # Vérification règle 1 app = 1 dossier = 1 fichier avec préfixe obligatoire CAT-
         $expectedName = "CAT-$appName"
         if ($fileName -ne "_example" -and $fileName -ne $expectedName) {
@@ -308,19 +316,15 @@ function Valider-StructureYaml {
         }
     }
 
-    # 2. Validation app_description
+    # 2. Validation app_description (aucune restriction de longueur min ou max)
     $appDesc = $ParsedDoc.app_description
-    if ([string]::IsNullOrWhiteSpace($appDesc)) {
-        $errors.Add("Le champ obligatoire 'app_description' est manquant.")
-    } elseif ($appDesc.Length -lt 5 -or $appDesc.Length -gt 500) {
-        $errors.Add("La description de l'application doit contenir entre 5 et 500 caractères (longueur actuelle : $($appDesc.Length)).")
+    if ($null -eq $appDesc -or [string]::IsNullOrWhiteSpace($appDesc)) {
+        $errors.Add("Le champ obligatoire 'app_description' est manquant ou vide.")
     }
 
-    # 3. Validation access_packages
+    # 3. Validation access_packages (optionnel : catalogue vide autorisé)
     $aps = $ParsedDoc.access_packages
-    if ($null -eq $aps -or $aps.Count -eq 0) {
-        $errors.Add("La liste 'access_packages' doit contenir au moins 1 Access Package.")
-    } else {
+    if ($aps -and $aps.Count -gt 0) {
         $computedNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
         $allowedEnvs = @('DEV', 'UAT', 'PRD', 'TST', 'GLB')
 
@@ -343,15 +347,13 @@ function Valider-StructureYaml {
             } elseif (-not ($allowedEnvs -contains $ap.env.Trim().ToUpperInvariant())) {
                 $errors.Add("Access Package '$apName' : L'environnement '$($ap.env)' n'est pas autorisé. Valeurs strictement autorisées : $($allowedEnvs -join ', ').")
             }
-            if ([string]::IsNullOrWhiteSpace($ap.description) -or $ap.description.Length -lt 5) {
-                $errors.Add("Access Package '$apName' : Le champ 'description' est obligatoire (au moins 5 caractères).")
+            if ([string]::IsNullOrWhiteSpace($ap.description)) {
+                $errors.Add("Access Package '$apName' : Le champ 'description' est obligatoire.")
             }
 
-            # Validation des authorization_owners
+            # Validation des authorization_owners (optionnel)
             $owners = $ap.authorization_owners
-            if ($null -eq $owners -or $owners.Count -eq 0) {
-                $errors.Add("Access Package '$apName' : 'authorization_owners' doit contenir au moins 1 adresse email.")
-            } else {
+            if ($owners -and $owners.Count -gt 0) {
                 foreach ($owner in $owners) {
                     if ([string]::IsNullOrWhiteSpace($owner) -or $owner -notmatch '^[^@\s]+@[^@\s]+\.[^@\s]+$') {
                         $errors.Add("Access Package '$apName' : L'adresse email de l'approbateur '$owner' est invalide.")
@@ -386,13 +388,17 @@ function Valider-StructureYaml {
                             if ([string]::IsNullOrWhiteSpace($res.enterprise_app)) {
                                 $errors.Add("Access Package '$apName' : 'enterprise_app' est requis pour les ressources 'Application Role'.")
                             }
-                            if ([string]::IsNullOrWhiteSpace($res.app_role)) {
-                                $errors.Add("Access Package '$apName' : 'app_role' est requis pour les ressources 'Application Role'.")
-                            }
+                            # Note : app_role est calculé automatiquement si non renseigné
                         }
-                        "Sharepoint Group" {
+                        { $_ -in @("Sharepoint Group", "SharePoint Group", "SharePoint Online", "SharePoint Site") } {
+                            if ($res.catalog_id) {
+                                $errors.Add("Access Package '$apName' : Le champ 'catalog_id' a été supprimé et ne doit plus être utilisé pour les groupes SharePoint.")
+                            }
                             if ([string]::IsNullOrWhiteSpace($res.sharepoint_url)) {
                                 $errors.Add("Access Package '$apName' : 'sharepoint_url' est requis pour les ressources 'Sharepoint Group'.")
+                            }
+                            if ([string]::IsNullOrWhiteSpace($res.sharepoint_group_name)) {
+                                $errors.Add("Access Package '$apName' : 'sharepoint_group_name' est requis pour les ressources 'Sharepoint Group'.")
                             }
                         }
                         default {
@@ -419,8 +425,8 @@ function Valider-StructureYaml {
 .DESCRIPTION
     Entra ID est la Source Unique de Vérité. Cette fonction inspecte toutes les
     ressources déclarées dans les fichiers YAML et interroge directement Microsoft
-    Graph API pour s'assurer que chaque groupe, application et approbateur existe bien
-    dans l'annuaire de production.
+    Graph API pour s'assurer que chaque groupe, application, rôle applicatif, site SharePoint
+    et approbateur existe bien dans l'annuaire de production.
 .PARAMETER Declarations
     Liste d'objets déclaratifs YAML ou chemins vers les fichiers YAML.
 #>
@@ -434,6 +440,8 @@ function Valider-RessourcesEntraId {
     $allGroups = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     $allApps = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     $allUsers = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $allSites = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $appRolesToCheck = [System.Collections.Generic.List[PSObject]]::new()
 
     # 1. Extraction exhaustive de toutes les ressources mentionnées
     foreach ($item in $Declarations) {
@@ -458,7 +466,7 @@ function Valider-RessourcesEntraId {
                 }
             }
 
-            # Ressources (Groupes, Applications)
+            # Ressources (Groupes, Applications, SharePoint)
             if ($ap.resources) {
                 foreach ($res in $ap.resources) {
                     $rType = $res.resource_type
@@ -468,7 +476,25 @@ function Valider-RessourcesEntraId {
                         }
                     } elseif ($rType -eq "Application Role" -or $rType -eq "Application") {
                         if (-not [string]::IsNullOrWhiteSpace($res.enterprise_app)) {
-                            $allApps.Add($res.enterprise_app.Trim()) | Out-Null
+                            $entAppName = $res.enterprise_app.Trim()
+                            $allApps.Add($entAppName) | Out-Null
+
+                            # Calcul automatique de l'AppRole : {context/subapp} {privilege Level}
+                            $computedAppRole = if (-not [string]::IsNullOrWhiteSpace($ap.context_subapp)) {
+                                "$($ap.context_subapp.Trim()) $($ap.privilege_level.Trim())"
+                            } else {
+                                "$($ap.privilege_level.Trim())"
+                            }
+
+                            $appRolesToCheck.Add([PSCustomObject]@{
+                                EnterpriseApp   = $entAppName
+                                RequiredAppRole = $computedAppRole
+                                AccessPackage   = Calculer-NomAccessPackage -AccessPackage $ap -AppName $doc.app_name
+                            })
+                        }
+                    } elseif ($rType -in @("Sharepoint Group", "SharePoint Group", "SharePoint Online", "SharePoint Site")) {
+                        if (-not [string]::IsNullOrWhiteSpace($res.sharepoint_url)) {
+                            $allSites.Add($res.sharepoint_url.Trim()) | Out-Null
                         }
                     }
                 }
@@ -480,10 +506,13 @@ function Valider-RessourcesEntraId {
     $missingGroups = [System.Collections.Generic.List[string]]::new()
     $missingApps = [System.Collections.Generic.List[string]]::new()
     $missingUsers = [System.Collections.Generic.List[string]]::new()
+    $missingSites = [System.Collections.Generic.List[string]]::new()
+    $missingAppRoles = [System.Collections.Generic.List[string]]::new()
 
     $resolvedGroups = @{}
     $resolvedApps = @{}
     $resolvedUsers = @{}
+    $resolvedSites = @{}
 
     # Groupes
     foreach ($grpName in $allGroups) {
@@ -515,18 +544,53 @@ function Valider-RessourcesEntraId {
         }
     }
 
-    $isValid = ($missingGroups.Count -eq 0 -and $missingApps.Count -eq 0 -and $missingUsers.Count -eq 0)
+    # Sites SharePoint
+    foreach ($siteUrl in $allSites) {
+        $siteObj = Resolve-SharepointSite -SiteUrl $siteUrl
+        if ($siteObj) {
+            $resolvedSites[$siteUrl] = $siteObj
+        } else {
+            $missingSites.Add($siteUrl)
+        }
+    }
+
+    # 3. Contrôle SSoT bloquant pour les AppRoles déclarés
+    foreach ($chk in $appRolesToCheck) {
+        $entApp = $chk.EnterpriseApp
+        $reqRole = $chk.RequiredAppRole
+        if ($resolvedApps.ContainsKey($entApp)) {
+            $sp = $resolvedApps[$entApp]
+            $roleExists = $false
+            if ($sp.appRoles) {
+                foreach ($r in $sp.appRoles) {
+                    if (($r.value -and $r.value.Equals($reqRole, [StringComparison]::OrdinalIgnoreCase)) -or
+                        ($r.displayName -and $r.displayName.Equals($reqRole, [StringComparison]::OrdinalIgnoreCase))) {
+                        $roleExists = $true
+                        break
+                    }
+                }
+            }
+            if (-not $roleExists) {
+                $missingAppRoles.Add("Application '$entApp' -> Rôle '$reqRole' requis pour '$($chk.AccessPackage)'")
+            }
+        }
+    }
+
+    $isValid = ($missingGroups.Count -eq 0 -and $missingApps.Count -eq 0 -and $missingUsers.Count -eq 0 -and $missingSites.Count -eq 0 -and $missingAppRoles.Count -eq 0)
 
     return [PSCustomObject]@{
-        IsValid        = $isValid
-        MissingGroups  = $missingGroups.ToArray()
-        MissingApps    = $missingApps.ToArray()
-        MissingUsers   = $missingUsers.ToArray()
-        ResolvedGroups = $resolvedGroups
-        ResolvedApps   = $resolvedApps
-        ResolvedUsers  = $resolvedUsers
-        TotalChecked   = ($allGroups.Count + $allApps.Count + $allUsers.Count)
+        IsValid         = $isValid
+        MissingGroups   = $missingGroups.ToArray()
+        MissingApps     = $missingApps.ToArray()
+        MissingUsers    = $missingUsers.ToArray()
+        MissingSites    = $missingSites.ToArray()
+        MissingAppRoles = $missingAppRoles.ToArray()
+        ResolvedGroups  = $resolvedGroups
+        ResolvedApps    = $resolvedApps
+        ResolvedUsers   = $resolvedUsers
+        ResolvedSites   = $resolvedSites
+        TotalChecked    = ($allGroups.Count + $allApps.Count + $allUsers.Count + $allSites.Count + $appRolesToCheck.Count)
     }
 }
 
-Export-ModuleMember -Function Lire-DeclarationYaml, Valider-StructureYaml, Valider-RessourcesEntraId, Calculer-NomAccessPackage
+Export-ModuleMember -Function Lire-DeclarationYaml, Valider-StructureYaml, Valider-RessourcesEntraId, Calculer-NomAccessPackage, ConvertFrom-ArdianYamlInternal

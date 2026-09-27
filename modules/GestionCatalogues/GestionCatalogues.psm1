@@ -9,9 +9,6 @@
 # Auteur : Ardian Cloud IAM & DevOps
 # ============================================================================
 
-# ID fixe du rôle built-in "Catalog owner" dans Entra ID Entitlement Management
-$script:CATALOG_OWNER_ROLE_ID = "ae79f266-94d4-4dab-b730-feca7e132178"
-
 <#
 .SYNOPSIS
     Récupère un ou plusieurs catalogues Entra ID.
@@ -186,7 +183,7 @@ function Add-RessourceCatalogue {
         [string]$OriginId,
 
         [Parameter(Mandatory = $true)]
-        [ValidateSet("AadGroup", "AadApplication")]
+        [ValidateSet("AadGroup", "AadApplication", "SharePointOnline")]
         [string]$OriginSystem
     )
 
@@ -240,58 +237,6 @@ function Remove-RessourceCatalogue {
     return Invoke-GraphRequest -Endpoint "/identityGovernance/entitlementManagement/accessPackageResourceRequests" -ApiVersion "beta" -Method POST -Body $body -IgnoreNotFound
 }
 
-<#
-.SYNOPSIS
-    Liste les propriétaires (Catalog Owners) assignés à un catalogue.
-#>
-function Get-ProprietairesCatalogue {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$CatalogId
-    )
-
-    $filter = "appScopeId eq '/AccessPackageCatalog/$CatalogId' and roleDefinitionId eq '$($script:CATALOG_OWNER_ROLE_ID)'"
-    $endpoint = "/roleManagement/entitlementManagement/roleAssignments?`$filter=$([System.Uri]::EscapeDataString($filter))"
-
-    return Invoke-GraphRequest -Endpoint $endpoint -Method GET -AllPages -IgnoreNotFound
-}
-
-<#
-.SYNOPSIS
-    Assigne un utilisateur au rôle built-in "Catalog owner" sur un catalogue.
-#>
-function Add-ProprietaireCatalogue {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$CatalogId,
-
-        [Parameter(Mandatory = $true)]
-        [string]$UserId
-    )
-
-    # Vérification préalable pour éviter les erreurs d'assignation en double
-    $existing = Get-ProprietairesCatalogue -CatalogId $CatalogId
-    if ($existing) {
-        foreach ($assignment in $existing) {
-            if ($assignment.principalId -and $assignment.principalId.Equals($UserId, [StringComparison]::OrdinalIgnoreCase)) {
-                Write-Verbose "L'utilisateur '$UserId' est déjà Catalog Owner sur '$CatalogId'."
-                return $assignment
-            }
-        }
-    }
-
-    $body = @{
-        roleDefinitionId = $script:CATALOG_OWNER_ROLE_ID
-        principalId      = $UserId
-        appScopeId       = "/AccessPackageCatalog/$CatalogId"
-    }
-
-    Write-Verbose "Assignation du rôle Catalog Owner à l'utilisateur '$UserId' sur le catalogue '$CatalogId'..."
-    return Invoke-GraphRequest -Endpoint "/roleManagement/entitlementManagement/roleAssignments" -Method POST -Body $body
-}
-
 Export-ModuleMember -Function Get-CatalogueEntra, New-CatalogueEntra, Set-CatalogueEntra, Remove-CatalogueEntra, `
-    Get-RessourcesCatalogue, Add-RessourceCatalogue, Remove-RessourceCatalogue, `
-    Get-ProprietairesCatalogue, Add-ProprietaireCatalogue
+    Get-RessourcesCatalogue, Add-RessourceCatalogue, Remove-RessourceCatalogue
+

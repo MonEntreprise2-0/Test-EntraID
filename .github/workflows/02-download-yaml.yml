@@ -68,10 +68,14 @@ jobs:
           fi
 
           # --- CAS 2 : Nom fourni → afficher le contenu + télécharger ---
-          APP_NAME_CLEAN=$(echo "$APP_NAME" | tr '[:upper:]' '[:lower:]' | sed -e 's/^cat-//I')
+          APP_NAME_LOWER=$(echo "$APP_NAME" | tr '[:upper:]' '[:lower:]')
+          APP_NAME_CLEAN=$(echo "$APP_NAME_LOWER" | sed -e 's/^cat-//I')
           FILE_PATH="declaration/CAT-${APP_NAME_CLEAN}/CAT-${APP_NAME_CLEAN}.yaml"
           if [ ! -f "$FILE_PATH" ] && [ -f "declaration/${APP_NAME_CLEAN}/${APP_NAME_CLEAN}.yaml" ]; then
             FILE_PATH="declaration/${APP_NAME_CLEAN}/${APP_NAME_CLEAN}.yaml"
+          fi
+          if [ ! -f "$FILE_PATH" ] && [ -f "declaration/CAT-${APP_NAME}/CAT-${APP_NAME}.yaml" ]; then
+            FILE_PATH="declaration/CAT-${APP_NAME}/CAT-${APP_NAME}.yaml"
           fi
 
           if [ ! -f "$FILE_PATH" ]; then

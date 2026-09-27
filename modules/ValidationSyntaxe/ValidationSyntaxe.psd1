@@ -1,4 +1,4 @@
-@{
+﻿@{
     # Manifeste du module ValidationSyntaxe
     RootModule           = 'ValidationSyntaxe.psm1'
     ModuleVersion        = '1.0.0'
@@ -15,7 +15,8 @@
         'Lire-DeclarationYaml',
         'Valider-StructureYaml',
         'Valider-RessourcesEntraId',
-        'Calculer-NomAccessPackage'
+        'Calculer-NomAccessPackage',
+        'ConvertFrom-ArdianYamlInternal'
     )
     CmdletsToExport      = @()
     VariablesToExport    = @()

@@ -51,12 +51,22 @@ function Formater-RapportPlanCI {
 
         if ($SSoTReport.MissingApps) {
             foreach ($app in $SSoTReport.MissingApps) {
-                $sb.AppendLine("> - 📱 Application / Rôle applicatif manquant : ``$app``") | Out-Null
+                $sb.AppendLine("> - 📱 Application / Service Principal manquant : ``$app``") | Out-Null
+            }
+        }
+        if ($SSoTReport.MissingAppRoles) {
+            foreach ($role in $SSoTReport.MissingAppRoles) {
+                $sb.AppendLine("> - 🔑 Rôle applicatif manquant : ``$role``") | Out-Null
             }
         }
         if ($SSoTReport.MissingGroups) {
             foreach ($grp in $SSoTReport.MissingGroups) {
                 $sb.AppendLine("> - 👥 Groupe Entra ID manquant : ``$grp``") | Out-Null
+            }
+        }
+        if ($SSoTReport.MissingSites) {
+            foreach ($site in $SSoTReport.MissingSites) {
+                $sb.AppendLine("> - 🌐 Site SharePoint introuvable : ``$site``") | Out-Null
             }
         }
         if ($SSoTReport.MissingUsers) {
@@ -159,11 +169,85 @@ function Formater-RapportDeploiementCD {
     }
 
     $sb.AppendLine() | Out-Null
-    $sb.AppendLine("> 👑 **Propriétaires du catalogue** : les ``authorization_owners`` déclarés ont été rattachés au rôle *Catalog owner* dans Entra ID.") | Out-Null
-    $sb.AppendLine() | Out-Null
     $sb.AppendLine("🔗 Consultez et gérez votre catalogue directement sur le [Portail Microsoft Entra ID](https://entra.microsoft.com/#view/Microsoft_AAD_ERM/DashboardBlade).") | Out-Null
 
     return $sb.ToString()
 }
 
-Export-ModuleMember -Function Formater-RapportPlanCI, Formater-RapportDeploiementCD
+<#
+.SYNOPSIS
+    Crée un commentaire initial sur la PR GitHub et retourne son identifiant (ID).
+#>
+function New-LivePRComment {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$PrNumber,
+
+        [Parameter(Mandatory = $false)]
+        [string]$InitialMessage = "### 🚀 Déploiement Microsoft Entra ID en cours...`n`n*Initialisation de l'orchestration CD PowerShell...*"
+    )
+
+    $token = if ($env:GITHUB_TOKEN) { $env:GITHUB_TOKEN } else { $env:GH_PAT }
+    $repo = $env:GITHUB_REPOSITORY
+    if (-not $token -or -not $repo -or $PrNumber -le 0) {
+        Write-Verbose "Conditions de Live PR Logging non réunies (Token=$([bool]$token), Repo=$repo, PR=$PrNumber)."
+        return 0
+    }
+
+    try {
+        $uri = "https://api.github.com/repos/$repo/issues/$PrNumber/comments"
+        $headers = @{
+            "Authorization" = "Bearer $token"
+            "Accept"        = "application/vnd.github.v3+json"
+            "User-Agent"    = "Ardian-GitOps-Engine"
+        }
+        $body = @{ body = $InitialMessage } | ConvertTo-Json
+        $resp = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -Body ([System.Text.Encoding]::UTF8.GetBytes($body)) -ContentType "application/json; charset=utf-8"
+        if ($resp -and $resp.id) {
+            Write-Host "📡 Commentaire Live PR initialisé sur la PR #$PrNumber (ID: $($resp.id))." -ForegroundColor Cyan
+            return [long]$resp.id
+        }
+    } catch {
+        Write-Warning "⚠️ Impossible de créer le commentaire initial sur la PR #$PrNumber : $_"
+    }
+
+    return 0
+}
+
+<#
+.SYNOPSIS
+    Met à jour un commentaire existant sur la PR GitHub en direct.
+#>
+function Update-LivePRComment {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [long]$CommentId,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Message
+    )
+
+    $token = if ($env:GITHUB_TOKEN) { $env:GITHUB_TOKEN } else { $env:GH_PAT }
+    $repo = $env:GITHUB_REPOSITORY
+    if (-not $token -or -not $repo -or $CommentId -le 0) {
+        return
+    }
+
+    try {
+        $uri = "https://api.github.com/repos/$repo/issues/comments/$CommentId"
+        $headers = @{
+            "Authorization" = "Bearer $token"
+            "Accept"        = "application/vnd.github.v3+json"
+            "User-Agent"    = "Ardian-GitOps-Engine"
+        }
+        $body = @{ body = $Message } | ConvertTo-Json
+        Invoke-RestMethod -Uri $uri -Method Patch -Headers $headers -Body ([System.Text.Encoding]::UTF8.GetBytes($body)) -ContentType "application/json; charset=utf-8" | Out-Null
+    } catch {
+        Write-Warning "⚠️ Erreur lors de la mise à jour du commentaire live PR $CommentId : $_"
+    }
+}
+
+Export-ModuleMember -Function Formater-RapportPlanCI, Formater-RapportDeploiementCD, New-LivePRComment, Update-LivePRComment
+

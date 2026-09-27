@@ -1,4 +1,4 @@
-@{
+﻿@{
     # Manifeste du module SynchronisationEntra
     RootModule           = 'SynchronisationEntra.psm1'
     ModuleVersion        = '1.0.0'
@@ -12,7 +12,8 @@
         @{ ModuleName = 'ConnexionGraph'; ModuleVersion = '1.0.0' },
         @{ ModuleName = 'ValidationSyntaxe'; ModuleVersion = '1.0.0' },
         @{ ModuleName = 'GestionCatalogues'; ModuleVersion = '1.0.0' },
-        @{ ModuleName = 'GestionAccessPackages'; ModuleVersion = '1.0.0' }
+        @{ ModuleName = 'GestionAccessPackages'; ModuleVersion = '1.0.0' },
+        @{ ModuleName = 'RapportsEtNotifications'; ModuleVersion = '1.0.0' }
     )
     FunctionsToExport    = @(
         'Comparer-EtatEntra',

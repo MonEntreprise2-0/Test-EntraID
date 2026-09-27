@@ -14,26 +14,21 @@ $script:GraphTokenExpiresOn = [DateTime]::MinValue
 $script:CacheUsers = @{}
 $script:CacheGroups = @{}
 $script:CacheServicePrincipals = @{}
+$script:CacheSites = @{}
 
 <#
 .SYNOPSIS
     Établit la session d'authentification avec Microsoft Graph.
 .DESCRIPTION
     Tente de récupérer un jeton Bearer pour Microsoft Graph :
-    1. Si un jeton est passé directement via -AccessToken, il est utilisé.
-    2. Sinon, interroge Azure CLI via 'az account get-access-token' (compatible GitHub Actions OIDC).
-    3. Sinon, vérifie si les variables d'environnement AZURE_CLIENT_ID / AZURE_CLIENT_SECRET / AZURE_TENANT_ID sont définies.
-.PARAMETER AccessToken
-    Jeton d'accès optionnel passé explicitement.
+    1. Priorité OIDC : via Azure CLI (compatible GitHub Actions OIDC après azure/login).
+    2. Fallback Variables d'environnement SPN : AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID.
 .PARAMETER Force
     Force le renouvellement du jeton même s'il est encore valide.
 #>
 function Connect-GraphSession {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory = $false)]
-        [string]$AccessToken,
-
         [Parameter(Mandatory = $false)]
         [switch]$Force
     )
@@ -43,17 +38,9 @@ function Connect-GraphSession {
         return $script:GraphAccessToken
     }
 
-    # 1. Utilisation du jeton passé directement
-    if (-not [string]::IsNullOrWhiteSpace($AccessToken)) {
-        $script:GraphAccessToken = $AccessToken.Trim()
-        $script:GraphTokenExpiresOn = [DateTime]::UtcNow.AddHours(1)
-        Write-Verbose "Jeton Microsoft Graph configuré manuellement."
-        return $script:GraphAccessToken
-    }
-
-    # 2. Utilisation d'Azure CLI (cas standard GitHub Actions OIDC après azure/login)
+    # 1. Utilisation prioritaire d'Azure CLI (cas standard GitHub Actions OIDC après azure/login)
     try {
-        Write-Verbose "Tentative d'obtention du jeton Graph via Azure CLI (az account get-access-token)..."
+        Write-Verbose "Tentative d'obtention du jeton Graph via OIDC Azure CLI (az account get-access-token)..."
         $azResult = az account get-access-token --resource-type ms-graph --output json 2>$null
         if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($azResult)) {
             $tokenObj = $azResult | ConvertFrom-Json
@@ -64,17 +51,17 @@ function Connect-GraphSession {
                 } else {
                     $script:GraphTokenExpiresOn = [DateTime]::UtcNow.AddMinutes(50)
                 }
-                Write-Verbose "Jeton Microsoft Graph acquis avec succès via Azure CLI."
+                Write-Verbose "Jeton Microsoft Graph acquis avec succès via OIDC (Azure CLI)."
                 return $script:GraphAccessToken
             }
         }
     } catch {
-        Write-Verbose "Échec de l'obtention du jeton via Azure CLI : $_"
+        Write-Verbose "Échec de l'obtention du jeton via Azure CLI OIDC : $_"
     }
 
-    # 3. Utilisation de variables d'environnement SPN (Client Credentials)
+    # 2. Utilisation des variables d'environnement SPN (Client Credentials)
     if ($env:AZURE_CLIENT_ID -and $env:AZURE_CLIENT_SECRET -and $env:AZURE_TENANT_ID) {
-        Write-Verbose "Tentative d'obtention du jeton Graph via Client Credentials (variables d'environnement)..."
+        Write-Verbose "Tentative d'obtention du jeton Graph via variables d'environnement SPN..."
         $tokenUri = "https://login.microsoftonline.com/$($env:AZURE_TENANT_ID)/oauth2/v2.0/token"
         $body = @{
             client_id     = $env:AZURE_CLIENT_ID
@@ -82,16 +69,20 @@ function Connect-GraphSession {
             scope         = "https://graph.microsoft.com/.default"
             grant_type    = "client_credentials"
         }
-        $resp = Invoke-RestMethod -Uri $tokenUri -Method Post -Body $body -ContentType "application/x-www-form-urlencoded"
-        if ($resp.access_token) {
-            $script:GraphAccessToken = $resp.access_token
-            $script:GraphTokenExpiresOn = [DateTime]::UtcNow.AddSeconds($resp.expires_in)
-            Write-Verbose "Jeton Microsoft Graph acquis avec succès via Client Credentials."
-            return $script:GraphAccessToken
+        try {
+            $resp = Invoke-RestMethod -Uri $tokenUri -Method Post -Body $body -ContentType "application/x-www-form-urlencoded"
+            if ($resp.access_token) {
+                $script:GraphAccessToken = $resp.access_token
+                $script:GraphTokenExpiresOn = [DateTime]::UtcNow.AddSeconds($resp.expires_in)
+                Write-Verbose "Jeton Microsoft Graph acquis avec succès via variables d'environnement SPN."
+                return $script:GraphAccessToken
+            }
+        } catch {
+            Write-Verbose "Échec de connexion via variables d'environnement : $_"
         }
     }
 
-    throw "Impossible d'acquérir un jeton d'accès pour Microsoft Graph. Assurez-vous d'être connecté via 'az login' ou de définir AZURE_CLIENT_ID, AZURE_CLIENT_SECRET et AZURE_TENANT_ID."
+    throw "Impossible d'acquérir un jeton d'accès pour Microsoft Graph. Assurez-vous d'être connecté via OIDC (az login / azure/login) ou de définir les variables d'environnement (AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID)."
 }
 
 <#
@@ -375,4 +366,43 @@ function Resolve-GraphServicePrincipal {
     return $null
 }
 
-Export-ModuleMember -Function Connect-GraphSession, Get-GraphSessionToken, Invoke-GraphRequest, Resolve-GraphUser, Resolve-GraphGroup, Resolve-GraphServicePrincipal
+<#
+.SYNOPSIS
+    Résout un site SharePoint dans Microsoft 365 par son URL.
+.DESCRIPTION
+    Interroge /v1.0/sites/{hostname}:/{relative-path} avec mise en cache locale.
+.PARAMETER SiteUrl
+    URL absolue du site SharePoint (ex: 'https://ardian.sharepoint.com/sites/MonSite').
+#>
+function Resolve-SharepointSite {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true, Position = 0)]
+        [string]$SiteUrl
+    )
+
+    $clean = $SiteUrl.Trim()
+    if ($script:CacheSites.ContainsKey($clean.ToLowerInvariant())) {
+        return $script:CacheSites[$clean.ToLowerInvariant()]
+    }
+
+    try {
+        $uri = [System.Uri]$clean
+        $hostname = $uri.Host
+        $relativePath = $uri.AbsolutePath.TrimEnd('/')
+
+        # Format standard Graph API : /sites/{hostname}:{relative-path}
+        $endpoint = "/sites/$hostname`:$relativePath"
+        $site = Invoke-GraphRequest -Endpoint $endpoint -Method GET -IgnoreNotFound
+        if ($site -and $site.id) {
+            $script:CacheSites[$clean.ToLowerInvariant()] = $site
+            return $site
+        }
+    } catch {
+        Write-Warning "Erreur lors de la résolution du site SharePoint '$clean' : $_"
+    }
+
+    return $null
+}
+
+Export-ModuleMember -Function Connect-GraphSession, Get-GraphSessionToken, Invoke-GraphRequest, Resolve-GraphUser, Resolve-GraphGroup, Resolve-GraphServicePrincipal, Resolve-SharepointSite

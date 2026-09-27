@@ -144,9 +144,9 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
-            const appName = (process.env.APP_NAME || '').toLowerCase();
+            const rawAppName = (process.env.APP_NAME || '').trim();
 
-            if (!appName) {
+            if (!rawAppName) {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -163,14 +163,45 @@ jobs:
               return;
             }
 
-            const appDir = path.join('declaration', appName);
+            const cleanName = rawAppName.replace(/^cat-/i, '').trim();
+            const candidates = [
+              rawAppName,
+              `CAT-${cleanName}`,
+              `CAT-${rawAppName}`,
+              cleanName
+            ];
 
-            if (!fs.existsSync(appDir)) {
+            let foundDir = null;
+            try {
+              const entries = fs.readdirSync('declaration');
+              for (const entry of entries) {
+                if (entry.startsWith('_')) continue;
+                const fullPath = path.join('declaration', entry);
+                if (!fs.statSync(fullPath).isDirectory()) continue;
+
+                const entryClean = entry.replace(/^cat-/i, '').trim();
+                const normEntry = entryClean.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+                const normClean = cleanName.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+
+                if (
+                  candidates.some(c => c.toLowerCase() === entry.toLowerCase()) ||
+                  entryClean.toLowerCase() === cleanName.toLowerCase() ||
+                  (normEntry.length > 0 && normEntry === normClean)
+                ) {
+                  foundDir = entry;
+                  break;
+                }
+              }
+            } catch (e) {
+              console.log('Erreur lecture declaration/:', e.message);
+            }
+
+            if (!foundDir) {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.payload.issue.number,
-                body: `❌ **Erreur bloquante** : L'application \`${appName}\` n'existe pas dans \`declaration/\`.\n\nLe formulaire utilisateur est strictement réservé à la **modification d'applications existantes**.\nPour créer une nouvelle application, veuillez contacter un administrateur IAM.`
+                body: `❌ **Erreur bloquante** : L'application \`${rawAppName}\` (recherchée sous \`CAT-${cleanName}\`) n'existe pas dans \`declaration/\`.\n\nLe formulaire utilisateur est strictement réservé à la **modification d'applications existantes**.\nPour créer une nouvelle application, veuillez contacter un administrateur IAM.`
               });
               await github.rest.issues.update({
                 owner: context.repo.owner,
@@ -178,8 +209,12 @@ jobs:
                 issue_number: context.payload.issue.number,
                 state: 'closed'
               });
-              core.setFailed(`L'application ${appName} n'existe pas.`);
+              core.setFailed(`L'application ${rawAppName} (CAT-${cleanName}) n'existe pas.`);
+              return;
             }
+
+            console.log(`✅ Application existante trouvée dans declaration/ : ${foundDir}`);
+            core.setOutput('target_dir', foundDir);
 
       # -----------------------------------------------------------------------
       # 4. Traitement Scénario B : Création d'application (Admin)
@@ -235,8 +270,14 @@ jobs:
             }
 
             // 1. Vérifier si l'application existe déjà
-            const appDir = path.join('declaration', appName);
-            if (fs.existsSync(appDir)) {
+            const cleanName = appName.replace(/^cat-/i, '');
+            const candidates = [appName, `CAT-${cleanName}`, `CAT-${appName}`, cleanName];
+            let alreadyExists = false;
+            try {
+              const entries = fs.readdirSync('declaration');
+              alreadyExists = entries.some(entry => candidates.some(c => c.toLowerCase() === entry.toLowerCase()) && fs.statSync(path.join('declaration', entry)).isDirectory());
+            } catch (e) {}
+            if (alreadyExists) {
               console.log(`ℹ️ L'application '${appName}' existe déjà dans declaration/. Mise à jour autorisée pour l'administrateur.`);
             }
 
@@ -301,14 +342,16 @@ jobs:
           $modified = [System.Collections.Generic.List[string]]::new()
 
           foreach ($f in $yamlFiles) {
-            $appName = $f.BaseName.ToLowerInvariant()
-            $targetDir = "declaration/$appName"
+            $rawName = $f.BaseName
+            $cleanName = $rawName -replace '^(?i)CAT-', ''
+            $catDirName = "CAT-$cleanName"
+            $targetDir = "declaration/$catDirName"
             if (-not (Test-Path $targetDir)) {
               New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
             }
-            Copy-Item -Path $f.FullName -Destination "$targetDir/$appName.yaml" -Force
-            $modified.Add($appName)
-            Write-Host "✅ Application '$appName' mise à jour depuis l'archive." -ForegroundColor Green
+            Copy-Item -Path $f.FullName -Destination "$targetDir/$catDirName.yaml" -Force
+            $modified.Add($catDirName)
+            Write-Host "✅ Application '$catDirName' mise à jour depuis l'archive." -ForegroundColor Green
           }
 
           [System.IO.File]::WriteAllLines("./parsed/modified_apps.txt", $modified.ToArray(), [System.Text.Encoding]::UTF8)
@@ -413,8 +456,13 @@ jobs:
               echo "::error::Fichier ./parsed/app.yaml introuvable !"
               exit 1
             fi
-            CLEAN_SLUG=$(echo "$APP_SLUG" | sed -e 's/^cat-//I')
-            CAT_DIR="CAT-${CLEAN_SLUG}"
+            TARGET_DIR="${{ steps.validate-exist.outputs.target_dir }}"
+            if [ "$OP" = "user_modify" ] && [ -n "$TARGET_DIR" ]; then
+              CAT_DIR="$TARGET_DIR"
+            else
+              CLEAN_SLUG=$(echo "$APP_SLUG" | sed -e 's/^cat-//I')
+              CAT_DIR="CAT-${CLEAN_SLUG}"
+            fi
             mkdir -p "declaration/${CAT_DIR}"
             cp ./parsed/app.yaml "declaration/${CAT_DIR}/${CAT_DIR}.yaml"
             git add "declaration/${CAT_DIR}/${CAT_DIR}.yaml"

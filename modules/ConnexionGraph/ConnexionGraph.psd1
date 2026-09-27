@@ -1,4 +1,4 @@
-@{
+﻿@{
     # Manifeste du module ConnexionGraph
     RootModule           = 'ConnexionGraph.psm1'
     ModuleVersion        = '1.0.0'
@@ -14,7 +14,8 @@
         'Invoke-GraphRequest',
         'Resolve-GraphUser',
         'Resolve-GraphGroup',
-        'Resolve-GraphServicePrincipal'
+        'Resolve-GraphServicePrincipal',
+        'Resolve-SharepointSite'
     )
     CmdletsToExport      = @()
     VariablesToExport    = @()

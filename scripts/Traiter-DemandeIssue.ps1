@@ -163,9 +163,9 @@ if ($yamlMatch.Success) {
 }
 
 if ($yamlContent) {
-    # Extraction du nom d'application depuis le YAML
-    if ($yamlContent -match '(?m)^\s*app_name\s*:\s*["'']?([a-zA-Z0-9_-]+)["'']?') {
-        $extractedAppName = $Matches[1].Trim().ToLowerInvariant()
+    # Extraction du nom d'application depuis le YAML (format libre)
+    if ($yamlContent -match '(?m)^\s*app_name\s*:\s*(?:["''](?<name>[^"''\r\n]+)["'']|(?<name>[^\r\n#]+))') {
+        $extractedAppName = $Matches['name'].Trim()
         [System.IO.File]::WriteAllText((Join-Path $OutputDir "app_name.txt"), $extractedAppName, [System.Text.Encoding]::UTF8)
         Write-Host "🏷️ app_name extrait du YAML : $extractedAppName" -ForegroundColor Gray
     }
@@ -173,8 +173,8 @@ if ($yamlContent) {
 
 # Safeguard : si app_name n'a pas été trouvé dans le YAML, extraction depuis le titre
 if (-not (Test-Path (Join-Path $OutputDir "app_name.txt")) -and -not [string]::IsNullOrWhiteSpace($IssueTitle)) {
-    if ($IssueTitle -match '\[(?:Création Admin|Creation Admin|Admin Create|Modification)\]\s*([a-zA-Z0-9_-]+)') {
-        $extractedAppName = $Matches[1].Trim().ToLowerInvariant()
+    if ($IssueTitle -match '\[(?:Création Admin|Creation Admin|Admin Create|Modification)\]\s*(.+)') {
+        $extractedAppName = $Matches[1].Trim()
         [System.IO.File]::WriteAllText((Join-Path $OutputDir "app_name.txt"), $extractedAppName, [System.Text.Encoding]::UTF8)
         Write-Host "🏷️ app_name extrait depuis le titre : $extractedAppName" -ForegroundColor Gray
     }

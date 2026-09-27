@@ -6,30 +6,27 @@
   "type": "object",
   "required": [
     "app_name",
-    "app_description",
-    "access_packages"
+    "app_description"
   ],
   "additionalProperties": false,
   "properties": {
     "app_name": {
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9-_]{1,62}[a-z0-9]$",
-      "description": "Identifiant unique de l'application en kebab-case ou snake_case. Le repertoire et le fichier YAML doivent obligatoirement etre nommes CAT-{app_name}."
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Identifiant unique de l'application (espaces et majuscules autorises). Le repertoire et le fichier YAML doivent obligatoirement etre nommes CAT-{app_name}."
     },
     "catalog_name": {
       "type": "string",
-      "description": "Nom exact du catalogue Entra ID s'il differe de app_name (utilitaire de mapping Smart Discovery)."
+      "description": "Nom exact du catalogue Entra ID s'il differe de CAT-{app_name}."
     },
     "app_description": {
       "type": "string",
-      "minLength": 5,
-      "maxLength": 500,
-      "description": "Description fonctionnelle du catalogue dans Entra ID."
+      "description": "Description fonctionnelle du catalogue dans Entra ID (aucune restriction de longueur)."
     },
     "access_packages": {
       "type": "array",
-      "minItems": 1,
-      "description": "Liste des Access Packages rattaches a cette application / catalogue.",
+      "description": "Liste optionnelle des Access Packages rattaches a cette application / catalogue.",
       "items": {
         "$ref": "#/definitions/access_package"
       }
@@ -42,7 +39,6 @@
         "privilege_level",
         "env",
         "description",
-        "authorization_owners",
         "resources"
       ],
       "additionalProperties": false,
@@ -69,18 +65,15 @@
         },
         "description": {
           "type": "string",
-          "minLength": 5,
-          "maxLength": 500,
           "description": "Description fonctionnelle de l'Access Package affichee dans MyAccess."
         },
         "authorization_owners": {
           "type": "array",
-          "minItems": 1,
           "items": {
             "type": "string",
             "format": "email"
           },
-          "description": "Liste des emails des approbateurs / proprietaires de l'autorisation."
+          "description": "Liste optionnelle des emails des approbateurs de l'Access Package."
         },
         "resources": {
           "type": "array",
@@ -109,9 +102,7 @@
         },
         "app_role": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 256,
-          "description": "Nom exact du role dans l'App Registration."
+          "description": "Optionnel. Construit automatiquement si omis ({context_subapp} {privilege_level})."
         },
         "group_name": {
           "type": "string",
@@ -119,20 +110,22 @@
           "maxLength": 256,
           "description": "Nom du groupe existant dans Entra ID (evalue de maniere insensible a la casse)."
         },
-        "catalog_id": {
-          "type": "string",
-          "description": "ID du catalogue SharePoint."
-        },
         "sharepoint_url": {
           "type": "string",
           "format": "uri",
           "description": "URL complete du site SharePoint."
         },
+        "sharepoint_group_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Nom du groupe SharePoint cible."
+        },
         "role": {
           "type": "string",
           "enum": ["Member", "Owner"],
           "default": "Member",
-          "description": "Rôle attribué sur le groupe (Member ou Owner)."
+          "description": "Rôle attribué sur le groupe (Member par défaut, ou Owner)."
         }
       },
       "allOf": [
@@ -141,7 +134,7 @@
             "properties": { "resource_type": { "const": "Application Role" } }
           },
           "then": {
-            "required": ["enterprise_app", "app_role"],
+            "required": ["enterprise_app"],
             "additionalProperties": false,
             "properties": {
               "resource_type": { "const": "Application Role" },
@@ -169,13 +162,13 @@
             "properties": { "resource_type": { "const": "Sharepoint Group" } }
           },
           "then": {
-            "required": ["catalog_id", "sharepoint_url"],
+            "required": ["sharepoint_url", "sharepoint_group_name"],
             "additionalProperties": false,
             "properties": {
               "resource_type": { "const": "Sharepoint Group" },
-              "catalog_id": { "type": "string" },
               "sharepoint_url": { "type": "string" },
-              "group_name": { "type": "string" }
+              "sharepoint_group_name": { "type": "string" },
+              "role": { "type": "string" }
             }
           }
         }

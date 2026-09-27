@@ -19,7 +19,7 @@ param(
     [string]$DeclarationDir = "declaration",
 
     [Parameter(Mandatory = $false)]
-    [string]$FallbackApproverEmail = "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com",
+    [string]$FallbackApproverEmail = "",
 
     [Parameter(Mandatory = $false)]
     [string]$OutputList = "imported_apps.txt",

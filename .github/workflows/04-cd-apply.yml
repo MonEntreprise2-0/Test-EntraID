@@ -41,51 +41,12 @@ jobs:
       - name: ⚡ Déploiement déclaratif Microsoft Entra ID
         id: deploy
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           & ./scripts/Deployer-Declarations.ps1 -OutputSummaryFile deployment_summary.md
-
-      - name: 💬 Publier la confirmation de déploiement sur la Pull Request
-        if: steps.deploy.outcome == 'success'
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
-          script: |
-            const fs = require('fs');
-            const child_process = require('child_process');
-            let prNumber = null;
-            try {
-              const log = child_process.execSync('git log -n 5 --pretty=%B').toString();
-              const prMatch = log.match(/Merge pull request #(\d+)/);
-              if (prMatch) {
-                prNumber = parseInt(prMatch[1], 10);
-              }
-            } catch (e) {
-              console.log('Erreur parsing git log:', e.message);
-            }
-
-            if (!prNumber) {
-              console.log('Aucun numéro de Pull Request trouvé dans le commit de merge.');
-              return;
-            }
-
-            let summaryContent = '';
-            if (fs.existsSync('deployment_summary.md')) {
-              summaryContent = fs.readFileSync('deployment_summary.md', 'utf8');
-            } else {
-              summaryContent = '## 🚀 Déploiement appliqué avec succès dans Microsoft Entra ID !';
-            }
-
-            try {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: prNumber,
-                body: summaryContent
-              });
-              console.log(`Commentaire de déploiement posté avec succès sur la PR #${prNumber}`);
-            } catch (err) {
-              console.log('Erreur création commentaire PR:', err.message);
-            }
 
       - name: 📝 Commiter la mise à jour automatique de CODEOWNERS
         if: steps.deploy.outcome == 'success'

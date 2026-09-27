@@ -1,4 +1,4 @@
-@{
+﻿@{
     # Manifeste du module RapportsEtNotifications
     RootModule           = 'RapportsEtNotifications.psm1'
     ModuleVersion        = '1.0.0'
@@ -10,7 +10,9 @@
     PowerShellVersion    = '5.1'
     FunctionsToExport    = @(
         'Formater-RapportPlanCI',
-        'Formater-RapportDeploiementCD'
+        'Formater-RapportDeploiementCD',
+        'New-LivePRComment',
+        'Update-LivePRComment'
     )
     CmdletsToExport      = @()
     VariablesToExport    = @()

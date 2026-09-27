@@ -27,13 +27,16 @@ function Comparer-EtatEntra {
         $Declarations,
 
         [Parameter(Mandatory = $false)]
-        $SSoTPrerequisites = $null
+        $SSoTPrerequisites = $null,
+
+        [Parameter(Mandatory = $false)]
+        $CataloguesExistants = $null
     )
 
     Write-Verbose "Début du calcul différentiel (Diff) Git vs Entra ID..."
 
     # Récupération de tous les catalogues existants dans Entra ID
-    $existingCatalogs = Get-CatalogueEntra
+    $existingCatalogs = if ($null -ne $CataloguesExistants) { $CataloguesExistants } else { Get-CatalogueEntra }
     $catalogMapByName = @{}
     $catalogMapNormalized = @{}
     if ($existingCatalogs) {
@@ -53,7 +56,6 @@ function Comparer-EtatEntra {
     $catalogsToUpdate = [System.Collections.Generic.List[object]]::new()
     $catalogsUnchanged = [System.Collections.Generic.List[object]]::new()
 
-    $ownersToAdd = [System.Collections.Generic.List[object]]::new()
     $catalogResourcesToAdd = [System.Collections.Generic.List[object]]::new()
 
     $accessPackagesToCreate = [System.Collections.Generic.List[object]]::new()
@@ -109,13 +111,16 @@ function Comparer-EtatEntra {
         # 2. Analyse des Access Packages et ressources si le catalogue existe
         $existingApsMap = @{}
         $existingCatResourcesMap = @{}
-        $existingOwnersSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 
         if ($existingCat) {
             $catId = $existingCat.id
 
-            # Récupération des packages existants du catalogue
-            $existingAps = Get-AccessPackageEntra -CatalogId $catId
+            # Récupération des packages existants du catalogue (ou réutilisation si déjà alimentés)
+            $existingAps = if ($existingCat.PSObject.Properties['accessPackages'] -and $null -ne $existingCat.accessPackages) {
+                $existingCat.accessPackages
+            } else {
+                Get-AccessPackageEntra -CatalogId $catId
+            }
             if ($existingAps) {
                 foreach ($ap in $existingAps) {
                     if ($ap.displayName) {
@@ -124,22 +129,21 @@ function Comparer-EtatEntra {
                 }
             }
 
-            # Récupération des ressources existantes dans le catalogue
-            $catResources = Get-RessourcesCatalogue -CatalogId $catId
+            # Récupération des ressources existantes dans le catalogue (ou réutilisation si déjà alimentées)
+            $catResources = if ($existingCat.PSObject.Properties['resources'] -and $null -ne $existingCat.resources) {
+                $existingCat.resources
+            } else {
+                try {
+                    Get-RessourcesCatalogue -CatalogId $catId
+                } catch {
+                    Write-Verbose "Impossible de récupérer les ressources du catalogue '$catId' : $_"
+                    @()
+                }
+            }
             if ($catResources) {
                 foreach ($res in $catResources) {
                     if ($res.originId) {
                         $existingCatResourcesMap[$res.originId.Trim().ToLowerInvariant()] = $res
-                    }
-                }
-            }
-
-            # Récupération des Catalog Owners actuels
-            $owners = Get-ProprietairesCatalogue -CatalogId $catId
-            if ($owners) {
-                foreach ($own in $owners) {
-                    if ($own.principalId) {
-                        $existingOwnersSet.Add($own.principalId.Trim()) | Out-Null
                     }
                 }
             }
@@ -148,59 +152,51 @@ function Comparer-EtatEntra {
         # Détection des paquets déclarés
         $declaredApNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 
-        foreach ($ap in $doc.access_packages) {
-            $apName = Calculer-NomAccessPackage -AccessPackage $ap -AppName $appName
-            $declaredApNames.Add($apName) | Out-Null
-            $apKey = $apName.ToLowerInvariant()
-            $apDesc = $(if ($ap.description) { $ap.description.Trim() } else { "Access Package $apName" })
+        if ($doc.access_packages) {
+            foreach ($ap in $doc.access_packages) {
+                $apName = Calculer-NomAccessPackage -AccessPackage $ap -AppName $appName
+                $declaredApNames.Add($apName) | Out-Null
+                $apKey = $apName.ToLowerInvariant()
+                $apDesc = $(if ($ap.description) { $ap.description.Trim() } else { "Access Package $apName" })
 
-            $existingAp = $(if ($existingApsMap.ContainsKey($apKey)) { $existingApsMap[$apKey] } else { $null })
+                $existingAp = $(if ($existingApsMap.ContainsKey($apKey)) { $existingApsMap[$apKey] } else { $null })
 
-            if (-not $existingAp) {
-                $accessPackagesToCreate.Add(@{
-                    AppName     = $appName
-                    CatalogName = $catName
-                    DisplayName = $apName
-                    Description = $apDesc
-                })
-                $policiesToCreate.Add(@{
-                    AccessPackageName = $apName
-                    DisplayName       = "Politique - $apName"
-                    Approvers         = $ap.authorization_owners
-                })
-            } else {
-                if ($existingAp.description -ne $apDesc) {
-                    $accessPackagesToUpdate.Add(@{
-                        Id          = $existingAp.id
+                if (-not $existingAp) {
+                    $accessPackagesToCreate.Add(@{
+                        AppName     = $appName
+                        CatalogName = $catName
                         DisplayName = $apName
                         Description = $apDesc
                     })
-                } else {
-                    $accessPackagesUnchanged.Add(@{
-                        Id          = $existingAp.id
-                        DisplayName = $apName
-                    })
-                }
-            }
-
-            # Propriétaires (authorization_owners -> Catalog Owners)
-            if ($ap.authorization_owners) {
-                foreach ($ownerEmail in $ap.authorization_owners) {
-                    $ownersToAdd.Add(@{
-                        CatalogName = $catName
-                        UserEmail   = $ownerEmail
-                    })
-                }
-            }
-
-            # Ressources déclarées
-            if ($ap.resources) {
-                foreach ($res in $ap.resources) {
-                    $catalogResourcesToAdd.Add(@{
-                        CatalogName       = $catName
+                    $policiesToCreate.Add(@{
                         AccessPackageName = $apName
-                        Resource          = $res
+                        DisplayName       = "Politique - $apName"
+                        Approvers         = $ap.authorization_owners
                     })
+                } else {
+                    if ($existingAp.description -ne $apDesc) {
+                        $accessPackagesToUpdate.Add(@{
+                            Id          = $existingAp.id
+                            DisplayName = $apName
+                            Description = $apDesc
+                        })
+                    } else {
+                        $accessPackagesUnchanged.Add(@{
+                            Id          = $existingAp.id
+                            DisplayName = $apName
+                        })
+                    }
+                }
+
+                # Ressources déclarées
+                if ($ap.resources) {
+                    foreach ($res in $ap.resources) {
+                        $catalogResourcesToAdd.Add(@{
+                            CatalogName       = $catName
+                            AccessPackageName = $apName
+                            Resource          = $res
+                        })
+                    }
                 }
             }
         }
@@ -229,7 +225,6 @@ function Comparer-EtatEntra {
         CatalogsToCreate        = $catalogsToCreate.ToArray()
         CatalogsToUpdate        = $catalogsToUpdate.ToArray()
         CatalogsUnchanged       = $catalogsUnchanged.ToArray()
-        CatalogOwnersToAdd      = $ownersToAdd.ToArray()
         CatalogResourcesToAdd   = $catalogResourcesToAdd.ToArray()
         AccessPackagesToCreate  = $accessPackagesToCreate.ToArray()
         AccessPackagesToUpdate  = $accessPackagesToUpdate.ToArray()
@@ -241,6 +236,7 @@ function Comparer-EtatEntra {
         UpdatesCount            = $updatesCount
         DeletesCount            = $deletesCount
         NoChangeCount           = $noChangeCount
+        HasChanges              = (($createsCount + $updatesCount + $deletesCount) -gt 0)
     }
 }
 
@@ -264,8 +260,18 @@ function Synchroniser-EtatEntra {
         $Declarations,
 
         [Parameter(Mandatory = $false)]
-        $DiffReport = $null
+        $DiffReport = $null,
+
+        [Parameter(Mandatory = $false)]
+        [long]$LiveCommentId = 0
     )
+
+    function Update-LiveProgress {
+        param([string]$StatusText)
+        if ($LiveCommentId -gt 0 -and (Get-Command -Name "Update-LivePRComment" -ErrorAction SilentlyContinue)) {
+            Update-LivePRComment -CommentId $LiveCommentId -Message $StatusText
+        }
+    }
 
     Write-Host "====================================================" -ForegroundColor Cyan
     Write-Host "🚀 DÉPLOIEMENT DÉCLARATIF ENTRA ID (100% POWERSHELL)" -ForegroundColor Cyan
@@ -273,6 +279,8 @@ function Synchroniser-EtatEntra {
 
     $deployedResources = [System.Collections.Generic.List[PSObject]]::new()
     $errors = [System.Collections.Generic.List[string]]::new()
+
+    Update-LiveProgress "### 🚀 Déploiement Microsoft Entra ID en cours...`n`n| Étape | Statut |`n|---|---|`n| 📦 Catalogues | ⏳ En cours... |`n| 📁 Ressources (Groupes, Apps, SharePoint) | ⏸️ En attente |`n| 🎁 Access Packages | ⏸️ En attente |`n| 📜 Politiques d'Assignation | ⏸️ En attente |"
 
     foreach ($doc in $Declarations) {
         $appName = $doc.app_name
@@ -305,70 +313,61 @@ function Synchroniser-EtatEntra {
         })
 
         # -------------------------------------------------------------------
-        # ÉTAPE 2 : Assignation des Propriétaires du Catalogue (Catalog Owners)
+        # ÉTAPE 2 : Onboarding des Ressources dans le Catalogue
         # -------------------------------------------------------------------
-        $allOwners = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-        foreach ($ap in $doc.access_packages) {
-            if ($ap.authorization_owners) {
-                foreach ($email in $ap.authorization_owners) {
-                    if (-not [string]::IsNullOrWhiteSpace($email)) {
-                        $allOwners.Add($email.Trim()) | Out-Null
-                    }
-                }
-            }
-        }
+        Update-LiveProgress "### 🚀 Déploiement Microsoft Entra ID en cours...`n`n| Étape | Statut |`n|---|---|`n| 📦 Catalogues | ✅ Prêts |`n| 📁 Ressources (Groupes, Apps, SharePoint) | ⏳ En cours... |`n| 🎁 Access Packages | ⏸️ En attente |`n| 📜 Politiques d'Assignation | ⏸️ En attente |"
 
-        foreach ($ownerEmail in $allOwners) {
-            $userObj = Resolve-GraphUser -UserEmailOrUpn $ownerEmail
-            if ($userObj) {
-                try {
-                    Add-ProprietaireCatalogue -CatalogId $catalogId -UserId $userObj.id | Out-Null
-                    Write-Host "  👑 Propriétaire '$ownerEmail' assigné au catalogue." -ForegroundColor Green
-                } catch {
-                    Write-Warning "  ⚠️ Erreur assignation propriétaire '$ownerEmail' : $_"
-                }
-            } else {
-                Write-Warning "  ⚠️ Utilisateur '$ownerEmail' introuvable dans l'annuaire pour l'assignation de propriétaire."
-            }
-        }
-
-        # -------------------------------------------------------------------
-        # ÉTAPE 3 : Onboarding des Ressources dans le Catalogue
-        # -------------------------------------------------------------------
         $onboardedResourcesMap = @{}
 
-        foreach ($ap in $doc.access_packages) {
-            if (-not $ap.resources) { continue }
-            foreach ($res in $ap.resources) {
-                $rType = $res.resource_type
-                if ($rType -eq "EntraID Group" -or $rType -eq "Group") {
-                    $grpKey = $res.group_name.ToLowerInvariant()
-                    if ($onboardedResourcesMap.ContainsKey($grpKey)) {
-                        continue
-                    }
-                    $grpObj = Resolve-GraphGroup -GroupName $res.group_name
-                    if ($grpObj) {
-                        try {
-                            Add-RessourceCatalogue -CatalogId $catalogId -OriginId $grpObj.id -OriginSystem "AadGroup" | Out-Null
-                            $onboardedResourcesMap[$grpKey] = $grpObj.id
-                            Write-Host "  📁 Groupe '$($res.group_name)' associé au catalogue." -ForegroundColor Gray
-                        } catch {
-                            Write-Warning "  ⚠️ Erreur onboarding groupe '$($res.group_name)' : $_"
+        if ($doc.access_packages) {
+            foreach ($ap in $doc.access_packages) {
+                if (-not $ap.resources) { continue }
+                foreach ($res in $ap.resources) {
+                    $rType = $res.resource_type
+                    if ($rType -eq "EntraID Group" -or $rType -eq "Group") {
+                        $grpKey = $res.group_name.ToLowerInvariant()
+                        if ($onboardedResourcesMap.ContainsKey($grpKey)) {
+                            continue
                         }
-                    }
-                } elseif ($rType -eq "Application Role" -or $rType -eq "Application") {
-                    $appKey = $res.enterprise_app.ToLowerInvariant()
-                    if ($onboardedResourcesMap.ContainsKey($appKey)) {
-                        continue
-                    }
-                    $spObj = Resolve-GraphServicePrincipal -DisplayName $res.enterprise_app
-                    if ($spObj) {
-                        try {
-                            Add-RessourceCatalogue -CatalogId $catalogId -OriginId $spObj.id -OriginSystem "AadApplication" | Out-Null
-                            $onboardedResourcesMap[$appKey] = $spObj.id
-                            Write-Host "  📱 Application '$($res.enterprise_app)' associée au catalogue." -ForegroundColor Gray
-                        } catch {
-                            Write-Warning "  ⚠️ Erreur onboarding application '$($res.enterprise_app)' : $_"
+                        $grpObj = Resolve-GraphGroup -GroupName $res.group_name
+                        if ($grpObj) {
+                            try {
+                                Add-RessourceCatalogue -CatalogId $catalogId -OriginId $grpObj.id -OriginSystem "AadGroup" | Out-Null
+                                $onboardedResourcesMap[$grpKey] = $grpObj.id
+                                Write-Host "  📁 Groupe '$($res.group_name)' associé au catalogue." -ForegroundColor Gray
+                            } catch {
+                                Write-Warning "  ⚠️ Erreur onboarding groupe '$($res.group_name)' : $_"
+                            }
+                        }
+                    } elseif ($rType -eq "Application Role" -or $rType -eq "Application") {
+                        $appKey = $res.enterprise_app.ToLowerInvariant()
+                        if ($onboardedResourcesMap.ContainsKey($appKey)) {
+                            continue
+                        }
+                        $spObj = Resolve-GraphServicePrincipal -DisplayName $res.enterprise_app
+                        if ($spObj) {
+                            try {
+                                Add-RessourceCatalogue -CatalogId $catalogId -OriginId $spObj.id -OriginSystem "AadApplication" | Out-Null
+                                $onboardedResourcesMap[$appKey] = $spObj.id
+                                Write-Host "  📱 Application '$($res.enterprise_app)' associée au catalogue." -ForegroundColor Gray
+                            } catch {
+                                Write-Warning "  ⚠️ Erreur onboarding application '$($res.enterprise_app)' : $_"
+                            }
+                        }
+                    } elseif ($rType -in @("Sharepoint Group", "SharePoint Group", "SharePoint Online", "SharePoint Site")) {
+                        $siteKey = $res.sharepoint_url.ToLowerInvariant()
+                        if ($onboardedResourcesMap.ContainsKey($siteKey)) {
+                            continue
+                        }
+                        $siteObj = Resolve-SharepointSite -SiteUrl $res.sharepoint_url
+                        if ($siteObj) {
+                            try {
+                                Add-RessourceCatalogue -CatalogId $catalogId -OriginId $siteObj.webUrl -OriginSystem "SharePointOnline" | Out-Null
+                                $onboardedResourcesMap[$siteKey] = $siteObj.id
+                                Write-Host "  🌐 Site SharePoint '$($res.sharepoint_url)' associé au catalogue." -ForegroundColor Gray
+                            } catch {
+                                Write-Warning "  ⚠️ Erreur onboarding site SharePoint '$($res.sharepoint_url)' : $_"
+                            }
                         }
                     }
                 }
@@ -376,8 +375,10 @@ function Synchroniser-EtatEntra {
         }
 
         # -------------------------------------------------------------------
-        # ÉTAPE 4 : Création / Mise à jour des Access Packages
+        # ÉTAPE 3 : Création / Mise à jour des Access Packages
         # -------------------------------------------------------------------
+        Update-LiveProgress "### 🚀 Déploiement Microsoft Entra ID en cours...`n`n| Étape | Statut |`n|---|---|`n| 📦 Catalogues | ✅ Prêts |`n| 📁 Ressources (Groupes, Apps, SharePoint) | ✅ Associées |`n| 🎁 Access Packages | ⏳ En cours... |`n| 📜 Politiques d'Assignation | ⏸️ En attente |"
+
         $existingAps = Get-AccessPackageEntra -CatalogId $catalogId
         $existingApMap = @{}
         if ($existingAps) {
@@ -390,128 +391,138 @@ function Synchroniser-EtatEntra {
 
         $activeApNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 
-        foreach ($ap in $doc.access_packages) {
-            $apName = Calculer-NomAccessPackage -AccessPackage $ap -AppName $appName
-            $activeApNames.Add($apName) | Out-Null
-            $apKey = $apName.ToLowerInvariant()
-            $apDesc = $(if ($ap.description) { $ap.description.Trim() } else { "Access Package $apName" })
+        if ($doc.access_packages) {
+            Update-LiveProgress "### 🚀 Déploiement Microsoft Entra ID en cours...`n`n| Étape | Statut |`n|---|---|`n| 📦 Catalogues | ✅ Prêts |`n| 📁 Ressources (Groupes, Apps, SharePoint) | ✅ Associées |`n| 🎁 Access Packages | ⏳ En cours... |`n| 📜 Politiques d'Assignation | ⏸️ En attente |"
+            foreach ($ap in $doc.access_packages) {
+                $apName = Calculer-NomAccessPackage -AccessPackage $ap -AppName $appName
+                $activeApNames.Add($apName) | Out-Null
+                $apKey = $apName.ToLowerInvariant()
+                $apDesc = $(if ($ap.description) { $ap.description.Trim() } else { "Access Package $apName" })
 
-            $apObj = $(if ($existingApMap.ContainsKey($apKey)) { $existingApMap[$apKey] } else { $null })
+                $apObj = $(if ($existingApMap.ContainsKey($apKey)) { $existingApMap[$apKey] } else { $null })
 
-            if (-not $apObj) {
-                Write-Host "  🎁 Création de l'Access Package '$apName'..." -ForegroundColor Green
-                $apObj = New-AccessPackageEntra -CatalogId $catalogId -DisplayName $apName -Description $apDesc
-            } else {
-                Write-Host "  ✅ Access Package existant trouvé : '$apName' ($($apObj.id))" -ForegroundColor Gray
-                if ($apObj.description -ne $apDesc) {
-                    Write-Host "  ✏️ Mise à jour de la description de '$apName'..." -ForegroundColor Cyan
-                    Set-AccessPackageEntra -AccessPackageId $apObj.id -Description $apDesc | Out-Null
-                }
-            }
-
-            if (-not $apObj -or [string]::IsNullOrWhiteSpace($apObj.id)) {
-                Write-Warning "  ⚠️ Impossible de récupérer ou créer l'Access Package '$apName'."
-                $errors.Add("Échec création Access Package '$apName'")
-                continue
-            }
-
-            $apId = $apObj.id
-            $deployedResources.Add([PSCustomObject]@{
-                Type        = "Access Package"
-                DisplayName = $apName
-                Id          = $apId
-                Status      = "Actif"
-            })
-
-            # ---------------------------------------------------------------
-            # ÉTAPE 5 : Liaison des Rôles de Ressources (Resource Roles)
-            # ---------------------------------------------------------------
-            if ($ap.resources) {
-                foreach ($res in $ap.resources) {
-                    $rType = $res.resource_type
-                    $targetOriginId = $null
-                    $roleToAssign = "Member"
-
-                    if ($rType -eq "EntraID Group" -or $rType -eq "Group") {
-                        $targetOriginId = $(if ($onboardedResourcesMap.ContainsKey($res.group_name.ToLowerInvariant())) {
-                            $onboardedResourcesMap[$res.group_name.ToLowerInvariant()]
-                        } else {
-                            $g = Resolve-GraphGroup -GroupName $res.group_name
-                            if ($g) { $g.id } else { $null }
-                        })
-                        if ($res.role -and $res.role.Equals("Owner", [StringComparison]::OrdinalIgnoreCase)) {
-                            $roleToAssign = "Owner"
-                        }
-                    } elseif ($rType -eq "Application Role" -or $rType -eq "Application") {
-                        $targetOriginId = $(if ($onboardedResourcesMap.ContainsKey($res.enterprise_app.ToLowerInvariant())) {
-                            $onboardedResourcesMap[$res.enterprise_app.ToLowerInvariant()]
-                        } else {
-                            $sp = Resolve-GraphServicePrincipal -DisplayName $res.enterprise_app
-                            if ($sp) { $sp.id } else { $null }
-                        })
-                        if ($res.app_role) {
-                            $roleToAssign = $res.app_role
-                        }
-                    }
-
-                    if ($targetOriginId) {
-                        try {
-                            Add-RoleRessourceAccessPackage -CatalogId $catalogId -AccessPackageId $apId -ResourceOriginId $targetOriginId -RoleName $roleToAssign | Out-Null
-                            Write-Host "  🔗 Rôle '$roleToAssign' lié à l'Access Package '$apName'." -ForegroundColor Gray
-                        } catch {
-                            Write-Warning "  ⚠️ Erreur liaison de rôle sur '$apName' : $_"
-                        }
-                    }
-                }
-            }
-
-            # ---------------------------------------------------------------
-            # ÉTAPE 6 : Politique d'Assignation (Approval & Duration)
-            # ---------------------------------------------------------------
-            try {
-                $approverIds = [System.Collections.Generic.List[string]]::new()
-                if ($ap.authorization_owners) {
-                    foreach ($email in $ap.authorization_owners) {
-                        $u = Resolve-GraphUser -UserEmailOrUpn $email
-                        if ($u) {
-                            $approverIds.Add($u.id)
-                        }
-                    }
-                }
-
-                $policyName = "Politique - $apName"
-                $policy = Get-PolitiqueAssignationEntra -AccessPackageId $apId -DisplayName $policyName
-
-                if (-not $policy -or [string]::IsNullOrWhiteSpace($policy.id)) {
-                    Write-Host "  📜 Création de la politique d'assignation pour '$apName'..." -ForegroundColor Green
-                    $policy = New-PolitiqueAssignationEntra -AccessPackageId $apId -DisplayName $policyName -ApproverUserIds $approverIds.ToArray()
+                if (-not $apObj) {
+                    Write-Host "  🎁 Création de l'Access Package '$apName'..." -ForegroundColor Green
+                    $apObj = New-AccessPackageEntra -CatalogId $catalogId -DisplayName $apName -Description $apDesc
                 } else {
-                    Write-Host "  ✅ Politique d'assignation existante trouvée ($($policy.id))." -ForegroundColor Gray
-                    Set-PolitiqueAssignationEntra -PolicyId $policy.id -AccessPackageId $apId -DisplayName $policyName -ApproverUserIds $approverIds.ToArray() | Out-Null
+                    Write-Host "  ✅ Access Package existant trouvé : '$apName' ($($apObj.id))" -ForegroundColor Gray
+                    if ($apObj.description -ne $apDesc) {
+                        Write-Host "  ✏️ Mise à jour de la description de '$apName'..." -ForegroundColor Cyan
+                        Set-AccessPackageEntra -AccessPackageId $apObj.id -Description $apDesc | Out-Null
+                    }
                 }
 
-                if ($policy -and -not [string]::IsNullOrWhiteSpace($policy.id)) {
-                    $deployedResources.Add([PSCustomObject]@{
-                        Type        = "Politique d'Assignation"
-                        DisplayName = $policyName
-                        Id          = $policy.id
-                        Status      = "Actif"
-                    })
+                if (-not $apObj -or [string]::IsNullOrWhiteSpace($apObj.id)) {
+                    Write-Warning "  ⚠️ Impossible de récupérer ou créer l'Access Package '$apName'."
+                    $errors.Add("Échec création Access Package '$apName'")
+                    continue
                 }
-            } catch {
-                Write-Warning "  ⚠️ Erreur lors de la configuration de la politique pour '$apName' : $_"
-                $errors.Add("Erreur politique '$apName' : $_")
+
+                $apId = $apObj.id
+                $deployedResources.Add([PSCustomObject]@{
+                    Type        = "Access Package"
+                    DisplayName = $apName
+                    Id          = $apId
+                    Status      = "Actif"
+                })
+
+                # ---------------------------------------------------------------
+                # ÉTAPE 4 : Liaison des Rôles de Ressources (Resource Roles)
+                # ---------------------------------------------------------------
+                if ($ap.resources) {
+                    foreach ($res in $ap.resources) {
+                        $rType = $res.resource_type
+                        $targetOriginId = $null
+                        $roleToAssign = "Member"
+
+                        if ($rType -eq "EntraID Group" -or $rType -eq "Group") {
+                            $targetOriginId = $(if ($onboardedResourcesMap.ContainsKey($res.group_name.ToLowerInvariant())) {
+                                $onboardedResourcesMap[$res.group_name.ToLowerInvariant()]
+                            } else {
+                                $g = Resolve-GraphGroup -GroupName $res.group_name
+                                if ($g) { $g.id } else { $null }
+                            })
+                            # Groupes par défaut : Member sauf si explicitement Owner
+                            if ($res.role -and $res.role.Equals("Owner", [StringComparison]::OrdinalIgnoreCase)) {
+                                $roleToAssign = "Owner"
+                            } else {
+                                $roleToAssign = "Member"
+                            }
+                        } elseif ($rType -eq "Application Role" -or $rType -eq "Application") {
+                            $targetOriginId = $(if ($onboardedResourcesMap.ContainsKey($res.enterprise_app.ToLowerInvariant())) {
+                                $onboardedResourcesMap[$res.enterprise_app.ToLowerInvariant()]
+                            } else {
+                                $sp = Resolve-GraphServicePrincipal -DisplayName $res.enterprise_app
+                                if ($sp) { $sp.id } else { $null }
+                            })
+                            # AppRole calculé automatiquement : {context/subapp} {privilege Level}
+                            $computedAppRole = if (-not [string]::IsNullOrWhiteSpace($ap.context_subapp)) {
+                                "$($ap.context_subapp.Trim()) $($ap.privilege_level.Trim())"
+                            } else {
+                                "$($ap.privilege_level.Trim())"
+                            }
+                            $roleToAssign = if ($res.app_role) { $res.app_role.Trim() } else { $computedAppRole }
+                        }
+
+                        if ($targetOriginId) {
+                            try {
+                                Add-RoleRessourceAccessPackage -CatalogId $catalogId -AccessPackageId $apId -ResourceOriginId $targetOriginId -RoleName $roleToAssign | Out-Null
+                                Write-Host "  🔗 Rôle '$roleToAssign' lié à l'Access Package '$apName'." -ForegroundColor Gray
+                            } catch {
+                                Write-Warning "  ⚠️ Erreur liaison de rôle sur '$apName' : $_"
+                            }
+                        }
+                    }
+                }
+
+                # ---------------------------------------------------------------
+                # ÉTAPE 5 : Politique d'Assignation Unique par Access Package
+                # ---------------------------------------------------------------
+                Update-LiveProgress "### 🚀 Déploiement Microsoft Entra ID en cours...`n`n| Étape | Statut |`n|---|---|`n| 📦 Catalogues | ✅ Prêts |`n| 📁 Ressources (Groupes, Apps, SharePoint) | ✅ Associées |`n| 🎁 Access Packages | ✅ Déployés |`n| 📜 Politiques d'Assignation | ⏳ En cours... |"
+                try {
+                    $approverIds = [System.Collections.Generic.List[string]]::new()
+                    if ($ap.authorization_owners) {
+                        foreach ($email in $ap.authorization_owners) {
+                            $u = Resolve-GraphUser -UserEmailOrUpn $email
+                            if ($u) {
+                                $approverIds.Add($u.id)
+                            }
+                        }
+                    }
+
+                    $policyName = "Politique - $apName"
+                    $existingPolicy = Get-PolitiqueAssignationEntra -AccessPackageId $apId
+
+                    if ($existingPolicy -and -not [string]::IsNullOrWhiteSpace($existingPolicy.id)) {
+                        Write-Host "  ✏️ Mise à jour de la politique d'assignation existante ('$($existingPolicy.displayName)' -> '$policyName')..." -ForegroundColor Cyan
+                        $policy = Set-PolitiqueAssignationEntra -PolicyId $existingPolicy.id -AccessPackageId $apId -DisplayName $policyName -ApproverUserIds $approverIds.ToArray()
+                    } else {
+                        Write-Host "  📜 Création d'une nouvelle politique d'assignation pour '$apName'..." -ForegroundColor Green
+                        $policy = New-PolitiqueAssignationEntra -AccessPackageId $apId -DisplayName $policyName -ApproverUserIds $approverIds.ToArray()
+                    }
+
+                    if ($policy -and -not [string]::IsNullOrWhiteSpace($policy.id)) {
+                        $deployedResources.Add([PSCustomObject]@{
+                            Type        = "Politique d'Assignation"
+                            DisplayName = $policyName
+                            Id          = $policy.id
+                            Status      = "Actif"
+                        })
+                    }
+                } catch {
+                    Write-Warning "  ⚠️ Erreur lors de la configuration de la politique pour '$apName' : $_"
+                    $errors.Add("Erreur politique '$apName' : $_")
+                }
             }
         }
 
         # -------------------------------------------------------------------
-        # ÉTAPE 7 : Nettoyage des Access Packages Obsolètes
+        # ÉTAPE 6 : Nettoyage des Access Packages Obsolètes
         # -------------------------------------------------------------------
         if ($existingAps) {
             foreach ($oldAp in $existingAps) {
                 if ($oldAp.displayName -and -not $activeApNames.Contains($oldAp.displayName)) {
                     Write-Host "  🗑️ Suppression de l'Access Package obsolète '$($oldAp.displayName)' ($($oldAp.id))..." -ForegroundColor Red
-                    # Suppression préalable de la politique si présente
                     $oldPolicy = Get-PolitiqueAssignationEntra -AccessPackageId $oldAp.id
                     if ($oldPolicy) {
                         Remove-PolitiqueAssignationEntra -PolicyId $oldPolicy.id | Out-Null
@@ -522,7 +533,19 @@ function Synchroniser-EtatEntra {
         }
     }
 
-    Write-Host "`n✅ Déploiement Entra ID terminé avec succès !" -ForegroundColor Green
+    if ($errors.Count -eq 0) {
+        Write-Host "`n✅ Déploiement Entra ID terminé avec succès !" -ForegroundColor Green
+        if ($LiveCommentId -gt 0 -and (Get-Command -Name "Formater-RapportDeploiementCD" -ErrorAction SilentlyContinue)) {
+            $finalSummary = Formater-RapportDeploiementCD -DeployedResources $deployedResources
+            Update-LiveProgress $finalSummary
+        }
+    } else {
+        Write-Host "`n❌ Déploiement Entra ID terminé avec des erreurs." -ForegroundColor Red
+        if ($LiveCommentId -gt 0) {
+            $errList = ($errors | ForEach-Object { "- $_" }) -join "`n"
+            Update-LiveProgress "### ❌ Déploiement Entra ID terminé avec des erreurs`n`n$errList"
+        }
+    }
 
     return [PSCustomObject]@{
         Success           = ($errors.Count -eq 0)
