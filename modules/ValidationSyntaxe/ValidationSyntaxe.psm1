@@ -307,11 +307,15 @@ function Valider-StructureYaml {
         $errors.Add("Le champ obligatoire 'app_name' est manquant ou vide.")
     } else {
         # Vérification règle 1 app = 1 dossier = 1 fichier avec préfixe obligatoire CAT-
-        $expectedName = "CAT-$appName"
-        if ($fileName -ne "_example" -and $fileName -ne $expectedName) {
+        $cleanAppName = $appName -replace '^(?i)CAT-', ''
+        $expectedName = "CAT-$cleanAppName"
+        $isValidFileName = ($fileName -eq "_example" -or $fileName -eq $expectedName -or $fileName -eq "CAT-$appName")
+        $isValidParentDir = ($parentDir -eq "_example" -or $parentDir -eq $expectedName -or $parentDir -eq "CAT-$appName")
+
+        if (-not $isValidFileName) {
             $errors.Add("Le nom du fichier ('$fileName.yaml') ne respecte pas la nomenclature obligatoire. Attendu : '$expectedName.yaml'.")
         }
-        if ($parentDir -ne "_example" -and $parentDir -ne $expectedName) {
+        if (-not $isValidParentDir) {
             $errors.Add("Le dossier parent ('$parentDir') ne respecte pas la nomenclature obligatoire. Attendu : '$expectedName'.")
         }
     }
