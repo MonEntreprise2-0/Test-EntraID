@@ -44,13 +44,13 @@ if ($PrNumber -le 0) {
     if ($env:PR_NUMBER) {
         $PrNumber = [int]$env:PR_NUMBER
     } else {
-        # 1. Analyse de l'historique git log récent (conversion explicite en chaîne unique pour $Matches)
+        # 1. Analyse du message du commit HEAD (uniquement LE commit qui vient d'être mergé / pushé)
         try {
-            $gitLogRaw = git log -n 10 --pretty=%B 2>$null
-            $gitLogText = if ($gitLogRaw) { ($gitLogRaw | Out-String) } else { "" }
-            if ($gitLogText -match 'Merge pull request #(\d+)') {
+            $headLogRaw = git log -1 --pretty=%B 2>$null
+            $headLogText = if ($headLogRaw) { ($headLogRaw | Out-String) } else { "" }
+            if ($headLogText -match 'Merge pull request #(\d+)') {
                 $PrNumber = [int]$Matches[1]
-            } elseif ($gitLogText -match '\(#(\d+)\)') {
+            } elseif ($headLogText -match '\(#(\d+)\)') {
                 $PrNumber = [int]$Matches[1]
             }
         } catch {
@@ -79,19 +79,9 @@ if ($PrNumber -le 0) {
     }
 }
 
-# Détection de l'opération d'importation (admin_import / reverse engineering)
-$isImportOperation = $false
-try {
-    $recentGitLog = git log -n 5 --pretty=%B 2>$null
-    $recentLogText = if ($recentGitLog) { ($recentGitLog | Out-String) } else { "" }
-    if ($recentLogText -match '\[admin_import\]' -or $recentLogText -match 'admin/import-entra-' -or $recentLogText -match '\[Import Entra ID\]') {
-        $isImportOperation = $true
-    }
-} catch {
-    Write-Verbose "Impossible d'analyser git log pour la détection d'import : $_"
-}
-
-if (-not $isImportOperation -and $PrNumber -gt 0 -and ($env:GITHUB_TOKEN -or $env:GH_PAT) -and $env:GITHUB_REPOSITORY) {
+# Récupération des métadonnées de la Pull Request si disponible
+$prDetails = $null
+if ($PrNumber -gt 0 -and ($env:GITHUB_TOKEN -or $env:GH_PAT) -and $env:GITHUB_REPOSITORY) {
     try {
         $ghToken = if ($env:GITHUB_TOKEN) { $env:GITHUB_TOKEN } else { $env:GH_PAT }
         $prUri = "https://api.github.com/repos/$($env:GITHUB_REPOSITORY)/pulls/$PrNumber"
@@ -101,15 +91,36 @@ if (-not $isImportOperation -and $PrNumber -gt 0 -and ($env:GITHUB_TOKEN -or $en
             "User-Agent"    = "Ardian-GitOps-Engine"
         }
         $prDetails = Invoke-RestMethod -Uri $prUri -Headers $ghHeaders -Method Get -ErrorAction SilentlyContinue
-        if ($prDetails) {
-            $headBranch = if ($prDetails.head -and $prDetails.head.ref) { $prDetails.head.ref } else { "" }
-            $prTitle = if ($prDetails.title) { $prDetails.title } else { "" }
-            if ($headBranch -like "*import-entra*" -or $prTitle -like "*[Import Entra ID]*" -or $prTitle -like "*admin_import*") {
-                $isImportOperation = $true
-            }
+    } catch {
+        Write-Verbose "Impossible d'analyser la PR GitHub #$PrNumber : $_"
+    }
+}
+
+# Détection précise de l'opération d'importation (admin_import / reverse engineering)
+$isImportOperation = $false
+if ($prDetails) {
+    $headBranch = if ($prDetails.head -and $prDetails.head.ref) { $prDetails.head.ref } else { "" }
+    $prTitle = if ($prDetails.title) { $prDetails.title } else { "" }
+    $prBody = if ($prDetails.body) { $prDetails.body } else { "" }
+
+    if ($headBranch -like "*import-entra*" -or $prTitle -match '\[Import Entra ID\]' -or $prBody -match 'OPERATION:\s*admin_import') {
+        $isImportOperation = $true
+        Write-Host "🔍 Scénario d'importation détecté via la PR #$PrNumber (Branch: $headBranch)" -ForegroundColor Yellow
+    }
+} else {
+    # Fallback Git local : analyse STRICTE du commit HEAD et du parent de merge HEAD^2 (aucun commit antérieur)
+    try {
+        $headLogRaw = git log -1 --pretty=%B 2>$null
+        $headLogText = if ($headLogRaw) { ($headLogRaw | Out-String) } else { "" }
+        $mergeParentRaw = git log -1 HEAD^2 --pretty=%B 2>$null
+        $mergeParentText = if ($mergeParentRaw) { ($mergeParentRaw | Out-String) } else { "" }
+        $combinedText = "$headLogText`n$mergeParentText"
+        if ($combinedText -match 'admin/import-entra-' -or $combinedText -match '\[Import Entra ID\]' -or $combinedText -match '\[admin_import\]' -or $combinedText -match 'OPERATION:\s*admin_import') {
+            $isImportOperation = $true
+            Write-Host "🔍 Scénario d'importation détecté via le commit de merge HEAD/HEAD^2" -ForegroundColor Yellow
         }
     } catch {
-        Write-Verbose "Impossible d'analyser la PR GitHub pour la détection d'import : $_"
+        Write-Verbose "Impossible d'analyser git log pour la détection d'import : $_"
     }
 }
 
@@ -298,17 +309,17 @@ $codeownersContent = if (Test-Path $codeownersPath) { Get-Content $codeownersPat
 
 $ownerOrg = if ($env:GITHUB_REPOSITORY_OWNER) { $env:GITHUB_REPOSITORY_OWNER } else { "MonEntreprise2-0" }
 
-# Extraction des métadonnées d'équipes depuis le commit de merge ou l'historique git
+# Extraction des métadonnées d'équipes depuis la PR ou les commits de merge
 $assignedTeam = "admins"
 $appToTeam = @{}
 
-try {
-    $gitLogRaw = git log -n 5 --pretty=%B 2>$null
-    $gitLogText = if ($gitLogRaw) { ($gitLogRaw | Out-String) } else { "" }
-    if ($gitLogText -match 'GITHUB_TEAM:\s*([a-zA-Z0-9_-]+)') {
+# 1. Extraction prioritaire depuis le corps de la PR ($prDetails.body)
+if ($prDetails -and $prDetails.body) {
+    if ($prDetails.body -match '<!--\s*GITHUB_TEAM:\s*([a-zA-Z0-9_-]+)\s*-->') {
         $assignedTeam = $Matches[1].Trim()
+        Write-Host "🏷️ Équipe GitHub Owner extraite de la PR #$PrNumber : $assignedTeam" -ForegroundColor Cyan
     }
-    if ($gitLogText -match 'GITHUB_TEAMS_MAP:\s*([^\r\n]+)') {
+    if ($prDetails.body -match '<!--\s*GITHUB_TEAMS_MAP:\s*([^\r\n>]+)\s*-->') {
         $pairs = $Matches[1].Trim() -split ';'
         foreach ($p in $pairs) {
             if ($p -match '^\s*([^=]+?)\s*=\s*(.+?)\s*$') {
@@ -317,9 +328,35 @@ try {
                 $appToTeam[$catKey] = $teamVal
             }
         }
+        Write-Host "🏷️ Mapping des équipes extrait de la PR #$PrNumber : $($appToTeam.Count) association(s)" -ForegroundColor Cyan
     }
-} catch {
-    Write-Verbose "Impossible d'extraire les équipes depuis git log : $_"
+}
+
+# 2. Fallback via commit HEAD et HEAD^2 si non trouvé dans la PR
+if ($assignedTeam -eq "admins" -and $appToTeam.Count -eq 0) {
+    try {
+        $headLogRaw = git log -1 --pretty=%B 2>$null
+        $headLogText = if ($headLogRaw) { ($headLogRaw | Out-String) } else { "" }
+        $mergeParentRaw = git log -1 HEAD^2 --pretty=%B 2>$null
+        $mergeParentText = if ($mergeParentRaw) { ($mergeParentRaw | Out-String) } else { "" }
+        $combinedText = "$headLogText`n$mergeParentText"
+
+        if ($combinedText -match 'GITHUB_TEAM:\s*([a-zA-Z0-9_-]+)') {
+            $assignedTeam = $Matches[1].Trim()
+        }
+        if ($combinedText -match 'GITHUB_TEAMS_MAP:\s*([^\r\n]+)') {
+            $pairs = $Matches[1].Trim() -split ';'
+            foreach ($p in $pairs) {
+                if ($p -match '^\s*([^=]+?)\s*=\s*(.+?)\s*$') {
+                    $catKey = $Matches[1].Trim().ToLowerInvariant()
+                    $teamVal = $Matches[2].Trim()
+                    $appToTeam[$catKey] = $teamVal
+                }
+            }
+        }
+    } catch {
+        Write-Verbose "Impossible d'extraire les équipes depuis git log : $_"
+    }
 }
 
 $lines = [System.Collections.Generic.List[string]]::new(($codeownersContent -split "`r?`n"))
@@ -346,12 +383,14 @@ if (-not $hasDeclDefault) {
     }
 }
 
+$deployedDirs = @($yamlFiles | ForEach-Object { $_.Directory.Name })
 $changedCodeowners = $false
 $appDirs = Get-ChildItem -Path $DeclarationsDir -Directory | Where-Object { $_.Name -notlike "_*" }
 foreach ($appDir in $appDirs) {
     $dirName = $appDir.Name
     $appKey = $dirName.ToLowerInvariant()
     $cleanKey = ($appKey -replace '^(?i)cat-', '')
+    $isDeployed = ($deployedDirs -contains $dirName)
 
     # Équipe cible pour cette application
     $targetTeam = if ($appToTeam.ContainsKey($appKey)) {
@@ -360,7 +399,7 @@ foreach ($appDir in $appDirs) {
         $appToTeam["cat-$cleanKey"]
     } elseif ($appToTeam.ContainsKey($cleanKey)) {
         $appToTeam[$cleanKey]
-    } elseif ($assignedTeam -and $assignedTeam -ne "admins") {
+    } elseif ($isDeployed -and $assignedTeam -and $assignedTeam -ne "admins") {
         $assignedTeam
     } else {
         $null

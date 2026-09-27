@@ -643,15 +643,16 @@ jobs:
             let title = '';
             let desc = '';
 
+            const opTag = `<!-- OPERATION: ${op} -->\n`;
             if (op === 'user_modify') {
               title = `✏️ [Modification] ${app} (Issue #${issueNum})`;
-              desc = `Modification de l'application déclarative **${app}** soumise via l'Issue #${issueNum}.`;
+              desc = `${opTag}Modification de l'application déclarative **${app}** soumise via l'Issue #${issueNum}.`;
             } else if (op === 'admin_create') {
               title = `🆕 [Création Admin] ${app} (Issue #${issueNum})`;
-              desc = `Création de la nouvelle application **${app}**.\n\n<!-- GITHUB_TEAM: ${team} -->\n**Team GitHub Owner assignée :** \`@${context.repo.owner}/${team}\` (sera enregistrée dans \`CODEOWNERS\` avec les admins lors du merge).`;
+              desc = `${opTag}Création de la nouvelle application **${app}**.\n\n<!-- GITHUB_TEAM: ${team} -->\n**Team GitHub Owner assignée :** \`@${context.repo.owner}/${team}\` (sera enregistrée dans \`CODEOWNERS\` avec les admins lors du merge).`;
             } else if (op === 'admin_bulk') {
               title = `⚡ [Masse Admin] Modification groupée (Issue #${issueNum})`;
-              desc = `Modification en masse de plusieurs fichiers YAML via archive ZIP (Issue #${issueNum}).`;
+              desc = `${opTag}Modification en masse de plusieurs fichiers YAML via archive ZIP (Issue #${issueNum}).`;
             } else if (op === 'admin_import') {
               title = `🔄 [Import Entra ID] Reverse Engineering (Issue #${issueNum})`;
               const fs = require('fs');
@@ -667,7 +668,7 @@ jobs:
                   teamsMapTag = `\n\n<!-- GITHUB_TEAMS_MAP: ${singleMap} -->`;
                 }
               }
-              desc = (summaryMd || `Import déclaratif d'applications depuis Microsoft Entra ID (Issue #${issueNum}).`) + teamsMapTag;
+              desc = `${opTag}` + (summaryMd || `Import déclaratif d'applications depuis Microsoft Entra ID (Issue #${issueNum}).`) + teamsMapTag;
             }
 
             if (!title) {
