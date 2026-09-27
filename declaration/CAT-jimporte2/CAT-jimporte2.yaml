@@ -2,6 +2,16 @@
 app_description: "ffffffff"
 
 access_packages:
+  - privilege_level: "app"
+    env: "uat"
+    description: "ddddddddd"
+    authorization_owners:
+      - "gorlainel@gmail.com"
+    resources:
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test01"
+        role: "Member"
+
   - privilege_level: "subapp"
     env: "dev"
     description: "eeeeeeeeeeee"
