@@ -3,12 +3,10 @@
 # ============================================================================
 # Rôle :
 #   Gère le cycle de vie complet des Access Packages Entra ID :
-#   - Création, modification, suppression des paquets d'accès
+#   - Création, modification, suppression des Access Packages
 #   - Association des ressources du catalogue avec leurs rôles (Member / Owner / App Role)
-#   - Configuration des politiques d'assignation (approbateurs authorization_owners,
+#   - Configuration des politiques d'assignation (approbateurs (authorization_owners),
 #     délai de 14 jours, durée d'assignation).
-#
-# Auteur : Ardian Cloud IAM & DevOps
 # ============================================================================
 
 <#
@@ -19,7 +17,7 @@
 .PARAMETER CatalogId
     Identifiant GUID du catalogue parent.
 .PARAMETER DisplayName
-    Nom d'affichage pour filtrer le résultat.
+    Nom de l'AccessPackage qu'on souhaite récupérer.
 #>
 function Get-AccessPackageEntra {
     [CmdletBinding()]
@@ -64,7 +62,7 @@ function Get-AccessPackageEntra {
 
 <#
 .SYNOPSIS
-    Crée un nouvel Access Package rattaché à un catalogue.
+    Crée un nouvel Access Package dans un catalogue existant.
 #>
 function New-AccessPackageEntra {
     [CmdletBinding()]
@@ -73,10 +71,11 @@ function New-AccessPackageEntra {
         [string]$CatalogId,
 
         [Parameter(Mandatory = $true)]
-        [string]$DisplayName,
+        [string]$DisplayName,           # Nom de l'Access Package
 
-        [Parameter(Mandatory = $false)]
-        [string]$Description = "Access Package géré par GitOps",
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$Description,
 
         [Parameter(Mandatory = $false)]
         [bool]$IsHidden = $false
@@ -97,7 +96,7 @@ function New-AccessPackageEntra {
 
 <#
 .SYNOPSIS
-    Met à jour un Access Package existant.
+    Met à jour un Access Package existant (Modifier le nom, la description ou la visibilité d'un Access Package).
 #>
 function Set-AccessPackageEntra {
     [CmdletBinding()]
@@ -106,7 +105,7 @@ function Set-AccessPackageEntra {
         [string]$AccessPackageId,
 
         [Parameter(Mandatory = $false)]
-        [string]$DisplayName,
+        [string]$DisplayName,           # Nom de l'Access Package
 
         [Parameter(Mandatory = $false)]
         [string]$Description,
@@ -145,7 +144,7 @@ function Remove-AccessPackageEntra {
 
 <#
 .SYNOPSIS
-    Liste les liaisons de rôles de ressources (accessPackageResourceRoleScopes) d'un Access Package.
+    Liste toutes les ressources et rôles actuellement attachés à un Access Package.
 #>
 function Get-RolesRessourcesAccessPackage {
     [CmdletBinding()]
@@ -167,7 +166,7 @@ function Get-RolesRessourcesAccessPackage {
 
 <#
 .SYNOPSIS
-    Associe un rôle sur une ressource du catalogue à un Access Package.
+    Associe un rôle sur une ressource d'un Access Package.
 .DESCRIPTION
     Recherche la définition du rôle et du scope de la ressource dans le catalogue,
     puis poste l'association dans l'Access Package via l'endpoint beta de Microsoft Graph.
@@ -176,7 +175,7 @@ function Get-RolesRessourcesAccessPackage {
 .PARAMETER AccessPackageId
     Identifiant de l'Access Package.
 .PARAMETER ResourceOriginId
-    Object ID du groupe ou du Service Principal dans Entra ID.
+    Object ID de la ressource (groupe, Service Principal ou  sharepoint Site) dans Entra ID.
 .PARAMETER RoleName
     Nom du rôle ('Member' ou 'Owner' pour un groupe, ou libellé du rôle applicatif).
 #>
@@ -199,7 +198,7 @@ function Add-RoleRessourceAccessPackage {
         $ExistingRoles = $null
     )
 
-    # 1. Vérifier si l'association existe déjà dans l'Access Package
+    # 1. Vérifier si l'association existe déjà dans l'Access Package. (Si le rôle est déjà rattaché à l'Access Package, la fonction s'arrête immédiatement )
     $existingRoles = if ($null -ne $ExistingRoles) { $ExistingRoles } else { Get-RolesRessourcesAccessPackage -AccessPackageId $AccessPackageId }
     if ($existingRoles) {
         foreach ($rs in $existingRoles) {
@@ -214,7 +213,7 @@ function Add-RoleRessourceAccessPackage {
         }
     }
 
-    # 2. Récupérer les ressources du catalogue avec leurs rôles et scopes développés
+    # 2. Récupérer les ressources du catalogue avec leurs rôles et scopes développés. ça nous permettra de vérifier que la ressource qu'on veut associer à l'AP est ajoutée au catalogue
     $catResources = Invoke-GraphRequest -Endpoint "/identityGovernance/entitlementManagement/accessPackageCatalogs/$CatalogId/accessPackageResources?`$expand=accessPackageResourceRoles,accessPackageResourceScopes&`$top=999" -ApiVersion "beta" -Method GET -AllPages -IgnoreNotFound
 
     $targetResource = $null
@@ -226,7 +225,7 @@ function Add-RoleRessourceAccessPackage {
             }
         }
     }
-
+    # Pour associer une ressource à un Access Package, cette ressource doit impérativement avoir été ajoutée au préalable au Catalogue parent (via Add-RessourceCatalogue)
     if (-not $targetResource) {
         throw "La ressource '$ResourceOriginId' n'a pas été trouvée dans le catalogue '$CatalogId'. Assurez-vous qu'elle est d'abord rattachée au catalogue via Add-RessourceCatalogue."
     }
@@ -249,6 +248,7 @@ function Add-RoleRessourceAccessPackage {
                 }
             }
         }
+        # Il faut aussi un fallback pour les Sharepoint Site !!!
     }
 
     # 4. Sélection du scope
@@ -282,7 +282,11 @@ function Add-RoleRessourceAccessPackage {
 
 <#
 .SYNOPSIS
-    Supprime une liaison de rôle de ressource d'un Access Package.
+    Supprime une liaison entre une ressource et un Access Package. (Elle détache la ressource de l'Access Package)
+.PARAMETER AccessPackageId
+    Identifiant de l'Access Package concerné.
+.PARAMETER RoleScopeId
+    Identifiant de la liaison (accessPackageResourceRoleScope) qui relie ce package à cette ressource. Cet ID est généralement obtenu au préalable via Get-RolesRessourcesAccessPackage
 #>
 function Remove-RoleRessourceAccessPackage {
     [CmdletBinding()]
@@ -323,7 +327,7 @@ function Get-PolitiqueAssignationEntra {
         $filter = "accessPackage/id eq '$AccessPackageId'"
         $policies = Invoke-GraphRequest -Endpoint "/identityGovernance/entitlementManagement/assignmentPolicies?`$filter=$([System.Uri]::EscapeDataString($filter))&`$top=999" -Method GET -AllPages -IgnoreNotFound
         if ($policies -and $policies.Count -gt 0) {
-            # Si un DisplayName précis est cherché et trouvé
+            # Si une politique précise est cherchée et trouvée
             if (-not [string]::IsNullOrWhiteSpace($DisplayName)) {
                 $cleanName = $DisplayName.Trim()
                 foreach ($p in $policies) {
@@ -333,7 +337,7 @@ function Get-PolitiqueAssignationEntra {
                 }
             }
 
-            # Règle d'or (1 seule politique par Access Package) :
+            # Règle adoptée:1 seule politique par Access Package :
             # Retourne la première politique valide existante (ex: 'Initial Policy' ou renommée) pour la mettre à jour
             $validPolicies = $policies | Where-Object { -not [string]::IsNullOrWhiteSpace($_.id) }
             if ($validPolicies -and $validPolicies.Count -gt 0) {
@@ -385,7 +389,7 @@ function New-PolitiqueAssignationEntra {
     )
 
     if ([string]::IsNullOrWhiteSpace($DisplayName)) {
-        $DisplayName = "Politique d'assignation standard"
+        $DisplayName = "Politique standard"
     }
 
     $approvalRequired = ($ApproverUserIds -and $ApproverUserIds.Count -gt 0)
@@ -450,7 +454,7 @@ function New-PolitiqueAssignationEntra {
 
     $body = [ordered]@{
         displayName             = $DisplayName
-        description             = "Politique gérée par GitOps - $DisplayName"
+        description             = "Politique gérée par la pipeline - $DisplayName"
         allowedTargetScope      = "allDirectoryUsers"
         specificAllowedTargets  = @()
         expiration              = $expirationObj
@@ -567,7 +571,7 @@ function Set-PolitiqueAssignationEntra {
     } else {
         "allDirectoryUsers"
     })
-    $policyDesc = $(if ($existing -and $existing.description) { $existing.description } else { "Politique gérée par GitOps" })
+    $policyDesc = $(if ($existing -and $existing.description) { $existing.description } else { "Politique gérée par la pipeline" })
     $finalDisplayName = $(if (-not [string]::IsNullOrWhiteSpace($DisplayName)) { $DisplayName } elseif ($existing -and $existing.displayName) { $existing.displayName } else { "Politique d'assignation standard" })
 
     $body = [ordered]@{

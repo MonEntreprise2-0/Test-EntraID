@@ -1,46 +1,48 @@
 ﻿# ============================================================================
 # MODULE : ConnexionGraph
 # ============================================================================
-# Rôle :
+# Rôle: 
 #   Fournit le socle d'authentification OIDC et le client HTTP standardisé
 #   pour communiquer avec les API Microsoft Graph (v1.0 et beta).
-#
-# Auteur : Ardian Cloud IAM & DevOps
 # ============================================================================
 
-# Variables de session de module (cache en mémoire)
+# Cache de session : jeton et dictionnaires de résolution par type de ressource
 $script:GraphAccessToken = $null
 $script:GraphTokenExpiresOn = [DateTime]::MinValue
-$script:CacheUsers = @{}
-$script:CacheGroups = @{}
-$script:CacheServicePrincipals = @{}
-$script:CacheSites = @{}
+$script:CacheUsers             = [System.Collections.Generic.Dictionary[string, PSObject]]::new()
+$script:CacheGroups            = [System.Collections.Generic.Dictionary[string, PSObject]]::new()
+$script:CacheServicePrincipals = [System.Collections.Generic.Dictionary[string, PSObject]]::new()
+$script:CacheSites             = [System.Collections.Generic.Dictionary[string, PSObject]]::new()
 
 <#
 .SYNOPSIS
-    Établit la session d'authentification avec Microsoft Graph.
+    Établit la session d'authentification OIDC avec Microsoft Graph.
 .DESCRIPTION
-    Tente de récupérer un jeton Bearer pour Microsoft Graph :
-    1. Priorité OIDC : via Azure CLI (compatible GitHub Actions OIDC après azure/login).
-    2. Fallback Variables d'environnement SPN : AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID.
+    Acquiert un jeton Bearer via Azure CLI (compatible GitHub Actions OIDC
+    après azure/login). Le jeton est mis en cache et réutilisé tant qu'il
+    reste valide (marge de sécurité de 5 minutes avant expiration).
 .PARAMETER Force
     Force le renouvellement du jeton même s'il est encore valide.
 #>
 function Connect-GraphSession {
     [CmdletBinding()]
+    [OutputType([string])]
     param(
-        [Parameter(Mandatory = $false)]
         [switch]$Force
     )
 
+    # Réutiliser le jeton en cache s'il reste valide (marge de 5 min)
     if (-not $Force -and -not [string]::IsNullOrWhiteSpace($script:GraphAccessToken) -and ([DateTime]::UtcNow -lt $script:GraphTokenExpiresOn.AddMinutes(-5))) {
         Write-Verbose "Jeton Microsoft Graph existant toujours valide en cache de session."
         return $script:GraphAccessToken
     }
 
-    # 1. Utilisation prioritaire d'Azure CLI (cas standard GitHub Actions OIDC après azure/login)
+    if (-not (Get-Command az -ErrorAction SilentlyContinue)) {
+        throw "Azure CLI (az) introuvable. Installez Azure CLI ou assurez-vous qu'il est dans le PATH."
+    }
+
     try {
-        Write-Verbose "Tentative d'obtention du jeton Graph via OIDC Azure CLI (az account get-access-token)..."
+        Write-Verbose "Obtention du jeton Graph via OIDC Azure CLI (az account get-access-token)..."
         $azResult = az account get-access-token --resource-type ms-graph --output json 2>$null
         if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($azResult)) {
             $tokenObj = $azResult | ConvertFrom-Json
@@ -59,30 +61,7 @@ function Connect-GraphSession {
         Write-Verbose "Échec de l'obtention du jeton via Azure CLI OIDC : $_"
     }
 
-    # 2. Utilisation des variables d'environnement SPN (Client Credentials)
-    if ($env:AZURE_CLIENT_ID -and $env:AZURE_CLIENT_SECRET -and $env:AZURE_TENANT_ID) {
-        Write-Verbose "Tentative d'obtention du jeton Graph via variables d'environnement SPN..."
-        $tokenUri = "https://login.microsoftonline.com/$($env:AZURE_TENANT_ID)/oauth2/v2.0/token"
-        $body = @{
-            client_id     = $env:AZURE_CLIENT_ID
-            client_secret = $env:AZURE_CLIENT_SECRET
-            scope         = "https://graph.microsoft.com/.default"
-            grant_type    = "client_credentials"
-        }
-        try {
-            $resp = Invoke-RestMethod -Uri $tokenUri -Method Post -Body $body -ContentType "application/x-www-form-urlencoded"
-            if ($resp.access_token) {
-                $script:GraphAccessToken = $resp.access_token
-                $script:GraphTokenExpiresOn = [DateTime]::UtcNow.AddSeconds($resp.expires_in)
-                Write-Verbose "Jeton Microsoft Graph acquis avec succès via variables d'environnement SPN."
-                return $script:GraphAccessToken
-            }
-        } catch {
-            Write-Verbose "Échec de connexion via variables d'environnement : $_"
-        }
-    }
-
-    throw "Impossible d'acquérir un jeton d'accès pour Microsoft Graph. Assurez-vous d'être connecté via OIDC (az login / azure/login) ou de définir les variables d'environnement (AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID)."
+    throw "Impossible d'acquérir un jeton d'accès pour Microsoft Graph. Assurez-vous d'être connecté via OIDC (az login / azure/login dans GitHub Actions)."
 }
 
 <#
@@ -90,6 +69,10 @@ function Connect-GraphSession {
     Retourne le jeton d'accès actuel de la session.
 #>
 function Get-GraphSessionToken {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+
     if ([string]::IsNullOrWhiteSpace($script:GraphAccessToken) -or ([DateTime]::UtcNow -ge $script:GraphTokenExpiresOn)) {
         return (Connect-GraphSession)
     }
@@ -118,25 +101,21 @@ function Get-GraphSessionToken {
 #>
 function Invoke-GraphRequest {
     [CmdletBinding()]
+    [OutputType([PSObject])]
     param(
         [Parameter(Mandatory = $true, Position = 0)]
         [string]$Endpoint,
 
-        [Parameter(Mandatory = $false)]
         [ValidateSet("GET", "POST", "PATCH", "PUT", "DELETE")]
         [string]$Method = "GET",
 
-        [Parameter(Mandatory = $false)]
         $Body = $null,
 
-        [Parameter(Mandatory = $false)]
         [ValidateSet("v1.0", "beta")]
         [string]$ApiVersion = "v1.0",
 
-        [Parameter(Mandatory = $false)]
         [switch]$AllPages,
 
-        [Parameter(Mandatory = $false)]
         [switch]$IgnoreNotFound
     )
 
@@ -196,7 +175,7 @@ function Invoke-GraphRequest {
                     $statusCode = [int]$_.Exception.Response.StatusCode
                 }
 
-                # Cas 429 : Throttling Microsoft Graph
+                # Throttling : respecter Retry-After avant de réessayer
                 if ($statusCode -eq 429) {
                     $retryAfterSec = 5
                     if ($_.Exception.Response.Headers["Retry-After"]) {
@@ -207,22 +186,20 @@ function Invoke-GraphRequest {
                     continue
                 }
 
-                # Cas 404 : Ressource non trouvée
                 if ($statusCode -eq 404 -and $IgnoreNotFound) {
                     Write-Verbose "Ressource non trouvée (404) : $currentUrl"
                     return $null
                 }
 
-                # Erreur irrécupérable ou max tentatives atteintes
+                # Erreur irrécupérable : remonter le détail Graph le plus précis disponible
                 $errDetails = $_.Exception.Message
                 if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
                     $errDetails = $_.ErrorDetails.Message
                 }
-                Write-Error "Erreur lors de l'appel Graph [$Method] $currentUrl (HTTP $statusCode) : $errDetails"
                 if ($payload) {
                     Write-Verbose "Payload rejeté : $payload"
                 }
-                throw $_
+                throw "Erreur lors de l'appel Graph [$Method] $currentUrl (HTTP $statusCode) : $errDetails"
             }
         }
 
@@ -230,32 +207,30 @@ function Invoke-GraphRequest {
             throw "Échec de l'appel Graph [$Method] $currentUrl après $maxRetries tentatives."
         }
 
-        # Méthodes sans contenu de retour attendu (DELETE, ou 204 No Content)
+        # Réponse vide (DELETE 204, etc.)
         if ($null -eq $response) {
             return $null
         }
 
-        # Si le résultat contient une collection paginée (@odata.nextLink)
-        if ($response.value -ne $null -and $AllPages) {
+        # Sans pagination demandée → retour immédiat
+        if (-not $AllPages) {
+            return $response
+        }
+
+        # Accumulation paginée
+        if ($null -ne $response.value) {
             foreach ($item in $response.value) {
                 $allResults.Add($item)
             }
             $currentUrl = $response.'@odata.nextLink'
         } else {
-            # Résultat direct unitaire ou AllPages non demandé
-            if ($AllPages -and $response.value -ne $null) {
-                return $response.value
-            }
+            # Résultat unitaire (pas de .value) malgré AllPages → retour tel quel
             return $response
         }
 
-    } while ($AllPages -and -not [string]::IsNullOrWhiteSpace($currentUrl))
+    } while (-not [string]::IsNullOrWhiteSpace($currentUrl))
 
-    if ($AllPages) {
-        return $allResults.ToArray()
-    }
-
-    return $response
+    return $allResults.ToArray()
 }
 
 <#
@@ -266,6 +241,7 @@ function Invoke-GraphRequest {
 #>
 function Resolve-GraphUser {
     [CmdletBinding()]
+    [OutputType([PSObject])]
     param(
         [Parameter(Mandatory = $true, Position = 0)]
         [string]$UserEmailOrUpn
@@ -302,17 +278,20 @@ function Resolve-GraphUser {
 #>
 function Resolve-GraphGroup {
     [CmdletBinding()]
+    [OutputType([PSObject])]
     param(
         [Parameter(Mandatory = $true, Position = 0)]
         [string]$GroupName
     )
 
-    $clean = $GroupName.Trim().ToLowerInvariant()
+    $trimmed = $GroupName.Trim()
+    $clean = $trimmed.ToLowerInvariant()
     if ($script:CacheGroups.ContainsKey($clean)) {
         return $script:CacheGroups[$clean]
     }
 
-    $encoded = $GroupName.Trim().Replace("'", "''")
+    # Échappement OData : doubler les apostrophes dans le displayName
+    $encoded = $trimmed.Replace("'", "''")
     $filter = "displayName eq '$encoded'"
     $endpoint = "/groups?`$filter=$([System.Uri]::EscapeDataString($filter))&`$select=id,displayName,securityEnabled,groupTypes"
 
@@ -338,17 +317,19 @@ function Resolve-GraphGroup {
 #>
 function Resolve-GraphServicePrincipal {
     [CmdletBinding()]
+    [OutputType([PSObject])]
     param(
         [Parameter(Mandatory = $true, Position = 0)]
         [string]$DisplayName
     )
 
-    $clean = $DisplayName.Trim().ToLowerInvariant()
+    $trimmed = $DisplayName.Trim()
+    $clean = $trimmed.ToLowerInvariant()
     if ($script:CacheServicePrincipals.ContainsKey($clean)) {
         return $script:CacheServicePrincipals[$clean]
     }
 
-    $encoded = $DisplayName.Trim().Replace("'", "''")
+    $encoded = $trimmed.Replace("'", "''")
     $filter = "displayName eq '$encoded'"
     $endpoint = "/servicePrincipals?`$filter=$([System.Uri]::EscapeDataString($filter))&`$select=id,displayName,appId,appRoles"
 
@@ -376,14 +357,16 @@ function Resolve-GraphServicePrincipal {
 #>
 function Resolve-SharepointSite {
     [CmdletBinding()]
+    [OutputType([PSObject])]
     param(
         [Parameter(Mandatory = $true, Position = 0)]
         [string]$SiteUrl
     )
 
     $clean = $SiteUrl.Trim()
-    if ($script:CacheSites.ContainsKey($clean.ToLowerInvariant())) {
-        return $script:CacheSites[$clean.ToLowerInvariant()]
+    $cacheKey = $clean.ToLowerInvariant()
+    if ($script:CacheSites.ContainsKey($cacheKey)) {
+        return $script:CacheSites[$cacheKey]
     }
 
     try {
@@ -391,11 +374,10 @@ function Resolve-SharepointSite {
         $hostname = $uri.Host
         $relativePath = $uri.AbsolutePath.TrimEnd('/')
 
-        # Format standard Graph API : /sites/{hostname}:{relative-path}
         $endpoint = "/sites/$hostname`:$relativePath"
         $site = Invoke-GraphRequest -Endpoint $endpoint -Method GET -IgnoreNotFound
         if ($site -and $site.id) {
-            $script:CacheSites[$clean.ToLowerInvariant()] = $site
+            $script:CacheSites[$cacheKey] = $site
             return $site
         }
     } catch {

@@ -6,8 +6,6 @@
 #   vers des fichiers de déclaration YAML au format Ardian v2 (Scénario D).
 #   Applique le contrôle strict de la nomenclature :
 #     [Contexte/Sous-Application] [Privilège] - [Environnement]
-#
-# Auteur : Ardian Cloud IAM & DevOps
 # ============================================================================
 
 <#

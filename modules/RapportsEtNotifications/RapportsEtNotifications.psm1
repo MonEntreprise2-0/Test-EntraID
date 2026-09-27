@@ -6,8 +6,6 @@
 #   commentaires de Pull Request GitHub et les GITHUB_STEP_SUMMARY.
 #   Génère les blocs d'alerte GitHub (CAUTION, NOTE) pour les blocages SSoT
 #   et les approbations requises.
-#
-# Auteur : Ardian Cloud IAM & DevOps
 # ============================================================================
 
 <#

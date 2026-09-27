@@ -5,8 +5,6 @@
 #   Gère le cycle de vie des catalogues d'Entitlement Management Entra ID,
 #   l'onboarding des ressources (groupes et applications) dans les catalogues
 #   et l'assignation des propriétaires de catalogues (Catalog Owners).
-#
-# Auteur : Ardian Cloud IAM & DevOps
 # ============================================================================
 
 <#

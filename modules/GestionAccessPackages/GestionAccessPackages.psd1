@@ -3,9 +3,7 @@
     RootModule           = 'GestionAccessPackages.psm1'
     ModuleVersion        = '1.0.0'
     GUID                 = 'e6f78923-54ab-4c90-a2b1-29560312a7d4'
-    Author               = 'Ardian Cloud IAM & DevOps'
     CompanyName          = 'Ardian'
-    Copyright            = '(c) Ardian. Tous droits réservés.'
     Description          = 'Module de gestion des Access Packages, rôles de ressources et politiques d assignation dans Microsoft Entra ID'
     PowerShellVersion    = '5.1'
     RequiredModules      = @(
@@ -26,7 +24,4 @@
         'Remove-PolitiqueAssignationEntra',
         'Test-PolitiqueIdentique'
     )
-    CmdletsToExport      = @()
-    VariablesToExport    = @()
-    AliasesToExport      = @()
 }
