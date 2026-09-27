@@ -96,19 +96,26 @@ function Formater-RapportPlanCI {
     $sb.AppendLine() | Out-Null
 
     # Détails des créations prévues
-    if ($DiffReport -and ($DiffReport.CatalogsToCreate.Count -gt 0 -or $DiffReport.AccessPackagesToCreate.Count -gt 0)) {
-        $sb.AppendLine("#### 🆕 Nouvelles ressources à créer :") | Out-Null
+    $hasCreates = $DiffReport -and ($DiffReport.CatalogsToCreate.Count -gt 0 -or $DiffReport.AccessPackagesToCreate.Count -gt 0 -or ($DiffReport.ResourceRolesToAdd -and $DiffReport.ResourceRolesToAdd.Count -gt 0))
+    if ($hasCreates) {
+        $sb.AppendLine("#### 🆕 Nouvelles ressources à créer / associer :") | Out-Null
         foreach ($c in $DiffReport.CatalogsToCreate) {
             $sb.AppendLine("- 📦 **Catalogue** : ``$($c.DisplayName)``") | Out-Null
         }
         foreach ($ap in $DiffReport.AccessPackagesToCreate) {
             $sb.AppendLine("- 🎁 **Access Package** : ``$($ap.DisplayName)`` (Catalogue : ``$($ap.CatalogName)``)") | Out-Null
         }
+        if ($DiffReport.ResourceRolesToAdd) {
+            foreach ($r in $DiffReport.ResourceRolesToAdd) {
+                $sb.AppendLine("- 🔗 **Ressource à associer** : ``$($r.ResourceName)`` (Rôle: *$($r.Role)*) ➔ Access Package ``$($r.AccessPackageName)``") | Out-Null
+            }
+        }
         $sb.AppendLine() | Out-Null
     }
 
     # Détails des modifications prévues
-    if ($DiffReport -and ($DiffReport.CatalogsToUpdate.Count -gt 0 -or $DiffReport.AccessPackagesToUpdate.Count -gt 0)) {
+    $hasUpdates = $DiffReport -and ($DiffReport.CatalogsToUpdate.Count -gt 0 -or $DiffReport.AccessPackagesToUpdate.Count -gt 0 -or ($DiffReport.PoliciesToUpdate -and $DiffReport.PoliciesToUpdate.Count -gt 0))
+    if ($hasUpdates) {
         $sb.AppendLine("#### ✏️ Ressources existantes à mettre à jour :") | Out-Null
         foreach ($c in $DiffReport.CatalogsToUpdate) {
             $sb.AppendLine("- 📦 **Catalogue** : ``$($c.DisplayName)``") | Out-Null
@@ -116,14 +123,25 @@ function Formater-RapportPlanCI {
         foreach ($ap in $DiffReport.AccessPackagesToUpdate) {
             $sb.AppendLine("- 🎁 **Access Package** : ``$($ap.DisplayName)``") | Out-Null
         }
+        if ($DiffReport.PoliciesToUpdate) {
+            foreach ($p in $DiffReport.PoliciesToUpdate) {
+                $sb.AppendLine("- 📜 **Politique d'assignation à mettre à jour** : ``$($p.DisplayName)`` (Access Package : ``$($p.AccessPackageName)``)") | Out-Null
+            }
+        }
         $sb.AppendLine() | Out-Null
     }
 
     # Détails des suppressions prévues
-    if ($DiffReport -and $DiffReport.AccessPackagesToDelete.Count -gt 0) {
+    $hasDeletes = $DiffReport -and ($DiffReport.AccessPackagesToDelete.Count -gt 0 -or ($DiffReport.ResourceRolesToDelete -and $DiffReport.ResourceRolesToDelete.Count -gt 0))
+    if ($hasDeletes) {
         $sb.AppendLine("#### 🗑️ Ressources obsolètes à supprimer :") | Out-Null
         foreach ($ap in $DiffReport.AccessPackagesToDelete) {
             $sb.AppendLine("- ⚠️ **Access Package obsolète** : ``$($ap.DisplayName)``") | Out-Null
+        }
+        if ($DiffReport.ResourceRolesToDelete) {
+            foreach ($r in $DiffReport.ResourceRolesToDelete) {
+                $sb.AppendLine("- ⚠️ **Ressource à détacher** : ``$($r.ResourceName)`` (Rôle: *$($r.Role)*) ➔ Access Package ``$($r.AccessPackageName)``") | Out-Null
+            }
         }
         $sb.AppendLine() | Out-Null
     }

@@ -62,8 +62,8 @@ function Comparer-EtatEntra {
     $accessPackagesToUpdate = [System.Collections.Generic.List[object]]::new()
     $accessPackagesUnchanged = [System.Collections.Generic.List[object]]::new()
     $accessPackagesToDelete = [System.Collections.Generic.List[object]]::new()
-
-    $rolesToAdd = [System.Collections.Generic.List[object]]::new()
+    $resourceRolesToAdd = [System.Collections.Generic.List[object]]::new()
+    $resourceRolesToDelete = [System.Collections.Generic.List[object]]::new()
     $policiesToCreate = [System.Collections.Generic.List[object]]::new()
     $policiesToUpdate = [System.Collections.Generic.List[object]]::new()
 
@@ -186,6 +186,130 @@ function Comparer-EtatEntra {
                             DisplayName = $apName
                         })
                     }
+
+                    # Comparaison des rôles de ressources (Resource Roles)
+                    $currentRoleScopes = if ($existingAp.PSObject.Properties['resourceRoles'] -and $null -ne $existingAp.resourceRoles) {
+                        $existingAp.resourceRoles
+                    } else {
+                        try {
+                            Get-RolesRessourcesAccessPackage -AccessPackageId $existingAp.id -ErrorAction SilentlyContinue
+                        } catch {
+                            @()
+                        }
+                    }
+
+                    $declaredResourceNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+                    if ($ap.resources) {
+                        foreach ($res in $ap.resources) {
+                            $rType = $res.resource_type
+                            $resName = ""
+                            $expectedRole = "Member"
+                            if ($rType -eq "EntraID Group" -or $rType -eq "Group") {
+                                $resName = $res.group_name
+                                $expectedRole = if ($res.role) { $res.role.Trim() } else { "Member" }
+                            } elseif ($rType -eq "Application Role" -or $rType -eq "Application") {
+                                $resName = $res.enterprise_app
+                                $expectedRole = if ($res.app_role) { 
+                                    $res.app_role.Trim() 
+                                } elseif (-not [string]::IsNullOrWhiteSpace($ap.context_subapp)) {
+                                    "$($ap.context_subapp.Trim()) $($ap.privilege_level.Trim())"
+                                } else {
+                                    "$($ap.privilege_level.Trim())"
+                                }
+                            } elseif ($rType -in @("Sharepoint Group", "SharePoint Group", "SharePoint Online", "SharePoint Site")) {
+                                $resName = if ($res.sharepoint_group_name) { $res.sharepoint_group_name } else { $res.sharepoint_url }
+                                $expectedRole = if ($res.role) { $res.role.Trim() } else { "Member" }
+                            }
+
+                            if (-not [string]::IsNullOrWhiteSpace($resName)) {
+                                $declaredResourceNames.Add($resName.Trim()) | Out-Null
+                            }
+
+                            # Vérifier si ce rôle de ressource est déjà lié à l'Access Package
+                            $isAlreadyLinked = $false
+                            if ($currentRoleScopes) {
+                                foreach ($crs in $currentRoleScopes) {
+                                    $scopeName = if ($crs.accessPackageResourceScope -and $crs.accessPackageResourceScope.displayName) {
+                                        $crs.accessPackageResourceScope.displayName.Trim()
+                                    } else { "" }
+                                    $crsRole = if ($crs.accessPackageResourceRole -and $crs.accessPackageResourceRole.displayName) {
+                                        $crs.accessPackageResourceRole.displayName.Trim()
+                                    } else { "" }
+
+                                    if ($scopeName.Equals($resName.Trim(), [System.StringComparison]::OrdinalIgnoreCase) -and 
+                                        $crsRole.Equals($expectedRole, [System.StringComparison]::OrdinalIgnoreCase)) {
+                                        $isAlreadyLinked = $true
+                                        break
+                                    }
+                                }
+                            }
+
+                            if (-not $isAlreadyLinked) {
+                                $resourceRolesToAdd.Add(@{
+                                    CatalogName       = $catName
+                                    AccessPackageName = $apName
+                                    ResourceName      = $resName
+                                    ResourceType      = $rType
+                                    Role              = $expectedRole
+                                })
+                            }
+                        }
+                    }
+
+                    # Détection des rôles de ressources obsolètes à retirer de l'Access Package
+                    if ($currentRoleScopes) {
+                        foreach ($crs in $currentRoleScopes) {
+                            $scopeName = if ($crs.accessPackageResourceScope -and $crs.accessPackageResourceScope.displayName) {
+                                $crs.accessPackageResourceScope.displayName.Trim()
+                            } else { "" }
+                            $crsRole = if ($crs.accessPackageResourceRole -and $crs.accessPackageResourceRole.displayName) {
+                                $crs.accessPackageResourceRole.displayName.Trim()
+                            } else { "" }
+                            $crsId = $crs.id
+
+                            if (-not [string]::IsNullOrWhiteSpace($scopeName) -and -not $declaredResourceNames.Contains($scopeName)) {
+                                $resourceRolesToDelete.Add(@{
+                                    CatalogName       = $catName
+                                    AccessPackageName = $apName
+                                    ResourceName      = $scopeName
+                                    Role              = $crsRole
+                                    RoleScopeId       = $crsId
+                                })
+                            }
+                        }
+                    }
+
+                    # Contrôle de la politique d'assignation
+                    $existingPolicy = if ($existingAp.PSObject.Properties['policy'] -and $null -ne $existingAp.policy) {
+                        $existingAp.policy
+                    } else {
+                        try {
+                            Get-PolitiqueAssignationEntra -AccessPackageId $existingAp.id -ErrorAction SilentlyContinue
+                        } catch {
+                            $null
+                        }
+                    }
+                    if ($existingPolicy -and -not [string]::IsNullOrWhiteSpace($existingPolicy.id)) {
+                        $targetPolicyName = "Politique - $apName"
+                        $targetApproverIds = [System.Collections.Generic.List[string]]::new()
+                        if ($ap.authorization_owners) {
+                            foreach ($owner in $ap.authorization_owners) {
+                                $u = if ($SSoTPrerequisites -and $SSoTPrerequisites.ResolvedUsers -and $SSoTPrerequisites.ResolvedUsers[$owner]) {
+                                    $SSoTPrerequisites.ResolvedUsers[$owner]
+                                } else {
+                                    try { Resolve-GraphUser -UserEmailOrUpn $owner -ErrorAction SilentlyContinue } catch { $null }
+                                }
+                                if ($u) { $targetApproverIds.Add($u.id) }
+                            }
+                        }
+                        if (-not (Test-PolitiqueIdentique -ExistingPolicy $existingPolicy -TargetDisplayName $targetPolicyName -TargetApproverIds $targetApproverIds.ToArray())) {
+                            $policiesToUpdate.Add(@{
+                                AccessPackageName = $apName
+                                DisplayName       = $targetPolicyName
+                                ExistingPolicy    = $existingPolicy
+                            })
+                        }
+                    }
                 }
 
                 # Ressources déclarées
@@ -216,9 +340,9 @@ function Comparer-EtatEntra {
         }
     }
 
-    $createsCount = $catalogsToCreate.Count + $accessPackagesToCreate.Count + $policiesToCreate.Count
+    $createsCount = $catalogsToCreate.Count + $accessPackagesToCreate.Count + $policiesToCreate.Count + $resourceRolesToAdd.Count
     $updatesCount = $catalogsToUpdate.Count + $accessPackagesToUpdate.Count + $policiesToUpdate.Count
-    $deletesCount = $accessPackagesToDelete.Count
+    $deletesCount = $accessPackagesToDelete.Count + $resourceRolesToDelete.Count
     $noChangeCount = $catalogsUnchanged.Count + $accessPackagesUnchanged.Count
 
     return [PSCustomObject]@{
@@ -230,6 +354,8 @@ function Comparer-EtatEntra {
         AccessPackagesToUpdate  = $accessPackagesToUpdate.ToArray()
         AccessPackagesUnchanged = $accessPackagesUnchanged.ToArray()
         AccessPackagesToDelete  = $accessPackagesToDelete.ToArray()
+        ResourceRolesToAdd      = $resourceRolesToAdd.ToArray()
+        ResourceRolesToDelete   = $resourceRolesToDelete.ToArray()
         PoliciesToCreate        = $policiesToCreate.ToArray()
         PoliciesToUpdate        = $policiesToUpdate.ToArray()
         CreatesCount            = $createsCount
@@ -427,8 +553,11 @@ function Synchroniser-EtatEntra {
                 })
 
                 # ---------------------------------------------------------------
-                # ÉTAPE 4 : Liaison des Rôles de Ressources (Resource Roles)
+                # ÉTAPE 4 : Liaison & Nettoyage des Rôles de Ressources (Resource Roles)
                 # ---------------------------------------------------------------
+                $currentRoleScopes = Get-RolesRessourcesAccessPackage -AccessPackageId $apId
+                $declaredRoleKeys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+
                 if ($ap.resources) {
                     foreach ($res in $ap.resources) {
                         $rType = $res.resource_type
@@ -462,14 +591,58 @@ function Synchroniser-EtatEntra {
                                 "$($ap.privilege_level.Trim())"
                             }
                             $roleToAssign = if ($res.app_role) { $res.app_role.Trim() } else { $computedAppRole }
+                        } elseif ($rType -in @("Sharepoint Group", "SharePoint Group", "SharePoint Online", "SharePoint Site")) {
+                            $siteKey = $res.sharepoint_url.ToLowerInvariant()
+                            $targetOriginId = $(if ($onboardedResourcesMap.ContainsKey($siteKey)) {
+                                $onboardedResourcesMap[$siteKey]
+                            } else {
+                                $siteObj = Resolve-SharepointSite -SiteUrl $res.sharepoint_url
+                                if ($siteObj) { $siteObj.id } else { $null }
+                            })
+                            $roleToAssign = if ($res.role) { $res.role.Trim() } elseif ($res.sharepoint_group_name) { $res.sharepoint_group_name.Trim() } else { "Member" }
                         }
 
                         if ($targetOriginId) {
+                            $declaredRoleKeys.Add("$($targetOriginId.ToLowerInvariant())|$($roleToAssign.ToLowerInvariant())") | Out-Null
                             try {
-                                Add-RoleRessourceAccessPackage -CatalogId $catalogId -AccessPackageId $apId -ResourceOriginId $targetOriginId -RoleName $roleToAssign | Out-Null
+                                Add-RoleRessourceAccessPackage -CatalogId $catalogId -AccessPackageId $apId -ResourceOriginId $targetOriginId -RoleName $roleToAssign -ExistingRoles $currentRoleScopes | Out-Null
                                 Write-Host "  🔗 Rôle '$roleToAssign' lié à l'Access Package '$apName'." -ForegroundColor Gray
                             } catch {
                                 Write-Warning "  ⚠️ Erreur liaison de rôle sur '$apName' : $_"
+                            }
+                        }
+                    }
+                }
+
+                # Détacher les rôles devenus obsolètes (retirés du fichier YAML)
+                if ($currentRoleScopes) {
+                    foreach ($rs in $currentRoleScopes) {
+                        $scopeOriginId = if ($rs.accessPackageResourceScope -and $rs.accessPackageResourceScope.originId) {
+                            $rs.accessPackageResourceScope.originId.Trim().ToLowerInvariant()
+                        } else { "" }
+
+                        $scopeRoleName = if ($rs.accessPackageResourceRole -and $rs.accessPackageResourceRole.displayName) {
+                            $rs.accessPackageResourceRole.displayName.Trim()
+                        } else { "" }
+
+                        $rsKey = "$scopeOriginId|$($scopeRoleName.ToLowerInvariant())"
+
+                        if ($scopeOriginId -and -not $declaredRoleKeys.Contains($rsKey)) {
+                            $scopeDisplay = if ($rs.accessPackageResourceScope -and $rs.accessPackageResourceScope.displayName) {
+                                $rs.accessPackageResourceScope.displayName
+                            } else { $scopeOriginId }
+
+                            Write-Host "  🗑️ Suppression de la ressource retirée de l'Access Package '$apName' : '$scopeDisplay' (Rôle: '$scopeRoleName')..." -ForegroundColor Yellow
+                            try {
+                                Remove-RoleRessourceAccessPackage -AccessPackageId $apId -RoleScopeId $rs.id | Out-Null
+                                $deployedResources.Add([PSCustomObject]@{
+                                    Type        = "Ressource Retirée"
+                                    DisplayName = "$scopeDisplay ($scopeRoleName) de $apName"
+                                    Id          = $rs.id
+                                    Status      = "Supprimé"
+                                })
+                            } catch {
+                                Write-Warning "  ⚠️ Erreur lors de la suppression de la ressource '$scopeDisplay' : $_"
                             }
                         }
                     }

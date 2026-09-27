@@ -193,11 +193,14 @@ function Add-RoleRessourceAccessPackage {
         [string]$ResourceOriginId,
 
         [Parameter(Mandatory = $false)]
-        [string]$RoleName = "Member"
+        [string]$RoleName = "Member",
+
+        [Parameter(Mandatory = $false)]
+        $ExistingRoles = $null
     )
 
     # 1. Vérifier si l'association existe déjà dans l'Access Package
-    $existingRoles = Get-RolesRessourcesAccessPackage -AccessPackageId $AccessPackageId
+    $existingRoles = if ($null -ne $ExistingRoles) { $ExistingRoles } else { Get-RolesRessourcesAccessPackage -AccessPackageId $AccessPackageId }
     if ($existingRoles) {
         foreach ($rs in $existingRoles) {
             $scope = $rs.accessPackageResourceScope
