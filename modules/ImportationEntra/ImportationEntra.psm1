@@ -286,7 +286,7 @@ function Exporter-CatalogueVersYaml {
                         # 2. Utilisateur unique (singleUser)
                         $uid = if ($appr.userId) { $appr.userId } elseif ($appr.id -and -not $appr.groupId) { $appr.id } else { $null }
                         if ($uid) {
-                            $userObj = Invoke-GraphRequest -Endpoint "/users/$uid?`$select=id,displayName,mail,userPrincipalName,otherMails" -Method GET -IgnoreNotFound
+                            $userObj = Invoke-GraphRequest -Endpoint "/users/$($uid)?`$select=id,displayName,mail,userPrincipalName,otherMails" -Method GET -IgnoreNotFound
                             if ($userObj) {
                                 $mail = if (-not [string]::IsNullOrWhiteSpace($userObj.mail)) {
                                     $userObj.mail.Trim()
@@ -306,14 +306,14 @@ function Exporter-CatalogueVersYaml {
                         # 3. Membres d'un groupe (groupMembers)
                         $gid = if ($appr.groupId) { $appr.groupId } elseif ($appr.id -and -not $appr.userId) { $appr.id } else { $null }
                         if ($gid) {
-                            $grpObj = Invoke-GraphRequest -Endpoint "/groups/$gid?`$select=id,displayName,mail" -Method GET -IgnoreNotFound
+                            $grpObj = Invoke-GraphRequest -Endpoint "/groups/$($gid)?`$select=id,displayName,mail" -Method GET -IgnoreNotFound
                             if ($grpObj -and -not [string]::IsNullOrWhiteSpace($grpObj.mail)) {
                                 $grpMail = $grpObj.mail.Trim()
                                 if (-not $approverEmails.Contains($grpMail)) {
                                     $approverEmails.Add($grpMail)
                                 }
                             } else {
-                                $members = Invoke-GraphRequest -Endpoint "/groups/$gid/transitiveMembers?`$select=id,displayName,mail,userPrincipalName&`$top=20" -Method GET -IgnoreNotFound
+                                $members = Invoke-GraphRequest -Endpoint "/groups/$($gid)/transitiveMembers?`$select=id,displayName,mail,userPrincipalName&`$top=20" -Method GET -IgnoreNotFound
                                 if ($members) {
                                     foreach ($m in $members) {
                                         $mMail = if (-not [string]::IsNullOrWhiteSpace($m.mail)) { $m.mail.Trim() } elseif (-not [string]::IsNullOrWhiteSpace($m.userPrincipalName)) { $m.userPrincipalName.Trim() } else { $null }
