@@ -635,17 +635,24 @@ function Test-PolitiqueIdentique {
         return $false
     }
 
-    # 1. Vérification du nom
+    # 1. Vérification du nom (tolérance pour le nom standard Entra ID "Initial Policy" ou préfixe "Politique -")
     $currentName = if ($ExistingPolicy.displayName) { $ExistingPolicy.displayName.Trim() } else { "" }
-    if (-not $currentName.Equals($TargetDisplayName.Trim(), [System.StringComparison]::OrdinalIgnoreCase)) {
+    $isNameValid = $currentName.Equals($TargetDisplayName.Trim(), [System.StringComparison]::OrdinalIgnoreCase) -or
+                   $currentName.Equals("Initial Policy", [System.StringComparison]::OrdinalIgnoreCase) -or
+                   $currentName.StartsWith("Politique -", [System.StringComparison]::OrdinalIgnoreCase)
+    if (-not $isNameValid) {
         return $false
     }
 
     # 2. Vérification du besoin d'approbation
     $targetApprovalRequired = ($TargetApproverIds -and $TargetApproverIds.Count -gt 0)
     $currentApprovalRequired = $false
-    if ($ExistingPolicy.requestApprovalSettings -and $ExistingPolicy.requestApprovalSettings.isApprovalRequiredForAdd) {
-        $currentApprovalRequired = [bool]$ExistingPolicy.requestApprovalSettings.isApprovalRequiredForAdd
+    if ($ExistingPolicy.requestApprovalSettings) {
+        if ($null -ne $ExistingPolicy.requestApprovalSettings.isApprovalRequired) {
+            $currentApprovalRequired = [bool]$ExistingPolicy.requestApprovalSettings.isApprovalRequired
+        } elseif ($null -ne $ExistingPolicy.requestApprovalSettings.isApprovalRequiredForAdd) {
+            $currentApprovalRequired = [bool]$ExistingPolicy.requestApprovalSettings.isApprovalRequiredForAdd
+        }
     }
 
     if ($targetApprovalRequired -ne $currentApprovalRequired) {
@@ -655,14 +662,29 @@ function Test-PolitiqueIdentique {
     # 3. Vérification des approbateurs (si requis)
     if ($targetApprovalRequired) {
         $currentApproverIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-        if ($ExistingPolicy.requestApprovalSettings.stages -and $ExistingPolicy.requestApprovalSettings.stages.Count -gt 0) {
-            $stage = $ExistingPolicy.requestApprovalSettings.stages[0]
+        $stages = [System.Collections.Generic.List[object]]::new()
+        if ($ExistingPolicy.requestApprovalSettings) {
+            if ($ExistingPolicy.requestApprovalSettings.approvalStages) {
+                foreach ($s in $ExistingPolicy.requestApprovalSettings.approvalStages) { $stages.Add($s) }
+            }
+            if ($ExistingPolicy.requestApprovalSettings.stages) {
+                foreach ($s in $ExistingPolicy.requestApprovalSettings.stages) { $stages.Add($s) }
+            }
+        }
+
+        foreach ($stage in $stages) {
+            $approversList = [System.Collections.Generic.List[object]]::new()
             if ($stage.primaryApprovers) {
-                foreach ($appr in $stage.primaryApprovers) {
-                    $uid = if ($appr.userId) { $appr.userId } elseif ($appr.id) { $appr.id } else { $null }
-                    if ($uid) {
-                        $currentApproverIds.Add($uid) | Out-Null
-                    }
+                foreach ($a in $stage.primaryApprovers) { $approversList.Add($a) }
+            }
+            if ($stage.fallbackPrimaryApprovers) {
+                foreach ($fa in $stage.fallbackPrimaryApprovers) { $approversList.Add($fa) }
+            }
+
+            foreach ($appr in $approversList) {
+                $uid = if ($appr.userId) { $appr.userId } elseif ($appr.groupId) { $appr.groupId } elseif ($appr.id) { $appr.id } else { $null }
+                if ($uid) {
+                    $currentApproverIds.Add($uid.Trim()) | Out-Null
                 }
             }
         }
@@ -671,7 +693,7 @@ function Test-PolitiqueIdentique {
             return $false
         }
         foreach ($targetId in $TargetApproverIds) {
-            if (-not $currentApproverIds.Contains($targetId)) {
+            if (-not $currentApproverIds.Contains($targetId.Trim())) {
                 return $false
             }
         }

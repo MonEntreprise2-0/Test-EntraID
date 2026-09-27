@@ -79,23 +79,50 @@ if ($PrNumber -le 0) {
     }
 }
 
+# Détection de l'opération d'importation (admin_import / reverse engineering)
+$isImportOperation = $false
+try {
+    $recentGitLog = git log -n 5 --pretty=%B 2>$null
+    $recentLogText = if ($recentGitLog) { ($recentGitLog | Out-String) } else { "" }
+    if ($recentLogText -match '\[admin_import\]' -or $recentLogText -match 'admin/import-entra-' -or $recentLogText -match '\[Import Entra ID\]') {
+        $isImportOperation = $true
+    }
+} catch {
+    Write-Verbose "Impossible d'analyser git log pour la détection d'import : $_"
+}
+
+if (-not $isImportOperation -and $PrNumber -gt 0 -and ($env:GITHUB_TOKEN -or $env:GH_PAT) -and $env:GITHUB_REPOSITORY) {
+    try {
+        $ghToken = if ($env:GITHUB_TOKEN) { $env:GITHUB_TOKEN } else { $env:GH_PAT }
+        $prUri = "https://api.github.com/repos/$($env:GITHUB_REPOSITORY)/pulls/$PrNumber"
+        $ghHeaders = @{
+            "Authorization" = "Bearer $ghToken"
+            "Accept"        = "application/vnd.github.v3+json"
+            "User-Agent"    = "Ardian-GitOps-Engine"
+        }
+        $prDetails = Invoke-RestMethod -Uri $prUri -Headers $ghHeaders -Method Get -ErrorAction SilentlyContinue
+        if ($prDetails) {
+            $headBranch = if ($prDetails.head -and $prDetails.head.ref) { $prDetails.head.ref } else { "" }
+            $prTitle = if ($prDetails.title) { $prDetails.title } else { "" }
+            if ($headBranch -like "*import-entra*" -or $prTitle -like "*[Import Entra ID]*" -or $prTitle -like "*admin_import*") {
+                $isImportOperation = $true
+            }
+        }
+    } catch {
+        Write-Verbose "Impossible d'analyser la PR GitHub pour la détection d'import : $_"
+    }
+}
+
 # Initialisation du Live PR Logging
 $liveCommentId = 0
 if ($PrNumber -gt 0) {
-    Write-Host "📡 Initialisation du Live Logging sur la Pull Request #$PrNumber..." -ForegroundColor Cyan
-    $liveCommentId = New-LivePRComment -PrNumber $PrNumber -InitialMessage "### 🚀 Déploiement Microsoft Entra ID en cours...`n`n*Initialisation de l'orchestration CD PowerShell...*"
-}
-
-# 1. Connexion à Microsoft Graph
-try {
-    Connect-GraphSession | Out-Null
-    Write-Host "✅ Connecté avec succès à Microsoft Graph API." -ForegroundColor Green
-} catch {
-    Write-Error "Échec de connexion à Microsoft Graph API : $_"
-    if ($liveCommentId -gt 0) {
-        Update-LivePRComment -CommentId $liveCommentId -Message "### ❌ Échec du déploiement Microsoft Entra ID`n`nImpossible de se connecter à Microsoft Graph API : $_"
+    $initMsg = if ($isImportOperation) {
+        "### 📥 Enregistrement de l'importation Entra ID...`n`n*Validation en mode lecture seule (aucune écriture dans Entra ID)...*"
+    } else {
+        "### 🚀 Déploiement Microsoft Entra ID en cours...`n`n*Initialisation de l'orchestration CD PowerShell...*"
     }
-    exit 1
+    Write-Host "📡 Initialisation du Live Logging sur la Pull Request #$PrNumber..." -ForegroundColor Cyan
+    $liveCommentId = New-LivePRComment -PrNumber $PrNumber -InitialMessage $initMsg
 }
 
 # 2. Chargement des déclarations YAML
@@ -180,46 +207,86 @@ if ($yamlFiles.Count -eq 0) {
 Write-Host "📦 Fichiers YAML sélectionnés pour le déploiement ($($yamlFiles.Count)) :" -ForegroundColor Cyan
 $yamlFiles | ForEach-Object { Write-Host "   - $($_.FullName)" -ForegroundColor White }
 
-$declarations = [System.Collections.Generic.List[PSObject]]::new()
-foreach ($yf in $yamlFiles) {
+if ($isImportOperation) {
+    Write-Host "`n====================================================" -ForegroundColor Cyan
+    Write-Host "📥 SCÉNARIO D'IMPORTATION (REVERSE ENGINEERING) DÉTECTÉ" -ForegroundColor Cyan
+    Write-Host "====================================================" -ForegroundColor Cyan
+    Write-Host "🔒 Le scénario d'importation depuis Microsoft Entra ID est STRICTEMENT EN LECTURE SEULE." -ForegroundColor Yellow
+    Write-Host "   Les déclarations YAML importées représentent l'état existant dans Entra ID." -ForegroundColor Yellow
+    Write-Host "   Aucune modification, création ou suppression ne sera appliquée à Entra ID." -ForegroundColor Green
+
+    # 4. Formatage du rapport post-import en lecture seule
+    $summaryMd = Formater-RapportImportCD -YamlFiles $yamlFiles
+
+    if ($OutputSummaryFile) {
+        [System.IO.File]::WriteAllText($OutputSummaryFile, $summaryMd, [System.Text.Encoding]::UTF8)
+    }
+
+    if ($env:GITHUB_STEP_SUMMARY) {
+        Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $summaryMd -Encoding UTF8
+    }
+
+    if ($liveCommentId -gt 0) {
+        Update-LivePRComment -CommentId $liveCommentId -Message $summaryMd
+    } elseif ($PrNumber -gt 0) {
+        $null = New-LivePRComment -PrNumber $PrNumber -InitialMessage $summaryMd
+    }
+
+    Write-Host "`n" + $summaryMd
+} else {
+    # 1. Connexion à Microsoft Graph (uniquement pour les déploiements réels)
     try {
-        $doc = Lire-DeclarationYaml -Path $yf.FullName
-        $declarations.Add($doc)
+        Connect-GraphSession | Out-Null
+        Write-Host "✅ Connecté avec succès à Microsoft Graph API." -ForegroundColor Green
     } catch {
-        Write-Error "Erreur lors de la lecture de $($yf.FullName) : $_"
+        Write-Error "Échec de connexion à Microsoft Graph API : $_"
         if ($liveCommentId -gt 0) {
-            Update-LivePRComment -CommentId $liveCommentId -Message "### ❌ Erreur de lecture YAML`n`nErreur lors de la lecture de ``$($yf.FullName)`` : $_"
+            Update-LivePRComment -CommentId $liveCommentId -Message "### ❌ Échec du déploiement Microsoft Entra ID`n`nImpossible de se connecter à Microsoft Graph API : $_"
         }
         exit 1
     }
+
+    $declarations = [System.Collections.Generic.List[PSObject]]::new()
+    foreach ($yf in $yamlFiles) {
+        try {
+            $doc = Lire-DeclarationYaml -Path $yf.FullName
+            $declarations.Add($doc)
+        } catch {
+            Write-Error "Erreur lors de la lecture de $($yf.FullName) : $_"
+            if ($liveCommentId -gt 0) {
+                Update-LivePRComment -CommentId $liveCommentId -Message "### ❌ Erreur de lecture YAML`n`nErreur lors de la lecture de ``$($yf.FullName)`` : $_"
+            }
+            exit 1
+        }
+    }
+
+    # 3. Synchronisation ordonnée vers Entra ID avec retour en direct
+    $syncResult = Synchroniser-EtatEntra -Declarations $declarations -LiveCommentId $liveCommentId
+
+    if (-not $syncResult.Success) {
+        Write-Error "❌ Le déploiement Entra ID s'est achevé avec des erreurs."
+        exit 1
+    }
+
+    # 4. Formatage du rapport post-déploiement
+    $summaryMd = Formater-RapportDeploiementCD -DeployedResources $syncResult.DeployedResources
+
+    if ($OutputSummaryFile) {
+        [System.IO.File]::WriteAllText($OutputSummaryFile, $summaryMd, [System.Text.Encoding]::UTF8)
+    }
+
+    if ($env:GITHUB_STEP_SUMMARY) {
+        Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $summaryMd -Encoding UTF8
+    }
+
+    # Si le live comment n'avait pas été initialisé mais qu'on a un numéro de PR, on poste le rapport final
+    if ($liveCommentId -le 0 -and $PrNumber -gt 0) {
+        Write-Host "📡 Publication du rapport final sur la Pull Request #$PrNumber..." -ForegroundColor Cyan
+        $null = New-LivePRComment -PrNumber $PrNumber -InitialMessage $summaryMd
+    }
+
+    Write-Host "`n" + $summaryMd
 }
-
-# 3. Synchronisation ordonnée vers Entra ID avec retour en direct
-$syncResult = Synchroniser-EtatEntra -Declarations $declarations -LiveCommentId $liveCommentId
-
-if (-not $syncResult.Success) {
-    Write-Error "❌ Le déploiement Entra ID s'est achevé avec des erreurs."
-    exit 1
-}
-
-# 4. Formatage du rapport post-déploiement
-$summaryMd = Formater-RapportDeploiementCD -DeployedResources $syncResult.DeployedResources
-
-if ($OutputSummaryFile) {
-    [System.IO.File]::WriteAllText($OutputSummaryFile, $summaryMd, [System.Text.Encoding]::UTF8)
-}
-
-if ($env:GITHUB_STEP_SUMMARY) {
-    Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $summaryMd -Encoding UTF8
-}
-
-# Si le live comment n'avait pas été initialisé mais qu'on a un numéro de PR, on poste le rapport final
-if ($liveCommentId -le 0 -and $PrNumber -gt 0) {
-    Write-Host "📡 Publication du rapport final sur la Pull Request #$PrNumber..." -ForegroundColor Cyan
-    $null = New-LivePRComment -PrNumber $PrNumber -InitialMessage $summaryMd
-}
-
-Write-Host "`n" + $summaryMd
 
 # 5. Mise à jour automatique de CODEOWNERS
 Write-Host "`n====================================================" -ForegroundColor Cyan

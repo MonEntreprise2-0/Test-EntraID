@@ -5,7 +5,7 @@ access_packages:
   - privilege_level: "subapp"
     env: "prd"
     description: "ssssssssssss"
-    authorization_owners:
+    authorization_owners: []
     resources:
       - resource_type: "EntraID Group"
         group_name: "Group_Test01"

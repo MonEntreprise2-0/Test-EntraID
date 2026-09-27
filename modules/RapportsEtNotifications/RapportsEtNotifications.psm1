@@ -267,5 +267,48 @@ function Update-LivePRComment {
     }
 }
 
-Export-ModuleMember -Function Formater-RapportPlanCI, Formater-RapportDeploiementCD, New-LivePRComment, Update-LivePRComment
+<#
+.SYNOPSIS
+    Génère le compte-rendu Markdown pour la validation en lecture seule du scénario d'import (admin_import).
+.PARAMETER YamlFiles
+    Liste des fichiers déclaratifs YAML importés.
+#>
+function Formater-RapportImportCD {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $false)]
+        $YamlFiles = @()
+    )
+
+    $sb = [System.Text.StringBuilder]::new()
+    $sb.AppendLine("## 📥 Importation Entra ID enregistrée dans Git (Mode Lecture Seule)") | Out-Null
+    $sb.AppendLine() | Out-Null
+    $sb.AppendLine("> [!NOTE]") | Out-Null
+    $sb.AppendLine("> ### 🔒 Sécurité & Intégrité Microsoft Entra ID") | Out-Null
+    $sb.AppendLine("> Le scénario d'importation (Reverse Engineering) est **strictement en lecture seule**.") | Out-Null
+    $sb.AppendLine("> Les déclarations YAML enregistrées reflètent fidèlement l'état réel existant dans Entra ID.") | Out-Null
+    $sb.AppendLine("> **Aucune modification, création ou suppression n'a été appliquée à Microsoft Entra ID.**") | Out-Null
+    $sb.AppendLine() | Out-Null
+    $sb.AppendLine("### 📦 Applications et Catalogues synchronisés dans Git :") | Out-Null
+    $sb.AppendLine() | Out-Null
+    $sb.AppendLine("| Application Git | Fichier Déclaratif | Statut dans Entra ID |") | Out-Null
+    $sb.AppendLine("|---|---|---|") | Out-Null
+
+    if ($YamlFiles -and $YamlFiles.Count -gt 0) {
+        foreach ($yf in $YamlFiles) {
+            $fName = if ($yf.Name) { $yf.Name } elseif ($yf -is [string]) { [System.IO.Path]::GetFileName($yf) } else { [string]$yf }
+            $appBase = [System.IO.Path]::GetFileNameWithoutExtension($fName)
+            $sb.AppendLine("| ``$appBase`` | ``$fName`` | 🟢 Intact (Lecture seule) |") | Out-Null
+        }
+    } else {
+        $sb.AppendLine("| - | - | 🟢 Intact (Lecture seule) |") | Out-Null
+    }
+
+    $sb.AppendLine() | Out-Null
+    $sb.AppendLine("🛡️ La gouvernance CODEOWNERS a été actualisée pour attribuer la gestion de ces applications aux équipes habilitées.") | Out-Null
+
+    return $sb.ToString()
+}
+
+Export-ModuleMember -Function Formater-RapportPlanCI, Formater-RapportDeploiementCD, Formater-RapportImportCD, New-LivePRComment, Update-LivePRComment
 

@@ -252,22 +252,86 @@ function Exporter-CatalogueVersYaml {
 
         if ($basePolicy -and -not [string]::IsNullOrWhiteSpace($basePolicy.id)) {
             $fullPolicy = Invoke-GraphRequest -Endpoint "/identityGovernance/entitlementManagement/assignmentPolicies/$($basePolicy.id)" -Method GET -IgnoreNotFound
-            if ($fullPolicy -and $fullPolicy.requestApprovalSettings -and $fullPolicy.requestApprovalSettings.stages) {
-                foreach ($stage in $fullPolicy.requestApprovalSettings.stages) {
+            $polToInspect = if ($fullPolicy) { $fullPolicy } else { $basePolicy }
+            $ras = $polToInspect.requestApprovalSettings
+
+            if ($ras) {
+                # Support de Graph v1.0 (approvalStages) et Graph beta / interne (stages)
+                $stages = [System.Collections.Generic.List[object]]::new()
+                if ($ras.approvalStages) {
+                    foreach ($s in $ras.approvalStages) { $stages.Add($s) }
+                }
+                if ($ras.stages) {
+                    foreach ($s in $ras.stages) { $stages.Add($s) }
+                }
+
+                foreach ($stage in $stages) {
+                    # Récupération des approbateurs principaux et de secours
+                    $approversToProcess = [System.Collections.Generic.List[object]]::new()
                     if ($stage.primaryApprovers) {
-                        foreach ($appr in $stage.primaryApprovers) {
-                            $uid = $appr.userId
-                            if ($uid) {
-                                $userObj = Invoke-GraphRequest -Endpoint "/users/$uid?`$select=id,displayName,mail,userPrincipalName" -Method GET -IgnoreNotFound
-                                if ($userObj) {
-                                    $mail = if (-not [string]::IsNullOrWhiteSpace($userObj.mail)) { $userObj.mail.Trim() } else { $userObj.userPrincipalName.Trim() }
-                                    if ($mail -and -not $approverEmails.Contains($mail)) {
-                                        $approverEmails.Add($mail)
+                        foreach ($a in $stage.primaryApprovers) { $approversToProcess.Add($a) }
+                    }
+                    if ($stage.fallbackPrimaryApprovers) {
+                        foreach ($fa in $stage.fallbackPrimaryApprovers) { $approversToProcess.Add($fa) }
+                    }
+
+                    foreach ($appr in $approversToProcess) {
+                        # 1. Email direct si déjà renseigné sur l'objet
+                        $directEmail = if ($appr.mail) { $appr.mail } elseif ($appr.email) { $appr.email } elseif ($appr.userPrincipalName) { $appr.userPrincipalName } else { $null }
+                        if ($directEmail -and -not $approverEmails.Contains($directEmail.Trim())) {
+                            $approverEmails.Add($directEmail.Trim())
+                            continue
+                        }
+
+                        # 2. Utilisateur unique (singleUser)
+                        $uid = if ($appr.userId) { $appr.userId } elseif ($appr.id -and -not $appr.groupId) { $appr.id } else { $null }
+                        if ($uid) {
+                            $userObj = Invoke-GraphRequest -Endpoint "/users/$uid?`$select=id,displayName,mail,userPrincipalName,otherMails" -Method GET -IgnoreNotFound
+                            if ($userObj) {
+                                $mail = if (-not [string]::IsNullOrWhiteSpace($userObj.mail)) {
+                                    $userObj.mail.Trim()
+                                } elseif ($userObj.otherMails -and $userObj.otherMails.Count -gt 0 -and -not [string]::IsNullOrWhiteSpace($userObj.otherMails[0])) {
+                                    $userObj.otherMails[0].Trim()
+                                } elseif (-not [string]::IsNullOrWhiteSpace($userObj.userPrincipalName)) {
+                                    $userObj.userPrincipalName.Trim()
+                                } else { $null }
+
+                                if ($mail -and -not $approverEmails.Contains($mail)) {
+                                    $approverEmails.Add($mail)
+                                }
+                            }
+                            continue
+                        }
+
+                        # 3. Membres d'un groupe (groupMembers)
+                        $gid = if ($appr.groupId) { $appr.groupId } elseif ($appr.id -and -not $appr.userId) { $appr.id } else { $null }
+                        if ($gid) {
+                            $grpObj = Invoke-GraphRequest -Endpoint "/groups/$gid?`$select=id,displayName,mail" -Method GET -IgnoreNotFound
+                            if ($grpObj -and -not [string]::IsNullOrWhiteSpace($grpObj.mail)) {
+                                $grpMail = $grpObj.mail.Trim()
+                                if (-not $approverEmails.Contains($grpMail)) {
+                                    $approverEmails.Add($grpMail)
+                                }
+                            } else {
+                                $members = Invoke-GraphRequest -Endpoint "/groups/$gid/transitiveMembers?`$select=id,displayName,mail,userPrincipalName&`$top=20" -Method GET -IgnoreNotFound
+                                if ($members) {
+                                    foreach ($m in $members) {
+                                        $mMail = if (-not [string]::IsNullOrWhiteSpace($m.mail)) { $m.mail.Trim() } elseif (-not [string]::IsNullOrWhiteSpace($m.userPrincipalName)) { $m.userPrincipalName.Trim() } else { $null }
+                                        if ($mMail -and -not $approverEmails.Contains($mMail)) {
+                                            $approverEmails.Add($mMail)
+                                        }
                                     }
                                 }
                             }
                         }
                     }
+                }
+
+                # 4. Fallback si l'approbation est requise mais aucun approbateur direct résolu
+                $isApprovalRequired = ($ras.isApprovalRequired -eq $true -or $ras.isApprovalRequiredForAdd -eq $true)
+                if ($isApprovalRequired -and $approverEmails.Count -eq 0 -and -not [string]::IsNullOrWhiteSpace($FallbackApproverEmail)) {
+                    Write-Host "  ⚠️ Approbation requise mais aucun approbateur direct résolu. Utilisation de l'email de secours : $FallbackApproverEmail" -ForegroundColor Yellow
+                    $approverEmails.Add($FallbackApproverEmail.Trim())
                 }
             }
         }
@@ -365,9 +429,13 @@ function Exporter-CatalogueVersYaml {
         foreach ($k in $yap.Keys) {
             $v = $yap[$k]
             if ($k -eq "authorization_owners") {
-                $yamlLines.Add("    authorization_owners:")
-                foreach ($email in $v) {
-                    $yamlLines.Add("      - `"$email`"")
+                if ($v -and $v.Count -gt 0) {
+                    $yamlLines.Add("    authorization_owners:")
+                    foreach ($email in $v) {
+                        $yamlLines.Add("      - `"$email`"")
+                    }
+                } else {
+                    $yamlLines.Add("    authorization_owners: []")
                 }
             } elseif ($k -eq "resources") {
                 $yamlLines.Add("    resources:")

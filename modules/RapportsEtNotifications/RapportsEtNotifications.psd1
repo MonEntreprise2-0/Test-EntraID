@@ -11,6 +11,7 @@
     FunctionsToExport    = @(
         'Formater-RapportPlanCI',
         'Formater-RapportDeploiementCD',
+        'Formater-RapportImportCD',
         'New-LivePRComment',
         'Update-LivePRComment'
     )
