@@ -1,0 +1,16 @@
+﻿app_name: "jimporte2"
+app_description: "ffffffff"
+
+access_packages:
+  - privilege_level: "subapp"
+    env: "dev"
+    description: "eeeeeeeeeeee"
+    authorization_owners:
+      - "marcell@monentreprise123.onmicrosoft.com"
+    resources:
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test02"
+        role: "Member"
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test01"
+        role: "Member"
