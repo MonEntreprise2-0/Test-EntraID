@@ -318,6 +318,7 @@ function Synchroniser-EtatEntra {
         Update-LiveProgress "### 🚀 Déploiement Microsoft Entra ID en cours...`n`n| Étape | Statut |`n|---|---|`n| 📦 Catalogues | ✅ Prêts |`n| 📁 Ressources (Groupes, Apps, SharePoint) | ⏳ En cours... |`n| 🎁 Access Packages | ⏸️ En attente |`n| 📜 Politiques d'Assignation | ⏸️ En attente |"
 
         $onboardedResourcesMap = @{}
+        $existingCatResources = Get-RessourcesCatalogue -CatalogId $catalogId
 
         if ($doc.access_packages) {
             foreach ($ap in $doc.access_packages) {
@@ -332,7 +333,7 @@ function Synchroniser-EtatEntra {
                         $grpObj = Resolve-GraphGroup -GroupName $res.group_name
                         if ($grpObj) {
                             try {
-                                Add-RessourceCatalogue -CatalogId $catalogId -OriginId $grpObj.id -OriginSystem "AadGroup" | Out-Null
+                                Add-RessourceCatalogue -CatalogId $catalogId -OriginId $grpObj.id -OriginSystem "AadGroup" -ExistingResources $existingCatResources | Out-Null
                                 $onboardedResourcesMap[$grpKey] = $grpObj.id
                                 Write-Host "  📁 Groupe '$($res.group_name)' associé au catalogue." -ForegroundColor Gray
                             } catch {
@@ -347,7 +348,7 @@ function Synchroniser-EtatEntra {
                         $spObj = Resolve-GraphServicePrincipal -DisplayName $res.enterprise_app
                         if ($spObj) {
                             try {
-                                Add-RessourceCatalogue -CatalogId $catalogId -OriginId $spObj.id -OriginSystem "AadApplication" | Out-Null
+                                Add-RessourceCatalogue -CatalogId $catalogId -OriginId $spObj.id -OriginSystem "AadApplication" -ExistingResources $existingCatResources | Out-Null
                                 $onboardedResourcesMap[$appKey] = $spObj.id
                                 Write-Host "  📱 Application '$($res.enterprise_app)' associée au catalogue." -ForegroundColor Gray
                             } catch {
@@ -362,7 +363,7 @@ function Synchroniser-EtatEntra {
                         $siteObj = Resolve-SharepointSite -SiteUrl $res.sharepoint_url
                         if ($siteObj) {
                             try {
-                                Add-RessourceCatalogue -CatalogId $catalogId -OriginId $siteObj.webUrl -OriginSystem "SharePointOnline" | Out-Null
+                                Add-RessourceCatalogue -CatalogId $catalogId -OriginId $siteObj.webUrl -OriginSystem "SharePointOnline" -ExistingResources $existingCatResources | Out-Null
                                 $onboardedResourcesMap[$siteKey] = $siteObj.id
                                 Write-Host "  🌐 Site SharePoint '$($res.sharepoint_url)' associé au catalogue." -ForegroundColor Gray
                             } catch {
@@ -392,7 +393,6 @@ function Synchroniser-EtatEntra {
         $activeApNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 
         if ($doc.access_packages) {
-            Update-LiveProgress "### 🚀 Déploiement Microsoft Entra ID en cours...`n`n| Étape | Statut |`n|---|---|`n| 📦 Catalogues | ✅ Prêts |`n| 📁 Ressources (Groupes, Apps, SharePoint) | ✅ Associées |`n| 🎁 Access Packages | ⏳ En cours... |`n| 📜 Politiques d'Assignation | ⏸️ En attente |"
             foreach ($ap in $doc.access_packages) {
                 $apName = Calculer-NomAccessPackage -AccessPackage $ap -AppName $appName
                 $activeApNames.Add($apName) | Out-Null
@@ -478,7 +478,6 @@ function Synchroniser-EtatEntra {
                 # ---------------------------------------------------------------
                 # ÉTAPE 5 : Politique d'Assignation Unique par Access Package
                 # ---------------------------------------------------------------
-                Update-LiveProgress "### 🚀 Déploiement Microsoft Entra ID en cours...`n`n| Étape | Statut |`n|---|---|`n| 📦 Catalogues | ✅ Prêts |`n| 📁 Ressources (Groupes, Apps, SharePoint) | ✅ Associées |`n| 🎁 Access Packages | ✅ Déployés |`n| 📜 Politiques d'Assignation | ⏳ En cours... |"
                 try {
                     $approverIds = [System.Collections.Generic.List[string]]::new()
                     if ($ap.authorization_owners) {
@@ -494,8 +493,14 @@ function Synchroniser-EtatEntra {
                     $existingPolicy = Get-PolitiqueAssignationEntra -AccessPackageId $apId
 
                     if ($existingPolicy -and -not [string]::IsNullOrWhiteSpace($existingPolicy.id)) {
-                        Write-Host "  ✏️ Mise à jour de la politique d'assignation existante ('$($existingPolicy.displayName)' -> '$policyName')..." -ForegroundColor Cyan
-                        $policy = Set-PolitiqueAssignationEntra -PolicyId $existingPolicy.id -AccessPackageId $apId -DisplayName $policyName -ApproverUserIds $approverIds.ToArray()
+                        # Contrôle d'idempotence pure (No-Op) : Si déjà identique, aucun PUT lent vers Graph
+                        if (Test-PolitiqueIdentique -ExistingPolicy $existingPolicy -TargetDisplayName $policyName -TargetApproverIds $approverIds.ToArray()) {
+                            Write-Host "  ✅ Politique d'assignation déjà conforme : '$policyName' ($($existingPolicy.id))" -ForegroundColor Gray
+                            $policy = $existingPolicy
+                        } else {
+                            Write-Host "  ✏️ Mise à jour de la politique d'assignation existante ('$($existingPolicy.displayName)' -> '$policyName')..." -ForegroundColor Cyan
+                            $policy = Set-PolitiqueAssignationEntra -PolicyId $existingPolicy.id -AccessPackageId $apId -DisplayName $policyName -ApproverUserIds $approverIds.ToArray() -ExistingPolicy $existingPolicy
+                        }
                     } else {
                         Write-Host "  📜 Création d'une nouvelle politique d'assignation pour '$apName'..." -ForegroundColor Green
                         $policy = New-PolitiqueAssignationEntra -AccessPackageId $apId -DisplayName $policyName -ApproverUserIds $approverIds.ToArray()

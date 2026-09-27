@@ -23,7 +23,8 @@
         'Get-PolitiqueAssignationEntra',
         'New-PolitiqueAssignationEntra',
         'Set-PolitiqueAssignationEntra',
-        'Remove-PolitiqueAssignationEntra'
+        'Remove-PolitiqueAssignationEntra',
+        'Test-PolitiqueIdentique'
     )
     CmdletsToExport      = @()
     VariablesToExport    = @()

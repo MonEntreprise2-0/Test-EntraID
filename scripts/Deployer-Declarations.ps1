@@ -19,7 +19,13 @@ param(
     [string]$OutputSummaryFile = "deployment_summary.md",
 
     [Parameter(Mandatory = $false)]
-    [int]$PrNumber = 0
+    [int]$PrNumber = 0,
+
+    [Parameter(Mandatory = $false)]
+    [string[]]$ChangedFiles = @(),
+
+    [Parameter(Mandatory = $false)]
+    [switch]$All
 )
 
 $moduleRoot = Join-Path $PSScriptRoot "../modules"
@@ -93,14 +99,86 @@ try {
 }
 
 # 2. Chargement des déclarations YAML
-$yamlFiles = Get-ChildItem -Path $DeclarationsDir -Recurse -Filter "*.yaml" | Where-Object { $_.Name -notlike "_*" }
-if ($yamlFiles.Count -eq 0) {
-    Write-Host "ℹ️ Aucun fichier YAML à déployer dans $DeclarationsDir." -ForegroundColor Cyan
+$allYamlFiles = @(Get-ChildItem -Path $DeclarationsDir -Recurse -Filter "*.yaml" | Where-Object { $_.Name -notlike "_*" })
+if ($allYamlFiles.Count -eq 0) {
+    Write-Host "ℹ️ Aucun fichier YAML trouvé dans $DeclarationsDir." -ForegroundColor Cyan
     if ($liveCommentId -gt 0) {
-        Update-LivePRComment -CommentId $liveCommentId -Message "### ℹ️ Déploiement Microsoft Entra ID`n`nAucun fichier YAML à déployer dans le répertoire `$DeclarationsDir`."
+        Update-LivePRComment -CommentId $liveCommentId -Message "### ℹ️ Déploiement Microsoft Entra ID`n`nAucun fichier YAML trouvé dans le répertoire `$DeclarationsDir`."
     }
     exit 0
 }
+
+$yamlFiles = @()
+
+if ($All -or ($env:DEPLOY_ALL -eq 'true')) {
+    Write-Host "🔄 Déploiement global forcé (-All / DEPLOY_ALL) : toutes les applications ($($allYamlFiles.Count)) seront analysées." -ForegroundColor Cyan
+    $yamlFiles = $allYamlFiles
+} elseif ($ChangedFiles -and $ChangedFiles.Count -gt 0) {
+    Write-Host "🎯 Déploiement ciblé via paramètres : $($ChangedFiles -join ', ')" -ForegroundColor Cyan
+    $normalizedTargets = @($ChangedFiles | ForEach-Object { $_.Trim().Replace('\', '/') })
+    $yamlFiles = @($allYamlFiles | Where-Object {
+        $fullPathNorm = $_.FullName.Replace('\', '/')
+        $fileName = $_.Name
+        $parentDir = $_.Directory.Name
+        foreach ($target in $normalizedTargets) {
+            if ($fullPathNorm -like "*$target*" -or $fileName -like "*$target*" -or $parentDir -eq $target) {
+                return $true
+            }
+        }
+        return $false
+    })
+} else {
+    # Détection automatique via Git des fichiers modifiés
+    $detectedRelFiles = @()
+    try {
+        $isGit = (git rev-parse --is-inside-work-tree 2>$null)
+        if ($isGit -eq 'true') {
+            $rawDiff = @(git diff --name-only HEAD~1 HEAD -- "$DeclarationsDir" 2>$null)
+            if (-not $rawDiff -or $rawDiff.Count -eq 0) {
+                $rawDiff = @(git diff-tree --no-commit-id --name-only -r HEAD -- "$DeclarationsDir" 2>$null)
+            }
+            if ($rawDiff -and $rawDiff.Count -gt 0) {
+                $detectedRelFiles = @($rawDiff | Where-Object { $_ -match '\.ya?ml$' -and $_ -notmatch '(^|[/\\])_' })
+            }
+        }
+    } catch {
+        Write-Verbose "Détection git des fichiers modifiés impossible : $_"
+    }
+
+    if ($detectedRelFiles.Count -gt 0) {
+        Write-Host "🎯 Détection automatique Git : $($detectedRelFiles.Count) fichier(s) déclaratif(s) modifié(s) :" -ForegroundColor Cyan
+        $detectedRelFiles | ForEach-Object { Write-Host "   - $_" -ForegroundColor Yellow }
+
+        $normalizedDetected = @($detectedRelFiles | ForEach-Object { $_.Trim().Replace('\', '/') })
+        $yamlFiles = @($allYamlFiles | Where-Object {
+            $fullPathNorm = $_.FullName.Replace('\', '/')
+            $fileName = $_.Name
+            $parentDir = $_.Directory.Name
+            foreach ($d in $normalizedDetected) {
+                $dBase = [System.IO.Path]::GetFileName($d)
+                $dDirName = [System.IO.Path]::GetFileName([System.IO.Path]::GetDirectoryName($d))
+                if ($fullPathNorm -like "*$d*" -or $fileName -eq $dBase -or ($dDirName -and $parentDir -eq $dDirName)) {
+                    return $true
+                }
+            }
+            return $false
+        })
+    } else {
+        Write-Host "ℹ️ Aucune modification déclarative ciblée détectée via Git. Réconciliation de toutes les applications ($($allYamlFiles.Count))." -ForegroundColor Cyan
+        $yamlFiles = $allYamlFiles
+    }
+}
+
+if ($yamlFiles.Count -eq 0) {
+    Write-Host "ℹ️ Aucun fichier déclaratif existant à déployer suite au filtrage." -ForegroundColor Cyan
+    if ($liveCommentId -gt 0) {
+        Update-LivePRComment -CommentId $liveCommentId -Message "### ℹ️ Déploiement Microsoft Entra ID`n`nAucun fichier déclaratif existant à déployer."
+    }
+    exit 0
+}
+
+Write-Host "📦 Fichiers YAML sélectionnés pour le déploiement ($($yamlFiles.Count)) :" -ForegroundColor Cyan
+$yamlFiles | ForEach-Object { Write-Host "   - $($_.FullName)" -ForegroundColor White }
 
 $declarations = [System.Collections.Generic.List[PSObject]]::new()
 foreach ($yf in $yamlFiles) {

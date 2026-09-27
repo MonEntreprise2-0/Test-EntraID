@@ -483,7 +483,10 @@ function Set-PolitiqueAssignationEntra {
         [int]$DurationInDays = 365,
 
         [Parameter(Mandatory = $false)]
-        [int]$ApprovalTimeoutInDays = 14
+        [int]$ApprovalTimeoutInDays = 14,
+
+        [Parameter(Mandatory = $false)]
+        $ExistingPolicy = $null
     )
 
     $approvalRequired = ($ApproverUserIds -and $ApproverUserIds.Count -gt 0)
@@ -546,8 +549,8 @@ function Set-PolitiqueAssignationEntra {
         onBehalfRequestors                     = @()
     }
 
-    # Récupération de la politique existante pour conserver ses métadonnées requises par le PUT
-    $existing = Invoke-GraphRequest -Endpoint "/identityGovernance/entitlementManagement/assignmentPolicies/$PolicyId" -Method GET -IgnoreNotFound
+    # Récupération de la politique existante pour conserver ses métadonnées requises par le PUT (ou réutilisation si déjà fournie)
+    $existing = if ($ExistingPolicy) { $ExistingPolicy } else { Invoke-GraphRequest -Endpoint "/identityGovernance/entitlementManagement/assignmentPolicies/$PolicyId" -Method GET -IgnoreNotFound }
     $targetApId = $(if (-not [string]::IsNullOrWhiteSpace($AccessPackageId)) {
         $AccessPackageId
     } elseif ($existing -and $existing.accessPackage -and $existing.accessPackage.id) {
@@ -602,6 +605,93 @@ function Remove-PolitiqueAssignationEntra {
     return Invoke-GraphRequest -Endpoint "/identityGovernance/entitlementManagement/assignmentPolicies/$PolicyId" -Method DELETE -IgnoreNotFound
 }
 
+<#
+.SYNOPSIS
+    Vérifie si une politique d'assignation existante dans Entra ID correspond déjà à l'état désiré.
+.DESCRIPTION
+    Compare le displayName, le statut d'approbation requise, la liste des approbateurs (userIds)
+    et la durée d'expiration. Permet d'éviter les appels lents PUT de mise à jour (idempotence pure).
+#>
+function Test-PolitiqueIdentique {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        $ExistingPolicy,
+
+        [Parameter(Mandatory = $true)]
+        [string]$TargetDisplayName,
+
+        [Parameter(Mandatory = $false)]
+        [string[]]$TargetApproverIds = @(),
+
+        [Parameter(Mandatory = $false)]
+        [int]$TargetDurationInDays = 365
+    )
+
+    if (-not $ExistingPolicy -or [string]::IsNullOrWhiteSpace($ExistingPolicy.id)) {
+        return $false
+    }
+
+    # 1. Vérification du nom
+    $currentName = if ($ExistingPolicy.displayName) { $ExistingPolicy.displayName.Trim() } else { "" }
+    if (-not $currentName.Equals($TargetDisplayName.Trim(), [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $false
+    }
+
+    # 2. Vérification du besoin d'approbation
+    $targetApprovalRequired = ($TargetApproverIds -and $TargetApproverIds.Count -gt 0)
+    $currentApprovalRequired = $false
+    if ($ExistingPolicy.requestApprovalSettings -and $ExistingPolicy.requestApprovalSettings.isApprovalRequiredForAdd) {
+        $currentApprovalRequired = [bool]$ExistingPolicy.requestApprovalSettings.isApprovalRequiredForAdd
+    }
+
+    if ($targetApprovalRequired -ne $currentApprovalRequired) {
+        return $false
+    }
+
+    # 3. Vérification des approbateurs (si requis)
+    if ($targetApprovalRequired) {
+        $currentApproverIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        if ($ExistingPolicy.requestApprovalSettings.stages -and $ExistingPolicy.requestApprovalSettings.stages.Count -gt 0) {
+            $stage = $ExistingPolicy.requestApprovalSettings.stages[0]
+            if ($stage.primaryApprovers) {
+                foreach ($appr in $stage.primaryApprovers) {
+                    $uid = if ($appr.userId) { $appr.userId } elseif ($appr.id) { $appr.id } else { $null }
+                    if ($uid) {
+                        $currentApproverIds.Add($uid) | Out-Null
+                    }
+                }
+            }
+        }
+
+        if ($currentApproverIds.Count -ne $TargetApproverIds.Count) {
+            return $false
+        }
+        foreach ($targetId in $TargetApproverIds) {
+            if (-not $currentApproverIds.Contains($targetId)) {
+                return $false
+            }
+        }
+    }
+
+    # 4. Vérification de l'expiration
+    $targetDurationStr = "P$($TargetDurationInDays)D"
+    if ($ExistingPolicy.expiration) {
+        if ($TargetDurationInDays -gt 0) {
+            if ($ExistingPolicy.expiration.type -ne "afterDuration" -or $ExistingPolicy.expiration.duration -ne $targetDurationStr) {
+                return $false
+            }
+        } else {
+            if ($ExistingPolicy.expiration.type -ne "noExpiration") {
+                return $false
+            }
+        }
+    }
+
+    return $true
+}
+
 Export-ModuleMember -Function Get-AccessPackageEntra, New-AccessPackageEntra, Set-AccessPackageEntra, Remove-AccessPackageEntra, `
     Get-RolesRessourcesAccessPackage, Add-RoleRessourceAccessPackage, Remove-RoleRessourceAccessPackage, `
-    Get-PolitiqueAssignationEntra, New-PolitiqueAssignationEntra, Set-PolitiqueAssignationEntra, Remove-PolitiqueAssignationEntra
+    Get-PolitiqueAssignationEntra, New-PolitiqueAssignationEntra, Set-PolitiqueAssignationEntra, Remove-PolitiqueAssignationEntra, `
+    Test-PolitiqueIdentique

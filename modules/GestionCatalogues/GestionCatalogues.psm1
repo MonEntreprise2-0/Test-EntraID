@@ -184,11 +184,14 @@ function Add-RessourceCatalogue {
 
         [Parameter(Mandatory = $true)]
         [ValidateSet("AadGroup", "AadApplication", "SharePointOnline")]
-        [string]$OriginSystem
+        [string]$OriginSystem,
+
+        [Parameter(Mandatory = $false)]
+        $ExistingResources = $null
     )
 
-    # Vérification si la ressource est déjà onboardée dans le catalogue
-    $existing = Get-RessourcesCatalogue -CatalogId $CatalogId
+    # Vérification si la ressource est déjà onboardée dans le catalogue (avec réutilisation du cache si fourni)
+    $existing = if ($null -ne $ExistingResources) { $ExistingResources } else { Get-RessourcesCatalogue -CatalogId $CatalogId }
     if ($existing) {
         foreach ($res in $existing) {
             if ($res.originId -and $res.originId.Equals($OriginId, [StringComparison]::OrdinalIgnoreCase)) {
