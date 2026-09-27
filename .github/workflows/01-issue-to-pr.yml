@@ -338,22 +338,84 @@ jobs:
 
           Expand-Archive -Path "bulk_update.zip" -DestinationPath $extractDir -Force
 
-          $yamlFiles = Get-ChildItem -Path $extractDir -Recurse -Filter "*.yaml"
+          # Importer le module de validation syntaxique si disponible
+          if (Test-Path "./modules/ValidationSyntaxe/ValidationSyntaxe.psd1") {
+            Import-Module "./modules/ValidationSyntaxe/ValidationSyntaxe.psd1" -Force
+          }
+
+          # Détecter tous les fichiers déclaratifs (.yaml / .yml) dans l'archive
+          $yamlFiles = Get-ChildItem -Path $extractDir -Recurse -File | Where-Object { $_.Extension -in @('.yaml', '.yml') }
           $modified = [System.Collections.Generic.List[string]]::new()
 
+          # Récupérer les dossiers existants dans declaration/ pour faire correspondre le nom exact
+          $existingDirs = if (Test-Path "declaration") {
+            Get-ChildItem -Path "declaration" -Directory | Where-Object { -not $_.Name.StartsWith('_') }
+          } else {
+            @()
+          }
+
           foreach ($f in $yamlFiles) {
-            $rawName = $f.BaseName
-            $cleanName = $rawName -replace '^(?i)CAT-', ''
-            $catDirName = "CAT-$cleanName"
-            $targetDir = "declaration/$catDirName"
+            $rawAppName = $null
+
+            # 1. Extraction d'app_name via Lire-DeclarationYaml
+            try {
+              if (Get-Command -Name "Lire-DeclarationYaml" -ErrorAction SilentlyContinue) {
+                $doc = Lire-DeclarationYaml -Path $f.FullName -ErrorAction Stop
+                if ($doc -and -not [string]::IsNullOrWhiteSpace($doc.app_name)) {
+                  $rawAppName = $doc.app_name.Trim()
+                }
+              }
+            } catch {
+              Write-Verbose "Échec lecture structurée : $_"
+            }
+
+            # 2. Fallback regex sur app_name
+            if ([string]::IsNullOrWhiteSpace($rawAppName)) {
+              $fileContent = Get-Content -Path $f.FullName -Raw -Encoding UTF8
+              if ($fileContent -match '(?m)^\s*app_name\s*:\s*["'']?([^"''\r\n#]+)') {
+                $rawAppName = $Matches[1].Trim()
+              }
+            }
+
+            # 3. Fallback ultime sur le nom de fichier si aucun app_name présent
+            if ([string]::IsNullOrWhiteSpace($rawAppName)) {
+              Write-Warning "⚠️ Aucun champ 'app_name' trouvé dans '$($f.Name)', utilisation du nom de fichier."
+              $rawAppName = $f.BaseName
+            }
+
+            $cleanAppName = $rawAppName -replace '^(?i)CAT-', ''
+            $normClean = ($cleanAppName -replace '[^a-zA-Z0-9]', '').ToLowerInvariant()
+
+            # 4. Recherche de correspondance avec un dossier existant dans declaration/
+            $matchedDir = $null
+            foreach ($d in $existingDirs) {
+              $entryClean = $d.Name -replace '^(?i)CAT-', ''
+              $normEntry = ($entryClean -replace '[^a-zA-Z0-9]', '').ToLowerInvariant()
+              if ($d.Name.Equals("CAT-$cleanAppName", [System.StringComparison]::OrdinalIgnoreCase) -or
+                  $d.Name.Equals($rawAppName, [System.StringComparison]::OrdinalIgnoreCase) -or
+                  $entryClean.Equals($cleanAppName, [System.StringComparison]::OrdinalIgnoreCase) -or
+                  ($normClean.Length -gt 0 -and $normEntry -eq $normClean)) {
+                $matchedDir = $d.Name
+                break
+              }
+            }
+
+            # Dossier et fichier cibles : CAT-{app_name}
+            $targetCatName = if ($matchedDir) { $matchedDir } else { "CAT-$cleanAppName" }
+            $targetDir = "declaration/$targetCatName"
             if (-not (Test-Path $targetDir)) {
               New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
             }
-            Copy-Item -Path $f.FullName -Destination "$targetDir/$catDirName.yaml" -Force
-            $modified.Add($catDirName)
-            Write-Host "✅ Application '$catDirName' mise à jour depuis l'archive." -ForegroundColor Green
+
+            $targetFile = "$targetDir/$targetCatName.yaml"
+            Copy-Item -Path $f.FullName -Destination $targetFile -Force
+            if (-not $modified.Contains($targetCatName)) {
+              $modified.Add($targetCatName)
+            }
+            Write-Host "✅ Application '$targetCatName' (app_name: '$rawAppName') identifiée et copiée vers '$targetFile' (depuis '$($f.Name)')." -ForegroundColor Green
           }
 
+          New-Item -ItemType Directory -Path "./parsed" -Force | Out-Null
           [System.IO.File]::WriteAllLines("./parsed/modified_apps.txt", $modified.ToArray(), [System.Text.Encoding]::UTF8)
 
       # -----------------------------------------------------------------------
