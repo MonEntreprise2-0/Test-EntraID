@@ -129,6 +129,10 @@ jobs:
       - name: Contrôle SSoT Entra ID et Calcul du Plan
         id: plan
         shell: pwsh
+        env:
+          PR_BRANCH: ${{ github.head_ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           $rawFiles = @"
           ${{ steps.changed.outputs.files }}
@@ -137,7 +141,16 @@ jobs:
 
           $planExit = 0
           try {
-            & ./scripts/Tester-Declarations.ps1 -Stage SSoTAndPlan -ChangedFiles $fileList -OutputPlanFile plan_summary.md
+            $testParams = @{
+              Stage          = "SSoTAndPlan"
+              ChangedFiles   = $fileList
+              OutputPlanFile = "plan_summary.md"
+            }
+            if ($env:PR_BRANCH -like "*create-*" -or $env:PR_TITLE -match '\[Création Admin\]' -or $env:PR_BODY -match 'OPERATION:\s*admin_create') {
+              Write-Host "🛡️ Scénario de création détecté : interdiction stricte de suppressions de ressources existantes." -ForegroundColor Yellow
+              $testParams['AllowDeletions'] = $false
+            }
+            & ./scripts/Tester-Declarations.ps1 @testParams
           } catch {
             $planExit = 1
           }

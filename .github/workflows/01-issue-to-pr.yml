@@ -266,7 +266,7 @@ jobs:
               }
 
               const cleanName = rawAppName.replace(/^cat-/i, '').trim().toLowerCase();
-              const normClean = cleanName.replace(/[^a-zA-Z0-9]/g, '');
+              const normClean = cleanName.replace(/[\s_]+/g, '-').replace(/-+/g, '-');
 
               // Identification du dossier cible existant
               let targetDir = null;
@@ -277,7 +277,7 @@ jobs:
                   const fullPath = path.join('declaration', entry);
                   if (!fs.statSync(fullPath).isDirectory()) continue;
                   const entryClean = entry.replace(/^cat-/i, '').trim().toLowerCase();
-                  const normEntry = entryClean.replace(/[^a-zA-Z0-9]/g, '');
+                  const normEntry = entryClean.replace(/[\s_]+/g, '-').replace(/-+/g, '-');
                   if (entryClean === cleanName || (normClean.length > 0 && normClean === normEntry)) {
                     targetDir = entry;
                     break;
