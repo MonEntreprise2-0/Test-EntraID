@@ -30,7 +30,10 @@ function Comparer-EtatEntra {
         $SSoTPrerequisites = $null,
 
         [Parameter(Mandatory = $false)]
-        $CataloguesExistants = $null
+        $CataloguesExistants = $null,
+
+        [Parameter(Mandatory = $false)]
+        [bool]$AllowDeletions = $true
     )
 
     Write-Verbose "Début du calcul différentiel (Diff) Git vs Entra ID..."
@@ -44,7 +47,7 @@ function Comparer-EtatEntra {
             if ($c.displayName) {
                 $rawKey = $c.displayName.Trim().ToLowerInvariant()
                 $catalogMapByName[$rawKey] = $c
-                $normKey = ($c.displayName -replace '[^a-zA-Z0-9]', '').ToLowerInvariant()
+                $normKey = ($c.displayName.Trim() -replace '[\s_]+', '-' -replace '-+', '-').ToLowerInvariant()
                 if (-not $catalogMapNormalized.ContainsKey($normKey)) {
                     $catalogMapNormalized[$normKey] = $c
                 }
@@ -72,8 +75,8 @@ function Comparer-EtatEntra {
         $catName = $(if ($doc.catalog_name) { $doc.catalog_name.Trim() } elseif ($appName -like "CAT-*") { $appName } else { "CAT-$appName" })
         $appDesc = $(if ($doc.app_description) { $doc.app_description.Trim() } else { "Catalogue $catName" })
 
-        $catKey = $catName.ToLowerInvariant()
-        $normKey = ($catName -replace '[^a-zA-Z0-9]', '').ToLowerInvariant()
+        $catKey = $catName.Trim().ToLowerInvariant()
+        $normKey = ($catName.Trim() -replace '[\s_]+', '-' -replace '-+', '-').ToLowerInvariant()
         $existingCat = $(
             if ($catalogMapByName.ContainsKey($catKey)) { 
                 $catalogMapByName[$catKey] 
@@ -404,7 +407,7 @@ function Comparer-EtatEntra {
                                 $isDeclared = $true
                             }
 
-                            if (-not $isDeclared) {
+                            if ($AllowDeletions -and -not $isDeclared) {
                                 $resourceRolesToDelete.Add(@{
                                     CatalogName       = $catName
                                     AccessPackageName = $apName
@@ -463,7 +466,7 @@ function Comparer-EtatEntra {
         }
 
         # Détection des packages obsolètes existants dans Entra ID mais retirés du YAML
-        if ($existingCat) {
+        if ($AllowDeletions -and $existingCat) {
             foreach ($existingApName in $existingApsMap.Keys) {
                 $apObj = $existingApsMap[$existingApName]
                 if (-not $declaredApNames.Contains($apObj.displayName)) {
@@ -526,7 +529,10 @@ function Synchroniser-EtatEntra {
         $DiffReport = $null,
 
         [Parameter(Mandatory = $false)]
-        [long]$LiveCommentId = 0
+        [long]$LiveCommentId = 0,
+
+        [Parameter(Mandatory = $false)]
+        [bool]$AllowDeletions = $true
     )
 
     function Update-LiveProgress {
@@ -855,7 +861,7 @@ function Synchroniser-EtatEntra {
         # -------------------------------------------------------------------
         # ÉTAPE 6 : Nettoyage des Access Packages Obsolètes
         # -------------------------------------------------------------------
-        if ($existingAps) {
+        if ($AllowDeletions -and $existingAps) {
             foreach ($oldAp in $existingAps) {
                 if ($oldAp.displayName -and -not $activeApNames.Contains($oldAp.displayName)) {
                     Write-Host "  🗑️ Suppression de l'Access Package obsolète '$($oldAp.displayName)' ($($oldAp.id))..." -ForegroundColor Red

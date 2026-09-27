@@ -28,7 +28,10 @@ param(
 
     [Parameter(Mandatory = $false)]
     [Alias("File", "Files", "Path", "Target")]
-    [string[]]$ChangedFiles = @()
+    [string[]]$ChangedFiles = @(),
+
+    [Parameter(Mandatory = $false)]
+    [bool]$AllowDeletions = $true
 )
 
 # Configuration de l'environnement de modules
@@ -201,7 +204,7 @@ if ($Stage -in @("All", "SSoTAndPlan")) {
 
     # 3. Calcul différentiel (Diff)
     Write-Host "Calcul du plan différentiel (Git vs Entra ID)..." -ForegroundColor Cyan
-    $diffReport = Comparer-EtatEntra -Declarations $docsToInspect -SSoTPrerequisites $ssotResult
+    $diffReport = Comparer-EtatEntra -Declarations $docsToInspect -SSoTPrerequisites $ssotResult -AllowDeletions $AllowDeletions
 
     # 4. Formatage du rapport final
     $finalReport = Formater-RapportPlanCI -DiffReport $diffReport -SSoTReport $ssotResult -ChangedFiles $targetFiles

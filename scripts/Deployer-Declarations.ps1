@@ -272,7 +272,8 @@ if ($isImportOperation) {
     }
 
     # 3. Synchronisation ordonnée vers Entra ID avec retour en direct
-    $syncResult = Synchroniser-EtatEntra -Declarations $declarations -LiveCommentId $liveCommentId
+    $isCreation = ($prDetails -and ($prDetails.head.ref -like "*create-*" -or $prDetails.body -match 'OPERATION:\s*admin_create'))
+    $syncResult = Synchroniser-EtatEntra -Declarations $declarations -LiveCommentId $liveCommentId -AllowDeletions (-not $isCreation)
 
     if (-not $syncResult.Success) {
         Write-Error "❌ Le déploiement Entra ID s'est achevé avec des erreurs."
