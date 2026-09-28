@@ -265,7 +265,8 @@ jobs:
                 return;
               }
 
-              const cleanName = rawAppName.replace(/^cat-/i, '').trim().toLowerCase();
+              const removeAccents = (str) => (str || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+              const cleanName = removeAccents(rawAppName.replace(/^cat-/i, '').trim().toLowerCase());
               const normClean = cleanName.replace(/[\s_]+/g, '-').replace(/-+/g, '-');
 
               // Identification du dossier cible existant
@@ -276,7 +277,7 @@ jobs:
                   if (entry.startsWith('_')) continue;
                   const fullPath = path.join('declaration', entry);
                   if (!fs.statSync(fullPath).isDirectory()) continue;
-                  const entryClean = entry.replace(/^cat-/i, '').trim().toLowerCase();
+                  const entryClean = removeAccents(entry.replace(/^cat-/i, '').trim().toLowerCase());
                   const normEntry = entryClean.replace(/[\s_]+/g, '-').replace(/-+/g, '-');
                   if (entryClean === cleanName || (normClean.length > 0 && normClean === normEntry)) {
                     targetDir = entry;
@@ -317,7 +318,7 @@ jobs:
                     } else {
                       const dirMatch = pathPattern.match(/^\/declaration\/([^/]+)\/?$/i);
                       if (dirMatch) {
-                        const dirName = dirMatch[1].replace(/^cat-/i, '').trim().toLowerCase();
+                        const dirName = removeAccents(dirMatch[1].replace(/^cat-/i, '').trim().toLowerCase());
                         const normDir = dirName.replace(/[^a-zA-Z0-9]/g, '');
                         if (dirName === cleanName || (normClean.length > 0 && normClean === normDir)) {
                           matchedRule = owners;
@@ -552,7 +553,7 @@ jobs:
           APP="${{ steps.parse.outputs.app_name }}"
           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 
-          APP_SLUG=$(echo "$APP" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd 'a-z0-9-_')
+          APP_SLUG=$(echo "$APP" | sed 'y/éèêëàâäîïôöùûüçÉÈÊËÀÂÄÎÏÔÖÙÛÜÇ/eeeeaaaiioouuucEEEEAAAIIOOUUUC/' | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd 'a-z0-9-_')
           [ -z "$APP_SLUG" ] && APP_SLUG="app"
 
           case "$OP" in

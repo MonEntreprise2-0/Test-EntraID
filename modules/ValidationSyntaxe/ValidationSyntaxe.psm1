@@ -309,8 +309,24 @@ function Valider-StructureYaml {
         # Vérification règle 1 app = 1 dossier = 1 fichier avec préfixe obligatoire CAT-
         $cleanAppName = $appName -replace '^(?i)CAT-', ''
         $expectedName = "CAT-$cleanAppName"
-        $isValidFileName = ($fileName -eq "_example" -or $fileName -eq $expectedName -or $fileName -eq "CAT-$appName")
-        $isValidParentDir = ($parentDir -eq "_example" -or $parentDir -eq $expectedName -or $parentDir -eq "CAT-$appName")
+
+        $unaccent = {
+            param([string]$val)
+            if ([string]::IsNullOrEmpty($val)) { return "" }
+            return ($val -replace '[\u00E8-\u00EB\u00C8-\u00CBéèêëÉÈÊË]','e' `
+                        -replace '[\u00E0-\u00E5\u00C0-\u00C5àâäÀÂÄ]','a' `
+                        -replace '[\u00EC-\u00EF\u00CC-\u00CFîïÎÏ]','i' `
+                        -replace '[\u00F2-\u00F6\u00D2-\u00D6ôöÔÖ]','o' `
+                        -replace '[\u00F9-\u00FC\u00D9-\u00DCùûüÙÛÜ]','u' `
+                        -replace '[\u00E7\u00C7çÇ]','c')
+        }
+
+        $cleanExpected = &$unaccent $expectedName
+        $cleanFileName = &$unaccent $fileName
+        $cleanParentDir = &$unaccent $parentDir
+
+        $isValidFileName = ($fileName -eq "_example" -or $fileName -eq $expectedName -or $cleanFileName -eq $cleanExpected)
+        $isValidParentDir = ($parentDir -eq "_example" -or $parentDir -eq $expectedName -or $cleanParentDir -eq $cleanExpected)
 
         if (-not $isValidFileName) {
             $errors.Add("Le nom du fichier ('$fileName.yaml') ne respecte pas la nomenclature obligatoire. Attendu : '$expectedName.yaml'.")

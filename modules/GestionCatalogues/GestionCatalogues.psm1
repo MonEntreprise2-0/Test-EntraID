@@ -44,10 +44,22 @@ function Get-CatalogueEntra {
                 return $cat
             }
         }
-        $normSearch = ($cleanName -replace '[\s_]+', '-' -replace '-+', '-').ToLowerInvariant()
+        $cleanSearchNoAccents = $cleanName -replace '[\u00E8-\u00EB\u00C8-\u00CBéèêëÉÈÊË]','e' `
+                                           -replace '[\u00E0-\u00E5\u00C0-\u00C5àâäÀÂÄ]','a' `
+                                           -replace '[\u00EC-\u00EF\u00CC-\u00CFîïÎÏ]','i' `
+                                           -replace '[\u00F2-\u00F6\u00D2-\u00D6ôöÔÖ]','o' `
+                                           -replace '[\u00F9-\u00FC\u00D9-\u00DCùûüÙÛÜ]','u' `
+                                           -replace '[\u00E7\u00C7çÇ]','c'
+        $normSearch = ($cleanSearchNoAccents -replace '[\s_]+', '-' -replace '-+', '-').ToLowerInvariant()
         foreach ($cat in $allCatalogs) {
             if ($cat.displayName) {
-                $catNorm = ($cat.displayName.Trim() -replace '[\s_]+', '-' -replace '-+', '-').ToLowerInvariant()
+                $catCleanNoAccents = $cat.displayName -replace '[\u00E8-\u00EB\u00C8-\u00CBéèêëÉÈÊË]','e' `
+                                                      -replace '[\u00E0-\u00E5\u00C0-\u00C5àâäÀÂÄ]','a' `
+                                                      -replace '[\u00EC-\u00EF\u00CC-\u00CFîïÎÏ]','i' `
+                                                      -replace '[\u00F2-\u00F6\u00D2-\u00D6ôöÔÖ]','o' `
+                                                      -replace '[\u00F9-\u00FC\u00D9-\u00DCùûüÙÛÜ]','u' `
+                                                      -replace '[\u00E7\u00C7çÇ]','c'
+                $catNorm = ($catCleanNoAccents.Trim() -replace '[\s_]+', '-' -replace '-+', '-').ToLowerInvariant()
                 if ($catNorm -eq $normSearch) {
                     return $cat
                 }

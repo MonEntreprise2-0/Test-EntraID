@@ -47,7 +47,13 @@ function Comparer-EtatEntra {
             if ($c.displayName) {
                 $rawKey = $c.displayName.Trim().ToLowerInvariant()
                 $catalogMapByName[$rawKey] = $c
-                $normKey = ($c.displayName.Trim() -replace '[\s_]+', '-' -replace '-+', '-').ToLowerInvariant()
+                $cClean = $c.displayName -replace '[\u00E8-\u00EB\u00C8-\u00CBéèêëÉÈÊË]','e' `
+                                         -replace '[\u00E0-\u00E5\u00C0-\u00C5àâäÀÂÄ]','a' `
+                                         -replace '[\u00EC-\u00EF\u00CC-\u00CFîïÎÏ]','i' `
+                                         -replace '[\u00F2-\u00F6\u00D2-\u00D6ôöÔÖ]','o' `
+                                         -replace '[\u00F9-\u00FC\u00D9-\u00DCùûüÙÛÜ]','u' `
+                                         -replace '[\u00E7\u00C7çÇ]','c'
+                $normKey = ($cClean.Trim() -replace '[\s_]+', '-' -replace '-+', '-').ToLowerInvariant()
                 if (-not $catalogMapNormalized.ContainsKey($normKey)) {
                     $catalogMapNormalized[$normKey] = $c
                 }
@@ -76,7 +82,13 @@ function Comparer-EtatEntra {
         $appDesc = $(if ($doc.app_description) { $doc.app_description.Trim() } else { "Catalogue $catName" })
 
         $catKey = $catName.Trim().ToLowerInvariant()
-        $normKey = ($catName.Trim() -replace '[\s_]+', '-' -replace '-+', '-').ToLowerInvariant()
+        $catClean = $catName -replace '[\u00E8-\u00EB\u00C8-\u00CBéèêëÉÈÊË]','e' `
+                             -replace '[\u00E0-\u00E5\u00C0-\u00C5àâäÀÂÄ]','a' `
+                             -replace '[\u00EC-\u00EF\u00CC-\u00CFîïÎÏ]','i' `
+                             -replace '[\u00F2-\u00F6\u00D2-\u00D6ôöÔÖ]','o' `
+                             -replace '[\u00F9-\u00FC\u00D9-\u00DCùûüÙÛÜ]','u' `
+                             -replace '[\u00E7\u00C7çÇ]','c'
+        $normKey = ($catClean.Trim() -replace '[\s_]+', '-' -replace '-+', '-').ToLowerInvariant()
         $existingCat = $(
             if ($catalogMapByName.ContainsKey($catKey)) { 
                 $catalogMapByName[$catKey] 

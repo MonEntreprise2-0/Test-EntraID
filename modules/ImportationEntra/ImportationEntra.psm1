@@ -156,7 +156,14 @@ function Exporter-CatalogueVersYaml {
         throw "Le nom de l'application dérivé de '$rawInput' est vide."
     }
 
-    $targetCatalogName = "CAT-$appName"
+    $appNameNoAccents = $appName -replace '[\u00E8-\u00EB\u00C8-\u00CBéèêëÉÈÊË]','e' `
+                                 -replace '[\u00E0-\u00E5\u00C0-\u00C5àâäÀÂÄ]','a' `
+                                 -replace '[\u00EC-\u00EF\u00CC-\u00CFîïÎÏ]','i' `
+                                 -replace '[\u00F2-\u00F6\u00D2-\u00D6ôöÔÖ]','o' `
+                                 -replace '[\u00F9-\u00FC\u00D9-\u00DCùûüÙÛÜ]','u' `
+                                 -replace '[\u00E7\u00C7çÇ]','c'
+
+    $targetCatalogName = "CAT-$appNameNoAccents"
     $targetDir = Join-Path $DeclarationDir $targetCatalogName
     $targetFile = Join-Path $targetDir "$targetCatalogName.yaml"
 
@@ -455,12 +462,12 @@ function Exporter-CatalogueVersYaml {
         $yamlLines.Add("")
     }
 
-    $targetDir = Join-Path $DeclarationDir "CAT-$appName"
+    $targetDir = Join-Path $DeclarationDir $targetCatalogName
     if (-not (Test-Path $targetDir)) {
         New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
     }
 
-    $targetFile = Join-Path $targetDir "CAT-$appName.yaml"
+    $targetFile = Join-Path $targetDir "$targetCatalogName.yaml"
     $yamlContent = $yamlLines -join "`r`n"
     [System.IO.File]::WriteAllText($targetFile, $yamlContent, [System.Text.Encoding]::UTF8)
 
