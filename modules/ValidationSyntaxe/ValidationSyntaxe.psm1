@@ -10,6 +10,7 @@
 <#
 .SYNOPSIS
     Calcule le nom standardisé d'un Access Package selon la règle de nomenclature.
+    Cette fonction calcule le nom en utilisant les paramètes dans $AccessPackage
 .DESCRIPTION
     Formule :
     - Si context_subapp est défini : "[context_subapp] [privilege_level] - [env]"
@@ -19,7 +20,7 @@ function Calculer-NomAccessPackage {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
-        $AccessPackage,
+        $AccessPackage,                     # objet complet qui contient tous les paramètres de l'Access package
 
         [Parameter(Mandatory = $false)]
         [string]$AppName = ""
@@ -44,11 +45,9 @@ function Calculer-NomAccessPackage {
     $privilege = if ($AccessPackage.privilege_level) { $AccessPackage.privilege_level.Trim() } else { "" }
     $env = if ($AccessPackage.env) { $AccessPackage.env.Trim().ToUpperInvariant() } else { "" }
 
-    if (-not [string]::IsNullOrWhiteSpace($app)) {
-        return "$app - $context$privilege - $env".Trim()
-    } else {
-        return "$context$privilege - $env".Trim()
-    }
+
+    return "$app - $context$privilege - $env".Trim()
+   
 }
 
 <#
@@ -70,24 +69,12 @@ function Lire-DeclarationYaml {
     }
 
     $content = Get-Content -Path $Path -Raw -Encoding UTF8
-
-    # 1. Tentative avec powershell-yaml (si disponible)
-    if (Get-Command -Name "ConvertFrom-Yaml" -ErrorAction SilentlyContinue) {
-        try {
-            $parsed = ConvertFrom-Yaml -Yaml $content
-            if ($parsed) {
-                return $parsed
-            }
-        } catch {
-            Write-Verbose "ConvertFrom-Yaml a levé une exception, bascule sur le parseur de secours : $_"
-        }
-    }
-
-    # 2. Parseur natif de secours spécialisé pour le format déclaratif Ardian v2/v1
     return ConvertFrom-ArdianYamlInternal -YamlContent $content
 }
 
 # Parseur interne pour le schéma Ardian
+# Elle transforme un texte brut YAML (une suite de caractères avec des retraits et des tirets) 
+# en un véritable PowerShell manipulable (PSCustomObject) avec des propriétés accessibles par point ($doc.app_name, $doc.access_packages[0].resources, etc.).
 function ConvertFrom-ArdianYamlInternal {
     param([string]$YamlContent)
 
@@ -101,6 +88,7 @@ function ConvertFrom-ArdianYamlInternal {
     $inOwners = $false
     $accessPackagesList = [System.Collections.Generic.List[object]]::new()
 
+    # purifie la valeur brute située après les deux-points : pour n'en garder que la donnée réelle, en supprimant les guillemets et les éventuels commentaires en bout de ligne
     function Clean-YamlValue {
         param([string]$RawVal)
         if ($null -eq $RawVal) { return "" }
@@ -257,17 +245,13 @@ function ConvertFrom-ArdianYamlInternal {
 
 <#
 .SYNOPSIS
-    Valide la structure et les contraintes du schéma déclaratif Ardian v2.
+    Valide la structure et les contraintes du schéma déclaratif.
 .DESCRIPTION
     Vérifie les contraintes obligatoires :
-    - app_name : kebab-case (regex : ^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$)
+    - existence des champs obligatoires (app_name, app_description...)
     - Concordance entre le nom du fichier, le nom du dossier et app_name
-    - app_description : entre 5 et 500 caractères
-    - access_packages : au moins 1 paquet d'accès
     - Pour chaque access_package :
       - privilege_level, env, description obligatoires
-      - authorization_owners : au moins 1 adresse email valide
-      - resources : au moins 1 ressource valide (group_name pour EntraID Group, enterprise_app/app_role pour Application Role)
     - Unicité des noms d'Access Packages générés au sein de l'application
 #>
 function Valider-StructureYaml {
@@ -299,7 +283,7 @@ function Valider-StructureYaml {
     $fileName = [System.IO.Path]::GetFileNameWithoutExtension($FilePath)
     $parentDir = [System.IO.Path]::GetFileName([System.IO.Path]::GetDirectoryName($FilePath))
 
-    # 1. Validation app_name (sans restriction kebab-case : espaces et majuscules autorisés)
+    # 1. Validation app_name
     $appName = $ParsedDoc.app_name
     if ([string]::IsNullOrWhiteSpace($appName)) {
         $errors.Add("Le champ obligatoire 'app_name' est manquant ou vide.")
@@ -334,7 +318,7 @@ function Valider-StructureYaml {
         }
     }
 
-    # 2. Validation app_description (aucune restriction de longueur min ou max)
+    # 2. Validation app_description
     $appDesc = $ParsedDoc.app_description
     if ($null -eq $appDesc -or [string]::IsNullOrWhiteSpace($appDesc)) {
         $errors.Add("Le champ obligatoire 'app_description' est manquant ou vide.")
@@ -404,12 +388,9 @@ function Valider-StructureYaml {
                             if ([string]::IsNullOrWhiteSpace($res.enterprise_app)) {
                                 $errors.Add("Access Package '$apName' : 'enterprise_app' est requis pour les ressources 'Application Role'.")
                             }
-                            # Note : app_role est calculé automatiquement si non renseigné
+                            # Note : app_role est calculé automatiquement 
                         }
                         { $_ -in @("Sharepoint Group", "SharePoint Group", "SharePoint Online", "SharePoint Site") } {
-                            if ($res.catalog_id) {
-                                $errors.Add("Access Package '$apName' : Le champ 'catalog_id' a été supprimé et ne doit plus être utilisé pour les groupes SharePoint.")
-                            }
                             if ([string]::IsNullOrWhiteSpace($res.sharepoint_url)) {
                                 $errors.Add("Access Package '$apName' : 'sharepoint_url' est requis pour les ressources 'Sharepoint Group'.")
                             }
@@ -518,7 +499,7 @@ function Valider-RessourcesEntraId {
         }
     }
 
-    # 2. Résolution SSoT contre Microsoft Entra ID
+    # 2. Résolution déclaration contre Microsoft Entra ID
     $missingGroups = [System.Collections.Generic.List[string]]::new()
     $missingApps = [System.Collections.Generic.List[string]]::new()
     $missingUsers = [System.Collections.Generic.List[string]]::new()
@@ -570,7 +551,7 @@ function Valider-RessourcesEntraId {
         }
     }
 
-    # 3. Contrôle SSoT bloquant pour les AppRoles déclarés
+    # AppRoles 
     foreach ($chk in $appRolesToCheck) {
         $entApp = $chk.EnterpriseApp
         $reqRole = $chk.RequiredAppRole

@@ -898,7 +898,7 @@ function Synchroniser-EtatEntra {
         }
 
         # -------------------------------------------------------------------
-        # ÉTAPE 6 : Nettoyage des Access Packages Obsolètes
+        # ÉTAPE 6 : Supression des Access Packages Obsolètes
         # -------------------------------------------------------------------
         if ($AllowDeletions -and $existingAps) {
             foreach ($oldAp in $existingAps) {

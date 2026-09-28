@@ -236,6 +236,7 @@ function Invoke-GraphRequest {
 <#
 .SYNOPSIS
     Résout un utilisateur dans Entra ID par son adresse email ou son UserPrincipalName.
+    Associe le nom d'un user déclaré dans le yaml avec son GUID
 .DESCRIPTION
     Interroge /v1.0/users avec mise en cache locale pour éviter les requêtes redondantes.
 #>
