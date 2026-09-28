@@ -21,10 +21,10 @@ Le projet est structuré selon une séparation stricte des responsabilités :
 ardian-entitlement-mgmt/
 │
 ├── modules/          📂 Modules métier réutilisables (.psm1 / .psd1)
-│   ├── ConnexionGraph/          -> Authentification Graph API & OIDC
+│   ├── CommunicationGraph/      -> Authentification Graph API & OIDC
 │   ├── ValidationSyntaxe/       -> Parsing YAML, conformité schéma & nomenclature
-│   ├── GestionCatalogues/       -> CRUD Catalogues & ressources
-│   ├── GestionAccessPackages/   -> CRUD Access Packages & politiques
+│   ├── Catalogues/              -> CRUD Catalogues & ressources
+│   ├── AccessPackages/          -> CRUD Access Packages & politiques
 │   ├── SynchronisationEntra/    -> Moteur différentiel Git vs Entra ID (Diff)
 │   ├── ImportationEntra/        -> Rétro-ingénierie / Export vers YAML
 │   └── RapportsEtNotifications/ -> Générateurs de synthèses Markdown

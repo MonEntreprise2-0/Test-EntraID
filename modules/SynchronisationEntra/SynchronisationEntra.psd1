@@ -9,10 +9,10 @@
     Description          = 'Module de réconciliation déclarative, calcul de Diff et déploiement idempotent vers Entra ID'
     PowerShellVersion    = '5.1'
     RequiredModules      = @(
-        @{ ModuleName = 'ConnexionGraph'; ModuleVersion = '1.0.0' },
+        @{ ModuleName = 'CommunicationGraph'; ModuleVersion = '1.0.0' },
         @{ ModuleName = 'ValidationSyntaxe'; ModuleVersion = '1.0.0' },
-        @{ ModuleName = 'GestionCatalogues'; ModuleVersion = '1.0.0' },
-        @{ ModuleName = 'GestionAccessPackages'; ModuleVersion = '1.0.0' },
+        @{ ModuleName = 'Catalogues'; ModuleVersion = '1.0.0' },
+        @{ ModuleName = 'AccessPackages'; ModuleVersion = '1.0.0' },
         @{ ModuleName = 'RapportsEtNotifications'; ModuleVersion = '1.0.0' }
     )
     FunctionsToExport    = @(

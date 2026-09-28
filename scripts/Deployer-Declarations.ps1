@@ -33,9 +33,9 @@ $resolvedModules = (Resolve-Path $moduleRoot).Path
 $env:PSModulePath = "$resolvedModules$([System.IO.Path]::PathSeparator)$($env:PSModulePath)"
 
 Import-Module ValidationSyntaxe -Force
-Import-Module ConnexionGraph -Force
-Import-Module GestionCatalogues -Force
-Import-Module GestionAccessPackages -Force
+Import-Module CommunicationGraph -Force
+Import-Module Catalogues -Force
+Import-Module AccessPackages -Force
 Import-Module SynchronisationEntra -Force
 Import-Module RapportsEtNotifications -Force
 

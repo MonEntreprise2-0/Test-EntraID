@@ -9,7 +9,7 @@
     Description          = 'Module de validation syntaxique, schéma YAML et conformité SSoT contre Microsoft Entra ID'
     PowerShellVersion    = '5.1'
     RequiredModules      = @(
-        @{ ModuleName = 'ConnexionGraph'; ModuleVersion = '1.0.0' }
+        @{ ModuleName = 'CommunicationGraph'; ModuleVersion = '1.0.0' }
     )
     FunctionsToExport    = @(
         'Lire-DeclarationYaml',

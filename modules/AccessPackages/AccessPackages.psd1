@@ -1,14 +1,14 @@
 ﻿@{
-    # Manifeste du module GestionAccessPackages
-    RootModule           = 'GestionAccessPackages.psm1'
+    # Manifeste du module AccessPackages
+    RootModule           = 'AccessPackages.psm1'
     ModuleVersion        = '1.0.0'
     GUID                 = 'e6f78923-54ab-4c90-a2b1-29560312a7d4'
     CompanyName          = 'Ardian'
     Description          = 'Module de gestion des Access Packages, rôles de ressources et politiques d assignation dans Microsoft Entra ID'
     PowerShellVersion    = '5.1'
     RequiredModules      = @(
-        @{ ModuleName = 'ConnexionGraph'; ModuleVersion = '1.0.0' },
-        @{ ModuleName = 'GestionCatalogues'; ModuleVersion = '1.0.0' }
+        @{ ModuleName = 'CommunicationGraph'; ModuleVersion = '1.0.0' },
+        @{ ModuleName = 'Catalogues'; ModuleVersion = '1.0.0' }
     )
     FunctionsToExport    = @(
         'Get-AccessPackageEntra',

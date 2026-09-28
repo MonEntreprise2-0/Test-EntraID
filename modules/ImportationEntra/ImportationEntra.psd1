@@ -7,9 +7,9 @@
     Description          = 'Module de rétro-ingénierie (Reverse Engineering) de catalogues Entra ID vers des fichiers déclaratifs YAML'
     PowerShellVersion    = '5.1'
     RequiredModules      = @(
-        @{ ModuleName = 'ConnexionGraph'; ModuleVersion = '1.0.0' },
-        @{ ModuleName = 'GestionCatalogues'; ModuleVersion = '1.0.0' },
-        @{ ModuleName = 'GestionAccessPackages'; ModuleVersion = '1.0.0' }
+        @{ ModuleName = 'CommunicationGraph'; ModuleVersion = '1.0.0' },
+        @{ ModuleName = 'Catalogues'; ModuleVersion = '1.0.0' },
+        @{ ModuleName = 'AccessPackages'; ModuleVersion = '1.0.0' }
     )
     FunctionsToExport    = @(
         'Exporter-CatalogueVersYaml',

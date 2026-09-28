@@ -1,5 +1,5 @@
 ﻿# ============================================================================
-# MODULE : GestionCatalogues
+# MODULE : Catalogues
 # ============================================================================
 # Rôle :
 #   Gère le cycle de vie des catalogues d'Entitlement Management Entra ID,

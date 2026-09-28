@@ -1,6 +1,6 @@
 ﻿@{
-    # Manifeste du module ConnexionGraph
-    RootModule           = 'ConnexionGraph.psm1'
+    # Manifeste du module CommunicationGraph
+    RootModule           = 'CommunicationGraph.psm1'
     ModuleVersion        = '1.0.0'
     GUID                 = 'b78a9c21-7294-4d8b-87cf-432d8471e9a1'
     CompanyName          = 'Ardian'

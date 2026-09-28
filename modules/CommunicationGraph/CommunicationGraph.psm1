@@ -1,5 +1,5 @@
 ﻿# ============================================================================
-# MODULE : ConnexionGraph
+# MODULE : CommunicationGraph
 # ============================================================================
 # Rôle: 
 #   Fournit le socle d'authentification OIDC et le client HTTP standardisé

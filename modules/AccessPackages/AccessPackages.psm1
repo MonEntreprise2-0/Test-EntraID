@@ -1,5 +1,5 @@
 ﻿# ============================================================================
-# MODULE : GestionAccessPackages
+# MODULE : AccessPackages
 # ============================================================================
 # Rôle :
 #   Gère le cycle de vie complet des Access Packages Entra ID :
