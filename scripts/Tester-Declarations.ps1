@@ -6,8 +6,6 @@
 #   - Étape 1 : Validation de la syntaxe et conformité au schéma YAML v2
 #   - Étape 2 : Contrôle bloquant SSoT (Single Source of Truth) contre Entra ID
 #               et calcul différentiel (Plan) avant approbation humaine.
-#
-# Auteur : Ardian Cloud IAM & DevOps
 # ============================================================================
 
 [CmdletBinding()]

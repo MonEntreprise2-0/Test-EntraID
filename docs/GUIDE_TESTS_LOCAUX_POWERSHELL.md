@@ -33,8 +33,7 @@ ardian-entitlement-mgmt/
 │   ├── Tester-Declarations.ps1     -> Lance la validation CI (Schéma, SSoT, Plan)
 │   ├── Deployer-Declarations.ps1   -> Déploiement CD vers Entra ID
 │   ├── Importer-DepuisEntra.ps1    -> Aspiration d'un catalogue Entra ID en YAML
-│   ├── Traiter-DemandeIssue.ps1    -> Parsing automatique des formulaires d'Issues
-│   └── Synchroniser-Formulaires.ps1-> Alignement dynamique des menus GitHub
+│   └── Traiter-DemandeIssue.ps1    -> Parsing automatique des formulaires d'Issues
 │
 ├── declaration/      📂 Déclarations YAML des applications
 │   ├── _example/                -> Modèle de référence commenté

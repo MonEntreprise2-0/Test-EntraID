@@ -68,8 +68,6 @@ graph LR
 ├── declaration/          # Référentiel déclaratif (1 dossier = 1 fichier YAML par application)
 │   ├── _example/         # Modèle de référence documenté
 │   └── <nomapplication>/ # Dossier de l'application contenant <nomapplication>.yaml
-├── tools/                # Outillage local pour les administrateurs (bulk_yaml_editor.py)
-├── terraform/            # Code Terraform (IaC) piloté dynamiquement par les YAMLs
 ├── schemas/              # Schémas JSON de validation de syntaxe
 └── docs/                 # Guides d'architecture et de gouvernance
 ```

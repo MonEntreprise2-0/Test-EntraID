@@ -6,8 +6,6 @@
 #   - Applique l'état désiré de façon ordonnée et idempotente (Synchroniser-EtatEntra)
 #   - Génère le compte-rendu Markdown pour la PR de déploiement
 #   - Met à jour automatiquement le fichier .github/CODEOWNERS pour les nouvelles applications
-#
-# Auteur : Ardian Cloud IAM & DevOps
 # ============================================================================
 
 [CmdletBinding()]

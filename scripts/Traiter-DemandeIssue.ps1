@@ -5,8 +5,6 @@
 #   Analyse le formulaire de l'Issue GitHub, détecte le scénario (A, B, C, D),
 #   extrait les données déclaratives (YAML, noms d'apps, team, zip URL)
 #   et prépare les fichiers pour l'ouverture de la Pull Request.
-#
-# Auteur : Ardian Cloud IAM & DevOps
 # ============================================================================
 
 [CmdletBinding()]

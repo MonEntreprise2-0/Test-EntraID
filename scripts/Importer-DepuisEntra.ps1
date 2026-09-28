@@ -5,8 +5,6 @@
 #   Orchestre l'import et la rétro-ingénierie (Reverse Engineering) d'applications
 #   et de catalogues existants depuis Microsoft Entra ID (Scénario D).
 #   Vérifie la stricte conformité de la nomenclature des Access Packages.
-#
-# Auteur : Ardian Cloud IAM & DevOps
 # ============================================================================
 
 [CmdletBinding()]
