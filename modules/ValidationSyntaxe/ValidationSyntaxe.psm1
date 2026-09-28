@@ -224,11 +224,11 @@ function ConvertFrom-ArdianYamlInternal {
                 $v = Clean-YamlValue $Matches[2]
 
                 if ($k -eq "resources") {
-                    $inResources = $true
+                    $inResources = ($Matches[2].Trim() -ne "[]")
                     $inOwners = $false
                     continue
                 } elseif ($k -eq "authorization_owners") {
-                    $inOwners = $true
+                    $inOwners = ($Matches[2].Trim() -ne "[]")
                     $inResources = $false
                     continue
                 } else {
@@ -381,11 +381,9 @@ function Valider-StructureYaml {
                 }
             }
 
-            # Validation des resources
+            # Validation des resources (optionnel)
             $resources = $ap.resources
-            if ($null -eq $resources -or $resources.Count -eq 0) {
-                $errors.Add("Access Package '$apName' : 'resources' doit contenir au moins 1 ressource.")
-            } else {
+            if ($resources -and $resources.Count -gt 0) {
                 $resIndex = 0
                 foreach ($res in $resources) {
                     $resIndex++

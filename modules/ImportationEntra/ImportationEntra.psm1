@@ -152,6 +152,7 @@ function Exporter-CatalogueVersYaml {
         throw "Le nom de l'application dérivé de '$rawInput' est vide."
     }
 
+    # On enlève les accents pour créer les noms de répertoires/fichiers car avec les accents ça génère des erreurs
     $appNameNoAccents = $appName -replace '[\u00E8-\u00EB\u00C8-\u00CBéèêëÉÈÊË]','e' `
                                  -replace '[\u00E0-\u00E5\u00C0-\u00C5àâäÀÂÄ]','a' `
                                  -replace '[\u00EC-\u00EF\u00CC-\u00CFîïÎÏ]','i' `
@@ -163,6 +164,8 @@ function Exporter-CatalogueVersYaml {
     $targetDir = Join-Path $DeclarationDir $targetCatalogName
     $targetFile = Join-Path $targetDir "$targetCatalogName.yaml"
 
+
+    #Détection de l'existence préalable dans Git. S'il existe, il note $wasOverwritten = $true
     $wasOverwritten = $false
     $existingDescription = ""
 
@@ -170,6 +173,7 @@ function Exporter-CatalogueVersYaml {
         $wasOverwritten = $true
         Write-Host "⚠️ L'application '$appName' existe déjà dans Git ($targetFile)." -ForegroundColor Yellow
         Write-Host "   -> Le fichier sera écrasé et redéfini avec l'état réel d'Entra ID." -ForegroundColor Yellow
+        #Extrait l'ancienne app_description au cas où le catalogue dans Entra ID n'aurait pas de description renseignée (afin de ne pas perdre la documentation existante)
         try {
             $oldContent = Get-Content $targetFile -Raw -Encoding UTF8
             if ($oldContent -match '(?m)^\s*app_description\s*:\s*["'']?(.*?)["'']?\s*$') {
@@ -200,11 +204,6 @@ function Exporter-CatalogueVersYaml {
 
     $catalogId = $matchedCatalog.id
     $catalogName = $matchedCatalog.displayName
-
-    # Vérification stricte que le catalogue Entra ID commence bien par CAT-
-    if (-not $catalogName.StartsWith("CAT-", [StringComparison]::OrdinalIgnoreCase)) {
-        throw "Le catalogue trouvé dans Entra ID '$catalogName' ne respecte pas la nomenclature obligatoire 'CAT-{app_name}'. Veuillez le renommer directement dans Entra ID avec le préfixe 'CAT-' avant de relancer l'import."
-    }
 
     Write-Host "✅ Catalogue Entra ID trouvé : '$catalogName' (ID : $catalogId) pour app_name '$appName'" -ForegroundColor Green
 
@@ -381,14 +380,6 @@ function Exporter-CatalogueVersYaml {
             }
         }
 
-        # Si aucune ressource, ajout d'une ressource par défaut pour respecter le schéma
-        if ($resourcesList.Count -eq 0) {
-            $resourcesList.Add([ordered]@{
-                resource_type = "EntraID Group"
-                group_name    = "Group_Default"
-            })
-        }
-
         $apDict = [ordered]@{
             privilege_level      = $nom.Privilege
             env                  = $nom.Env
@@ -432,15 +423,19 @@ function Exporter-CatalogueVersYaml {
                     $yamlLines.Add("    authorization_owners: []")
                 }
             } elseif ($k -eq "resources") {
-                $yamlLines.Add("    resources:")
-                foreach ($r in $v) {
-                    $resFirst = $true
-                    foreach ($rk in $r.Keys) {
-                        $rv = $r[$rk]
-                        $prefix = if ($resFirst) { "      - " } else { "        " }
-                        $yamlLines.Add("$prefix$($rk): `"$rv`"")
-                        $resFirst = $false
+                if ($v -and $v.Count -gt 0) {
+                    $yamlLines.Add("    resources:")
+                    foreach ($r in $v) {
+                        $resFirst = $true
+                        foreach ($rk in $r.Keys) {
+                            $rv = $r[$rk]
+                            $prefix = if ($resFirst) { "      - " } else { "        " }
+                            $yamlLines.Add("$prefix$($rk): `"$rv`"")
+                            $resFirst = $false
+                        }
                     }
+                } else {
+                    $yamlLines.Add("    resources: []")
                 }
             } else {
                 $prefix = if ($first) { "  - " } else { "    " }
