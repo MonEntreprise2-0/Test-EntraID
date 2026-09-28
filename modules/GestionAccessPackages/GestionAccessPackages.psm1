@@ -156,14 +156,12 @@ function Get-RolesRessourcesAccessPackage {
     $endpoint = "/identityGovernance/entitlementManagement/accessPackages/$AccessPackageId/accessPackageResourceRoleScopes?`$expand=accessPackageResourceRole,accessPackageResourceScope&`$top=999"
     try {
         $res = Invoke-GraphRequest -Endpoint $endpoint -ApiVersion "beta" -Method GET -AllPages -IgnoreNotFound
-        if ($null -ne $res) {
-            return $res
-        }
-        return @()
+        if ($res) { return $res }
     } catch {
         Write-Verbose "Échec de récupération des rôles via endpoint beta : $_"
-        return @()
     }
+
+    return Invoke-GraphRequest -Endpoint $endpoint -ApiVersion "v1.0" -Method GET -AllPages -IgnoreNotFound
 }
 
 <#
@@ -573,8 +571,14 @@ function Set-PolitiqueAssignationEntra {
     } else {
         "allDirectoryUsers"
     })
-    $policyDesc = $(if ($existing -and $existing.description) { $existing.description } else { "Initial Policy" })
-    $finalDisplayName = $(if (-not [string]::IsNullOrWhiteSpace($DisplayName)) { $DisplayName } elseif ($existing -and $existing.displayName) { $existing.displayName } else { "Initial Policy" })
+    $policyDesc = $(if ($existing -and $existing.description) { $existing.description } else { "Politique gérée par la pipeline" })
+    $finalDisplayName = if (-not [string]::IsNullOrWhiteSpace($DisplayName)) {
+        $DisplayName.Trim()
+    } elseif ($existing -and $existing.displayName) {
+        $existing.displayName
+    } else {
+        "Politique standard"
+    }
 
     $body = [ordered]@{
         id                      = $PolicyId
@@ -617,9 +621,12 @@ function Remove-PolitiqueAssignationEntra {
 <#
 .SYNOPSIS
     Vérifie si une politique d'assignation existante dans Entra ID correspond déjà à l'état désiré.
+    Dès qu'une différence est détectée, elle s'arrête immédiatement et renvoie $false. Si toutes les vérifications passent avec succès, elle renvoie $true.
+    Si Test-PolitiqueIdentique renvoie $TRUE => La politique dans Entra ID a DÉJÀ exactement les bons approbateurs requis par votre YAML.
+    Si Test-PolitiqueIdentique renvoie $FALSE => Il y a une différence ! Les approbateurs sont différents.
 .DESCRIPTION
-    Compare le displayName, le statut d'approbation requise, la liste des approbateurs (userIds)
-    et la durée d'expiration. Permet d'éviter les appels lents PUT de mise à jour (idempotence pure).
+    Compare le statut d'approbation requise et la liste des approbateurs (userIds).
+    Permet d'éviter les appels lents PUT de mise à jour (idempotence pure).
 #>
 function Test-PolitiqueIdentique {
     [CmdletBinding()]
@@ -628,7 +635,7 @@ function Test-PolitiqueIdentique {
         $ExistingPolicy,
 
         [Parameter(Mandatory = $false)]
-        [string]$TargetDisplayName = "Initial Policy",
+        [string]$TargetDisplayName = $null,
 
         [Parameter(Mandatory = $false)]
         [string[]]$TargetApproverIds = @(),
@@ -641,17 +648,8 @@ function Test-PolitiqueIdentique {
         return $false
     }
 
-    # 1. Vérification du nom : le nom standard "Initial Policy" est toujours accepté
-    $currentName = if ($ExistingPolicy.displayName) { $ExistingPolicy.displayName.Trim() } else { "" }
-    $isNameValid = [string]::IsNullOrWhiteSpace($TargetDisplayName) -or
-                   $currentName.Equals($TargetDisplayName.Trim(), [System.StringComparison]::OrdinalIgnoreCase) -or
-                   $currentName.Equals("Initial Policy", [System.StringComparison]::OrdinalIgnoreCase) -or
-                   $currentName.StartsWith("Politique -", [System.StringComparison]::OrdinalIgnoreCase)
-    if (-not $isNameValid) {
-        return $false
-    }
-
-    # 2. Vérification du besoin d'approbation
+    # 1. Vérification du besoin d'approbation
+    # Si le YAML fournit des approbateurs ($TargetApproverIds), l'approbation est obligatoire ($targetApprovalRequired = $true).
     $targetApprovalRequired = ($TargetApproverIds -and $TargetApproverIds.Count -gt 0)
     $currentApprovalRequired = $false
     if ($ExistingPolicy.requestApprovalSettings) {
@@ -666,7 +664,7 @@ function Test-PolitiqueIdentique {
         return $false
     }
 
-    # 3. Vérification des approbateurs (si requis)
+    # 2. Vérifie (si requis) si la liste des approbateurs actuellement enregistrés dans Entra ID correspond exactement à celle demandée dans le fichier YAML.
     if ($targetApprovalRequired) {
         $currentApproverIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
         $stages = [System.Collections.Generic.List[object]]::new()
@@ -695,26 +693,14 @@ function Test-PolitiqueIdentique {
                 }
             }
         }
-
+        # Vérification du nombre d'approbateurs
         if ($currentApproverIds.Count -ne $TargetApproverIds.Count) {
             return $false
         }
+
+        # Vérification de la présence de chaque approbateur. Si un seul des approbateurs du YAML n'est pas présent dans les currentApprover sur Entra ID: renvoie $false
         foreach ($targetId in $TargetApproverIds) {
             if (-not $currentApproverIds.Contains($targetId.Trim())) {
-                return $false
-            }
-        }
-    }
-
-    # 4. Vérification de l'expiration
-    $targetDurationStr = "P$($TargetDurationInDays)D"
-    if ($ExistingPolicy.expiration) {
-        if ($TargetDurationInDays -gt 0) {
-            if ($ExistingPolicy.expiration.type -ne "afterDuration" -or $ExistingPolicy.expiration.duration -ne $targetDurationStr) {
-                return $false
-            }
-        } else {
-            if ($ExistingPolicy.expiration.type -ne "noExpiration") {
                 return $false
             }
         }

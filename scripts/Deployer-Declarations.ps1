@@ -273,16 +273,7 @@ if ($isImportOperation) {
 
     # 3. Synchronisation ordonnée vers Entra ID avec retour en direct
     $isCreation = ($prDetails -and ($prDetails.head.ref -like "*create-*" -or $prDetails.body -match 'OPERATION:\s*admin_create'))
-    $syncResult = $null
-    try {
-        $syncResult = Synchroniser-EtatEntra -Declarations $declarations -LiveCommentId $liveCommentId -AllowDeletions (-not $isCreation)
-    } catch {
-        Write-Error "❌ Exception critique lors de la synchronisation Entra ID : $_"
-        if ($liveCommentId -gt 0) {
-            Update-LivePRComment -CommentId $liveCommentId -Message "### ❌ Échec critique du déploiement Microsoft Entra ID`n`nUne erreur inattendue est survenue lors de la synchronisation : $_"
-        }
-        exit 1
-    }
+    $syncResult = Synchroniser-EtatEntra -Declarations $declarations -LiveCommentId $liveCommentId -AllowDeletions (-not $isCreation)
 
     if (-not $syncResult.Success) {
         Write-Error "❌ Le déploiement Entra ID s'est achevé avec des erreurs."
