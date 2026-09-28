@@ -45,3 +45,6 @@
 /declaration/CAT-test-cration2/ @MonEntreprise2-0/admins
 
 /declaration/CAT-test-cration3/ @MonEntreprise2-0/dev @MonEntreprise2-0/admins
+
+/declaration/CAT-importtest/ @MonEntreprise2-0/dev @MonEntreprise2-0/admins
+/declaration/CAT-importtest2/ @MonEntreprise2-0/dev @MonEntreprise2-0/admins
