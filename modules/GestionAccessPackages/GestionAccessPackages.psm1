@@ -156,12 +156,12 @@ function Get-RolesRessourcesAccessPackage {
     $endpoint = "/identityGovernance/entitlementManagement/accessPackages/$AccessPackageId/accessPackageResourceRoleScopes?`$expand=accessPackageResourceRole,accessPackageResourceScope&`$top=999"
     try {
         $res = Invoke-GraphRequest -Endpoint $endpoint -ApiVersion "beta" -Method GET -AllPages -IgnoreNotFound
-        if ($null -ne $res) { return $res }
+        if ($res) { return $res }
+        return @()
     } catch {
         Write-Verbose "Échec de récupération des rôles via endpoint beta : $_"
+        return @()
     }
-
-    return Invoke-GraphRequest -Endpoint $endpoint -ApiVersion "v1.0" -Method GET -AllPages -IgnoreNotFound
 }
 
 <#
