@@ -1,0 +1,38 @@
+app_name: "yyy"
+app_description: "newApp"
+
+access_packages:
+
+  # ==========================================================================
+  # AP 1 : "Private Credit Read Only - UAT"
+  # ==========================================================================
+
+
+  # ==========================================================================
+  # AP 2 
+  # ==========================================================================
+
+  - context_subapp: "iCredit"
+    privilege_level: "Admin2"
+    env: "uat"
+    description: "Access Package Credit NonAdmin - Prod"
+    authorization_owners:
+      - "gorlainel_gmail.com#EXT#@monentreprise123.onmicrosoft.com"
+
+    resources:
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test02"
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test01"
+
+  - context_subapp: "Application"
+    privilege_level: "Admin"
+    env: "Prd"
+    description: "Access Package Credit NonAdmin - Prd"
+    authorization_owners:
+      - "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
+
+    resources:
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test01"
+
