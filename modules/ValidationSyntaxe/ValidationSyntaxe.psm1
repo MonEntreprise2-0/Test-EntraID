@@ -44,7 +44,7 @@ function Calculer-NomAccessPackage {
     }
 
     $privilege = if ($AccessPackage.privilege_level) { $AccessPackage.privilege_level.Trim() } else { "" }
-    $env = if ($AccessPackage.env) { $AccessPackage.env.Trim() } else { "" }
+    $env = if ($AccessPackage.env) { $AccessPackage.env.Trim().ToUpperInvariant() } else { "" }
 
     if (-not [string]::IsNullOrWhiteSpace($app)) {
         return "$app - $context$privilege - $env".Trim()

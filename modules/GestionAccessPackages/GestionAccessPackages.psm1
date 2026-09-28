@@ -571,8 +571,8 @@ function Set-PolitiqueAssignationEntra {
     } else {
         "allDirectoryUsers"
     })
-    $policyDesc = $(if ($existing -and $existing.description) { $existing.description } else { "Politique gérée par la pipeline" })
-    $finalDisplayName = $(if (-not [string]::IsNullOrWhiteSpace($DisplayName)) { $DisplayName } elseif ($existing -and $existing.displayName) { $existing.displayName } else { "Politique d'assignation standard" })
+    $policyDesc = $(if ($existing -and $existing.description) { $existing.description } else { "Initial Policy" })
+    $finalDisplayName = $(if (-not [string]::IsNullOrWhiteSpace($DisplayName)) { $DisplayName } elseif ($existing -and $existing.displayName) { $existing.displayName } else { "Initial Policy" })
 
     $body = [ordered]@{
         id                      = $PolicyId
@@ -625,8 +625,8 @@ function Test-PolitiqueIdentique {
         [Parameter(Mandatory = $true)]
         $ExistingPolicy,
 
-        [Parameter(Mandatory = $true)]
-        [string]$TargetDisplayName,
+        [Parameter(Mandatory = $false)]
+        [string]$TargetDisplayName = "Initial Policy",
 
         [Parameter(Mandatory = $false)]
         [string[]]$TargetApproverIds = @(),
@@ -639,9 +639,10 @@ function Test-PolitiqueIdentique {
         return $false
     }
 
-    # 1. Vérification du nom (tolérance pour le nom standard Entra ID "Initial Policy" ou préfixe "Politique -")
+    # 1. Vérification du nom : le nom standard "Initial Policy" est toujours accepté
     $currentName = if ($ExistingPolicy.displayName) { $ExistingPolicy.displayName.Trim() } else { "" }
-    $isNameValid = $currentName.Equals($TargetDisplayName.Trim(), [System.StringComparison]::OrdinalIgnoreCase) -or
+    $isNameValid = [string]::IsNullOrWhiteSpace($TargetDisplayName) -or
+                   $currentName.Equals($TargetDisplayName.Trim(), [System.StringComparison]::OrdinalIgnoreCase) -or
                    $currentName.Equals("Initial Policy", [System.StringComparison]::OrdinalIgnoreCase) -or
                    $currentName.StartsWith("Politique -", [System.StringComparison]::OrdinalIgnoreCase)
     if (-not $isNameValid) {

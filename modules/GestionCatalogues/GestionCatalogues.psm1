@@ -145,18 +145,16 @@ function Get-RessourcesCatalogue {
         [string]$CatalogId
     )
 
-    # Tentative sur endpoint beta (le plus complet pour les ressources du catalogue)
     try {
         $resources = Invoke-GraphRequest -Endpoint "/identityGovernance/entitlementManagement/accessPackageCatalogs/$CatalogId/accessPackageResources?`$top=999" -ApiVersion "beta" -Method GET -AllPages -IgnoreNotFound
-        if ($resources) {
+        if ($null -ne $resources) {
             return $resources
         }
+        return @()
     } catch {
-        Write-Verbose "Endpoint beta non disponible pour les ressources du catalogue, bascule sur v1.0 : $_"
+        Write-Verbose "Échec de récupération des ressources du catalogue via endpoint beta : $_"
+        return @()
     }
-
-    # Fallback sur v1.0
-    return Invoke-GraphRequest -Endpoint "/identityGovernance/entitlementManagement/catalogs/$CatalogId/accessPackageResources?`$top=999" -ApiVersion "v1.0" -Method GET -AllPages -IgnoreNotFound
 }
 
 <#

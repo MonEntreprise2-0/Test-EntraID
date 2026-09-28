@@ -116,7 +116,7 @@ function Tester-NomenclatureAccessPackage {
         AppName       = $AppName
         ContextSubapp = $context
         Privilege     = $privilege
-        Env           = $env
+        Env           = $env.ToUpperInvariant()
         ErrorMessage  = ""
     }
 }

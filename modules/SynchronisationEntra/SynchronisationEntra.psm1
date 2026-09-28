@@ -212,11 +212,6 @@ function Comparer-EtatEntra {
                         DisplayName = $apName
                         Description = $apDesc
                     })
-                    $policiesToCreate.Add(@{
-                        AccessPackageName = $apName
-                        DisplayName       = "Politique - $apName"
-                        Approvers         = $ap.authorization_owners
-                    })
                 } else {
                     if ($existingAp.description -ne $apDesc) {
                         $accessPackagesToUpdate.Add(@{
@@ -442,10 +437,11 @@ function Comparer-EtatEntra {
                                 if ($u) { $targetApproverIds.Add($u.id) }
                             }
                         }
-                        if (-not (Test-PolitiqueIdentique -ExistingPolicy $existingPolicy -TargetDisplayName $targetPolicyName -TargetApproverIds $targetApproverIds.ToArray())) {
+                        $policyDisplayName = if ($existingPolicy.displayName) { $existingPolicy.displayName } else { "Initial Policy" }
+                        if (-not (Test-PolitiqueIdentique -ExistingPolicy $existingPolicy -TargetApproverIds $targetApproverIds.ToArray())) {
                             $policiesToUpdate.Add(@{
                                 AccessPackageName = $apName
-                                DisplayName       = $targetPolicyName
+                                DisplayName       = $policyDisplayName
                                 ExistingPolicy    = $existingPolicy
                             })
                         }
@@ -480,7 +476,7 @@ function Comparer-EtatEntra {
         }
     }
 
-    $createsCount = $catalogsToCreate.Count + $accessPackagesToCreate.Count + $policiesToCreate.Count + $resourceRolesToAdd.Count
+    $createsCount = $catalogsToCreate.Count + $accessPackagesToCreate.Count + $resourceRolesToAdd.Count
     $updatesCount = $catalogsToUpdate.Count + $accessPackagesToUpdate.Count + $policiesToUpdate.Count
     $deletesCount = $accessPackagesToDelete.Count + $resourceRolesToDelete.Count
     $noChangeCount = $catalogsUnchanged.Count + $accessPackagesUnchanged.Count
@@ -826,30 +822,44 @@ function Synchroniser-EtatEntra {
                         }
                     }
 
-                    $policyName = "Politique - $apName"
+                    # Récupération de l'Initial Policy générée automatiquement par Entra ID pour l'Access Package
                     $existingPolicy = Get-PolitiqueAssignationEntra -AccessPackageId $apId
-
-                    if ($existingPolicy -and -not [string]::IsNullOrWhiteSpace($existingPolicy.id)) {
-                        # Contrôle d'idempotence pure (No-Op) : Si déjà identique, aucun PUT lent vers Graph
-                        if (Test-PolitiqueIdentique -ExistingPolicy $existingPolicy -TargetDisplayName $policyName -TargetApproverIds $approverIds.ToArray()) {
-                            Write-Host "  ✅ Politique d'assignation déjà conforme : '$policyName' ($($existingPolicy.id))" -ForegroundColor Gray
-                            $policy = $existingPolicy
-                        } else {
-                            Write-Host "  ✏️ Mise à jour de la politique d'assignation existante ('$($existingPolicy.displayName)' -> '$policyName')..." -ForegroundColor Cyan
-                            $policy = Set-PolitiqueAssignationEntra -PolicyId $existingPolicy.id -AccessPackageId $apId -DisplayName $policyName -ApproverUserIds $approverIds.ToArray() -ExistingPolicy $existingPolicy
-                        }
-                    } else {
-                        Write-Host "  📜 Création d'une nouvelle politique d'assignation pour '$apName'..." -ForegroundColor Green
-                        $policy = New-PolitiqueAssignationEntra -AccessPackageId $apId -DisplayName $policyName -ApproverUserIds $approverIds.ToArray()
+                    $retryCount = 0
+                    while (-not $existingPolicy -and $retryCount -lt 2) {
+                        $retryCount++
+                        Start-Sleep -Milliseconds 500
+                        $existingPolicy = Get-PolitiqueAssignationEntra -AccessPackageId $apId
                     }
 
-                    if ($policy -and -not [string]::IsNullOrWhiteSpace($policy.id)) {
-                        $deployedResources.Add([PSCustomObject]@{
-                            Type        = "Politique d'Assignation"
-                            DisplayName = $policyName
-                            Id          = $policy.id
-                            Status      = "Actif"
-                        })
+                    if (-not $existingPolicy -or [string]::IsNullOrWhiteSpace($existingPolicy.id)) {
+                        Write-Warning "  ⚠️ Aucune politique d'assignation trouvée pour l'Access Package '$apName' ($apId)."
+                        $errors.Add("Politique introuvable pour Access Package '$apName'")
+                    } else {
+                        $policyName = if ($existingPolicy.displayName) { $existingPolicy.displayName } else { "Initial Policy" }
+
+                        # Optimisation : Si aucun approbateur dans le YAML, conserver l'Initial Policy par défaut (aucun PUT)
+                        if ($approverIds.Count -eq 0) {
+                            Write-Host "  ✅ Aucun approbateur requis : politique '$policyName' conservée par défaut." -ForegroundColor Gray
+                            $policy = $existingPolicy
+                        } else {
+                            # Contrôle d'idempotence pure (No-Op) : Si déjà identique, aucun PUT lent vers Graph
+                            if (Test-PolitiqueIdentique -ExistingPolicy $existingPolicy -TargetApproverIds $approverIds.ToArray()) {
+                                Write-Host "  ✅ Politique d'assignation déjà conforme : '$policyName' ($($existingPolicy.id))" -ForegroundColor Gray
+                                $policy = $existingPolicy
+                            } else {
+                                Write-Host "  ✏️ Mise à jour des approbateurs de la politique existante ('$policyName')..." -ForegroundColor Cyan
+                                $policy = Set-PolitiqueAssignationEntra -PolicyId $existingPolicy.id -AccessPackageId $apId -ApproverUserIds $approverIds.ToArray() -ExistingPolicy $existingPolicy
+                            }
+                        }
+
+                        if ($policy -and -not [string]::IsNullOrWhiteSpace($policy.id)) {
+                            $deployedResources.Add([PSCustomObject]@{
+                                Type        = "Politique d'Assignation"
+                                DisplayName = $policyName
+                                Id          = $policy.id
+                                Status      = "Actif"
+                            })
+                        }
                     }
                 } catch {
                     Write-Warning "  ⚠️ Erreur lors de la configuration de la politique pour '$apName' : $_"
