@@ -156,7 +156,7 @@ function Get-RolesRessourcesAccessPackage {
     $endpoint = "/identityGovernance/entitlementManagement/accessPackages/$AccessPackageId/accessPackageResourceRoleScopes?`$expand=accessPackageResourceRole,accessPackageResourceScope&`$top=999"
     try {
         $res = Invoke-GraphRequest -Endpoint $endpoint -ApiVersion "beta" -Method GET -AllPages -IgnoreNotFound
-        if ($res) { return $res }
+        if ($null -ne $res) { return $res }
     } catch {
         Write-Verbose "Échec de récupération des rôles via endpoint beta : $_"
     }
@@ -635,13 +635,7 @@ function Test-PolitiqueIdentique {
         $ExistingPolicy,
 
         [Parameter(Mandatory = $false)]
-        [string]$TargetDisplayName = $null,
-
-        [Parameter(Mandatory = $false)]
-        [string[]]$TargetApproverIds = @(),
-
-        [Parameter(Mandatory = $false)]
-        [int]$TargetDurationInDays = 365
+        [string[]]$TargetApproverIds = @()
     )
 
     if (-not $ExistingPolicy -or [string]::IsNullOrWhiteSpace($ExistingPolicy.id)) {
