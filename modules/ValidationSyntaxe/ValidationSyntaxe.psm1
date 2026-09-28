@@ -2,11 +2,9 @@
 # MODULE : ValidationSyntaxe
 # ============================================================================
 # Rôle :
-#   Valide la syntaxe des fichiers YAML, le respect du schéma déclaratif Ardian v2,
+#   Valide la syntaxe des fichiers YAML, le respect du schéma déclaratif dans les yaml,
 #   la cohérence de nomenclature et effectue le contrôle bloquant SSoT
-#   (Single Source of Truth) contre Microsoft Entra ID.
-#
-# Auteur : Ardian Cloud IAM & DevOps
+#   contre Microsoft Entra ID pour s'assurer que les ressources existent.
 # ============================================================================
 
 <#

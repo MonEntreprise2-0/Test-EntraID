@@ -9,6 +9,80 @@
 
 <#
 .SYNOPSIS
+    Résout et standardise les informations d'une ressource déclarée (Groupe, Application, SharePoint).
+.DESCRIPTION
+    Extrait de façon unifiée le nom, le rôle cible, le système d'origine et la catégorie
+    pour standardiser le traitement dans Comparer-EtatEntra et Synchroniser-EtatEntra.
+.PARAMETER Resource
+    Objet ressource déclaré dans le YAML.
+.PARAMETER AccessPackage
+    Access Package parent optionnel (utilisé pour déduire le rôle applicatif si nécessaire).
+#>
+function Resolve-ResourceInfo {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        $Resource,
+
+        [Parameter(Mandatory = $false)]
+        $AccessPackage = $null
+    )
+
+    $rType = $Resource.resource_type
+    $name = ""
+    $role = "Member"
+    $originSystem = ""
+    $category = ""
+
+    if ($rType -in @("EntraID Group", "Group")) {
+        $category = "Group"
+        $name = if ($Resource.group_name) { $Resource.group_name.Trim() } else { "" }
+        if ($Resource.role) {
+            $role = if ($Resource.role.Trim().Equals("Owner", [System.StringComparison]::OrdinalIgnoreCase)) { "Owner" } else { $Resource.role.Trim() }
+        } else {
+            $role = "Member"
+        }
+        $originSystem = "AadGroup"
+    } elseif ($rType -in @("Application Role", "Application")) {
+        $category = "Application"
+        $name = if ($Resource.enterprise_app) { $Resource.enterprise_app.Trim() } else { "" }
+        if ($Resource.app_role) {
+            $role = $Resource.app_role.Trim()
+        } elseif ($AccessPackage -and -not [string]::IsNullOrWhiteSpace($AccessPackage.context_subapp)) {
+            $role = "$($AccessPackage.context_subapp.Trim()) $($AccessPackage.privilege_level.Trim())"
+        } elseif ($AccessPackage -and -not [string]::IsNullOrWhiteSpace($AccessPackage.privilege_level)) {
+            $role = "$($AccessPackage.privilege_level.Trim())"
+        }
+        $originSystem = "AadApplication"
+    } elseif ($rType -in @("Sharepoint Group", "SharePoint Group", "SharePoint Online", "SharePoint Site")) {
+        $category = "SharePoint"
+        $name = if ($Resource.sharepoint_group_name) {
+            $Resource.sharepoint_group_name.Trim()
+        } elseif ($Resource.sharepoint_url) {
+            $Resource.sharepoint_url.Trim()
+        } else { "" }
+        $role = if ($Resource.role) {
+            $Resource.role.Trim()
+        } elseif ($Resource.sharepoint_group_name) {
+            $Resource.sharepoint_group_name.Trim()
+        } else {
+            "Member"
+        }
+        $originSystem = "SharePointOnline"
+    }
+
+    return [PSCustomObject]@{
+        Category      = $category
+        ResourceType  = $rType
+        Name          = $name
+        Role          = $role
+        OriginSystem  = $originSystem
+        SharepointUrl = if ($Resource.sharepoint_url) { $Resource.sharepoint_url.Trim() } else { "" }
+    }
+}
+
+<#
+.SYNOPSIS
     Calcule le différentiel complet entre les déclarations YAML et Microsoft Entra ID.
     Calcule précisément la liste de toutes les actions à réaliser (créations, mises à jour, suppressions)
 .DESCRIPTION
@@ -261,25 +335,10 @@ function Comparer-EtatEntra {
 
                     if ($ap.resources) {
                         foreach ($res in $ap.resources) {
-                            $rType = $res.resource_type
-                            $resName = ""
-                            $expectedRole = "Member"
-                            if ($rType -eq "EntraID Group" -or $rType -eq "Group") {
-                                $resName = $res.group_name
-                                $expectedRole = if ($res.role) { $res.role.Trim() } else { "Member" }
-                            } elseif ($rType -eq "Application Role" -or $rType -eq "Application") {
-                                $resName = $res.enterprise_app
-                                $expectedRole = if ($res.app_role) { 
-                                    $res.app_role.Trim() 
-                                } elseif (-not [string]::IsNullOrWhiteSpace($ap.context_subapp)) {
-                                    "$($ap.context_subapp.Trim()) $($ap.privilege_level.Trim())"
-                                } else {
-                                    "$($ap.privilege_level.Trim())"
-                                }
-                            } elseif ($rType -in @("Sharepoint Group", "SharePoint Group", "SharePoint Online", "SharePoint Site")) {
-                                $resName = if ($res.sharepoint_group_name) { $res.sharepoint_group_name } else { $res.sharepoint_url }
-                                $expectedRole = if ($res.role) { $res.role.Trim() } else { "Member" }
-                            }
+                            $resInfo = Resolve-ResourceInfo -Resource $res -AccessPackage $ap
+                            $rType = $resInfo.ResourceType
+                            $resName = $resInfo.Name
+                            $expectedRole = $resInfo.Role
 
                             if ([string]::IsNullOrWhiteSpace($resName)) {
                                 continue
@@ -299,21 +358,21 @@ function Comparer-EtatEntra {
                                 $nameToOriginId[$resName.Trim().ToLowerInvariant()]
                             } else {
                                 try {
-                                    if ($rType -eq "EntraID Group" -or $rType -eq "Group") {
+                                    if ($resInfo.Category -eq "Group") {
                                         $resolvedG = Resolve-GraphGroup -GroupName $resName -ErrorAction SilentlyContinue
                                         if ($resolvedG) {
                                             $nameToOriginId[$resName.Trim().ToLowerInvariant()] = $resolvedG.id.Trim()
                                             $originIdToName[$resolvedG.id.Trim().ToLowerInvariant()] = $resName.Trim()
                                             $resolvedG.id.Trim()
                                         } else { $null }
-                                    } elseif ($rType -eq "Application Role" -or $rType -eq "Application") {
+                                    } elseif ($resInfo.Category -eq "Application") {
                                         $resolvedA = Resolve-GraphServicePrincipal -DisplayName $resName -ErrorAction SilentlyContinue
                                         if ($resolvedA) {
                                             $nameToOriginId[$resName.Trim().ToLowerInvariant()] = $resolvedA.id.Trim()
                                             $originIdToName[$resolvedA.id.Trim().ToLowerInvariant()] = $resName.Trim()
                                             $resolvedA.id.Trim()
                                         } else { $null }
-                                    } elseif ($rType -in @("Sharepoint Group", "SharePoint Group", "SharePoint Online", "SharePoint Site")) {
+                                    } elseif ($resInfo.Category -eq "SharePoint") {
                                         $resolvedS = Resolve-SharepointSite -SiteUrl $res.sharepoint_url -ErrorAction SilentlyContinue
                                         if ($resolvedS) {
                                             $nameToOriginId[$resName.Trim().ToLowerInvariant()] = $resolvedS.id.Trim()
@@ -539,9 +598,6 @@ function Synchroniser-EtatEntra {
         $Declarations,
 
         [Parameter(Mandatory = $false)]
-        $DiffReport = $null,
-
-        [Parameter(Mandatory = $false)]
         [bool]$AllowDeletions = $true
     )
 
@@ -604,53 +660,53 @@ function Synchroniser-EtatEntra {
             foreach ($ap in $doc.access_packages) {
                 if (-not $ap.resources) { continue }
                 foreach ($res in $ap.resources) {
-                    $rType = $res.resource_type
-                    if ($rType -eq "EntraID Group" -or $rType -eq "Group") {
-                        $grpKey = $res.group_name.ToLowerInvariant()
-                        if ($onboardedResourcesMap.ContainsKey($grpKey)) {
-                            continue
-                        }
-                        $grpObj = Resolve-GraphGroup -GroupName $res.group_name
+                    $resInfo = Resolve-ResourceInfo -Resource $res -AccessPackage $ap
+                    if ([string]::IsNullOrWhiteSpace($resInfo.Name)) { continue }
+
+                    $lookupKey = if ($resInfo.Category -eq "SharePoint" -and $resInfo.SharepointUrl) {
+                        $resInfo.SharepointUrl.ToLowerInvariant()
+                    } else {
+                        $resInfo.Name.ToLowerInvariant()
+                    }
+
+                    if ($onboardedResourcesMap.ContainsKey($lookupKey)) {
+                        continue
+                    }
+
+                    if ($resInfo.Category -eq "Group") {
+                        $grpObj = Resolve-GraphGroup -GroupName $resInfo.Name
                         if ($grpObj) {
                             try {
-                                Add-RessourceCatalogue -CatalogId $catalogId -OriginId $grpObj.id -OriginSystem "AadGroup" -ExistingResources $existingCatResources | Out-Null
-                                $onboardedResourcesMap[$grpKey] = $grpObj.id
-                                $originIdToName[$grpObj.id.Trim().ToLowerInvariant()] = $res.group_name.Trim()
-                                Write-Host "  📁 Groupe '$($res.group_name)' associé au catalogue." -ForegroundColor Gray
+                                Add-RessourceCatalogue -CatalogId $catalogId -OriginId $grpObj.id -OriginSystem $resInfo.OriginSystem -ExistingResources $existingCatResources | Out-Null
+                                $onboardedResourcesMap[$lookupKey] = $grpObj.id
+                                $originIdToName[$grpObj.id.Trim().ToLowerInvariant()] = $resInfo.Name
+                                Write-Host "  📁 Groupe '$($resInfo.Name)' associé au catalogue." -ForegroundColor Gray
                             } catch {
-                                Write-Warning "  ⚠️ Erreur onboarding groupe '$($res.group_name)' : $_"
+                                Write-Warning "  ⚠️ Erreur onboarding groupe '$($resInfo.Name)' : $_"
                             }
                         }
-                    } elseif ($rType -eq "Application Role" -or $rType -eq "Application") {
-                        $appKey = $res.enterprise_app.ToLowerInvariant()
-                        if ($onboardedResourcesMap.ContainsKey($appKey)) {
-                            continue
-                        }
-                        $spObj = Resolve-GraphServicePrincipal -DisplayName $res.enterprise_app
+                    } elseif ($resInfo.Category -eq "Application") {
+                        $spObj = Resolve-GraphServicePrincipal -DisplayName $resInfo.Name
                         if ($spObj) {
                             try {
-                                Add-RessourceCatalogue -CatalogId $catalogId -OriginId $spObj.id -OriginSystem "AadApplication" -ExistingResources $existingCatResources | Out-Null
-                                $onboardedResourcesMap[$appKey] = $spObj.id
-                                $originIdToName[$spObj.id.Trim().ToLowerInvariant()] = $res.enterprise_app.Trim()
-                                Write-Host "  📱 Application '$($res.enterprise_app)' associée au catalogue." -ForegroundColor Gray
+                                Add-RessourceCatalogue -CatalogId $catalogId -OriginId $spObj.id -OriginSystem $resInfo.OriginSystem -ExistingResources $existingCatResources | Out-Null
+                                $onboardedResourcesMap[$lookupKey] = $spObj.id
+                                $originIdToName[$spObj.id.Trim().ToLowerInvariant()] = $resInfo.Name
+                                Write-Host "  📱 Application '$($resInfo.Name)' associée au catalogue." -ForegroundColor Gray
                             } catch {
-                                Write-Warning "  ⚠️ Erreur onboarding application '$($res.enterprise_app)' : $_"
+                                Write-Warning "  ⚠️ Erreur onboarding application '$($resInfo.Name)' : $_"
                             }
                         }
-                    } elseif ($rType -in @("Sharepoint Group", "SharePoint Group", "SharePoint Online", "SharePoint Site")) {
-                        $siteKey = $res.sharepoint_url.ToLowerInvariant()
-                        if ($onboardedResourcesMap.ContainsKey($siteKey)) {
-                            continue
-                        }
-                        $siteObj = Resolve-SharepointSite -SiteUrl $res.sharepoint_url
+                    } elseif ($resInfo.Category -eq "SharePoint") {
+                        $siteObj = Resolve-SharepointSite -SiteUrl $resInfo.SharepointUrl
                         if ($siteObj) {
                             try {
-                                Add-RessourceCatalogue -CatalogId $catalogId -OriginId $siteObj.webUrl -OriginSystem "SharePointOnline" -ExistingResources $existingCatResources | Out-Null
-                                $onboardedResourcesMap[$siteKey] = $siteObj.id
-                                $originIdToName[$siteObj.id.Trim().ToLowerInvariant()] = $res.sharepoint_url.Trim()
-                                Write-Host "  🌐 Site SharePoint '$($res.sharepoint_url)' associé au catalogue." -ForegroundColor Gray
+                                Add-RessourceCatalogue -CatalogId $catalogId -OriginId $siteObj.webUrl -OriginSystem $resInfo.OriginSystem -ExistingResources $existingCatResources | Out-Null
+                                $onboardedResourcesMap[$lookupKey] = $siteObj.id
+                                $originIdToName[$siteObj.id.Trim().ToLowerInvariant()] = $resInfo.SharepointUrl
+                                Write-Host "  🌐 Site SharePoint '$($resInfo.SharepointUrl)' associé au catalogue." -ForegroundColor Gray
                             } catch {
-                                Write-Warning "  ⚠️ Erreur onboarding site SharePoint '$($res.sharepoint_url)' : $_"
+                                Write-Warning "  ⚠️ Erreur onboarding site SharePoint '$($resInfo.SharepointUrl)' : $_"
                             }
                         }
                     }
@@ -716,47 +772,31 @@ function Synchroniser-EtatEntra {
 
                 if ($ap.resources) {
                     foreach ($res in $ap.resources) {
-                        $rType = $res.resource_type
-                        $targetOriginId = $null
-                        $roleToAssign = "Member"
+                        $resInfo = Resolve-ResourceInfo -Resource $res -AccessPackage $ap
+                        if ([string]::IsNullOrWhiteSpace($resInfo.Name)) { continue }
 
-                        if ($rType -eq "EntraID Group" -or $rType -eq "Group") {
-                            $targetOriginId = $(if ($onboardedResourcesMap.ContainsKey($res.group_name.ToLowerInvariant())) {
-                                $onboardedResourcesMap[$res.group_name.ToLowerInvariant()]
-                            } else {
-                                $g = Resolve-GraphGroup -GroupName $res.group_name
-                                if ($g) { $g.id } else { $null }
-                            })
-                            # Groupes par défaut : Member sauf si explicitement Owner
-                            if ($res.role -and $res.role.Equals("Owner", [StringComparison]::OrdinalIgnoreCase)) {
-                                $roleToAssign = "Owner"
-                            } else {
-                                $roleToAssign = "Member"
-                            }
-                        } elseif ($rType -eq "Application Role" -or $rType -eq "Application") {
-                            $targetOriginId = $(if ($onboardedResourcesMap.ContainsKey($res.enterprise_app.ToLowerInvariant())) {
-                                $onboardedResourcesMap[$res.enterprise_app.ToLowerInvariant()]
-                            } else {
-                                $sp = Resolve-GraphServicePrincipal -DisplayName $res.enterprise_app
-                                if ($sp) { $sp.id } else { $null }
-                            })
-                            # AppRole calculé automatiquement : {context/subapp} {privilege Level}
-                            $computedAppRole = if (-not [string]::IsNullOrWhiteSpace($ap.context_subapp)) {
-                                "$($ap.context_subapp.Trim()) $($ap.privilege_level.Trim())"
-                            } else {
-                                "$($ap.privilege_level.Trim())"
-                            }
-                            $roleToAssign = if ($res.app_role) { $res.app_role.Trim() } else { $computedAppRole }
-                        } elseif ($rType -in @("Sharepoint Group", "SharePoint Group", "SharePoint Online", "SharePoint Site")) {
-                            $siteKey = $res.sharepoint_url.ToLowerInvariant()
-                            $targetOriginId = $(if ($onboardedResourcesMap.ContainsKey($siteKey)) {
-                                $onboardedResourcesMap[$siteKey]
-                            } else {
-                                $siteObj = Resolve-SharepointSite -SiteUrl $res.sharepoint_url
-                                if ($siteObj) { $siteObj.id } else { $null }
-                            })
-                            $roleToAssign = if ($res.role) { $res.role.Trim() } elseif ($res.sharepoint_group_name) { $res.sharepoint_group_name.Trim() } else { "Member" }
+                        $lookupKey = if ($resInfo.Category -eq "SharePoint" -and $resInfo.SharepointUrl) {
+                            $resInfo.SharepointUrl.ToLowerInvariant()
+                        } else {
+                            $resInfo.Name.ToLowerInvariant()
                         }
+
+                        $targetOriginId = if ($onboardedResourcesMap.ContainsKey($lookupKey)) {
+                            $onboardedResourcesMap[$lookupKey]
+                        } else {
+                            if ($resInfo.Category -eq "Group") {
+                                $g = Resolve-GraphGroup -GroupName $resInfo.Name
+                                if ($g) { $g.id } else { $null }
+                            } elseif ($resInfo.Category -eq "Application") {
+                                $sp = Resolve-GraphServicePrincipal -DisplayName $resInfo.Name
+                                if ($sp) { $sp.id } else { $null }
+                            } elseif ($resInfo.Category -eq "SharePoint") {
+                                $siteObj = Resolve-SharepointSite -SiteUrl $resInfo.SharepointUrl
+                                if ($siteObj) { $siteObj.id } else { $null }
+                            } else { $null }
+                        }
+
+                        $roleToAssign = $resInfo.Role
 
                         if ($targetOriginId) {
                             $declaredRoleKeys.Add("$($targetOriginId.ToLowerInvariant())|$($roleToAssign.ToLowerInvariant())") | Out-Null
