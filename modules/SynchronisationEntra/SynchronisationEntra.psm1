@@ -822,21 +822,11 @@ function Synchroniser-EtatEntra {
                         }
                     }
 
-                    # Récupération de l'Initial Policy générée automatiquement par Entra ID pour l'Access Package
+                    # Récupération de l'Initial Policy (existante ou à initialiser si le paquet vient d'être créé via Graph API)
                     $existingPolicy = Get-PolitiqueAssignationEntra -AccessPackageId $apId
-                    $retryCount = 0
-                    while (-not $existingPolicy -and $retryCount -lt 2) {
-                        $retryCount++
-                        Start-Sleep -Milliseconds 500
-                        $existingPolicy = Get-PolitiqueAssignationEntra -AccessPackageId $apId
-                    }
+                    $policyName = if ($existingPolicy -and $existingPolicy.displayName) { $existingPolicy.displayName } else { "Initial Policy" }
 
-                    if (-not $existingPolicy -or [string]::IsNullOrWhiteSpace($existingPolicy.id)) {
-                        Write-Warning "  ⚠️ Aucune politique d'assignation trouvée pour l'Access Package '$apName' ($apId)."
-                        $errors.Add("Politique introuvable pour Access Package '$apName'")
-                    } else {
-                        $policyName = if ($existingPolicy.displayName) { $existingPolicy.displayName } else { "Initial Policy" }
-
+                    if ($existingPolicy -and -not [string]::IsNullOrWhiteSpace($existingPolicy.id)) {
                         # Optimisation : Si aucun approbateur dans le YAML, conserver l'Initial Policy par défaut (aucun PUT)
                         if ($approverIds.Count -eq 0) {
                             Write-Host "  ✅ Aucun approbateur requis : politique '$policyName' conservée par défaut." -ForegroundColor Gray
@@ -851,15 +841,20 @@ function Synchroniser-EtatEntra {
                                 $policy = Set-PolitiqueAssignationEntra -PolicyId $existingPolicy.id -AccessPackageId $apId -ApproverUserIds $approverIds.ToArray() -ExistingPolicy $existingPolicy
                             }
                         }
+                    } else {
+                        # L'Access Package a été créé via l'API Graph (qui ne génère pas de politique par défaut).
+                        # On initialise sa politique première sous le nom standard "Initial Policy".
+                        Write-Host "  📜 Initialisation de l'Initial Policy pour '$apName'..." -ForegroundColor Green
+                        $policy = New-PolitiqueAssignationEntra -AccessPackageId $apId -DisplayName "Initial Policy" -ApproverUserIds $approverIds.ToArray()
+                    }
 
-                        if ($policy -and -not [string]::IsNullOrWhiteSpace($policy.id)) {
-                            $deployedResources.Add([PSCustomObject]@{
-                                Type        = "Politique d'Assignation"
-                                DisplayName = $policyName
-                                Id          = $policy.id
-                                Status      = "Actif"
-                            })
-                        }
+                    if ($policy -and -not [string]::IsNullOrWhiteSpace($policy.id)) {
+                        $deployedResources.Add([PSCustomObject]@{
+                            Type        = "Politique d'Assignation"
+                            DisplayName = $policyName
+                            Id          = $policy.id
+                            Status      = "Actif"
+                        })
                     }
                 } catch {
                     Write-Warning "  ⚠️ Erreur lors de la configuration de la politique pour '$apName' : $_"
