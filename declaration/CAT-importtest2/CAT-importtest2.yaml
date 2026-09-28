@@ -1,0 +1,14 @@
+﻿app_name: "importtest2"
+app_description: "tttttttttttttttt"
+
+access_packages:
+  - context_subapp: "Context"
+    privilege_level: "Admin"
+    env: "UAT"
+    description: "dddddddddd"
+    authorization_owners:
+      - "gorlainel@gmail.com"
+    resources:
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test01"
+        role: "Member"

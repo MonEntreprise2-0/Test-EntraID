@@ -1,0 +1,16 @@
+﻿app_name: "importtest"
+app_description: "zzzzzzzzzzzz"
+
+access_packages:
+  - privilege_level: "Admin"
+    env: "PRD"
+    description: "sssssssss"
+    authorization_owners:
+      - "marcell@monentreprise123.onmicrosoft.com"
+    resources:
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test02"
+        role: "Member"
+      - resource_type: "EntraID Group"
+        group_name: "Group_Test01"
+        role: "Member"
