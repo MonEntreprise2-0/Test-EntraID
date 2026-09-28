@@ -2,21 +2,20 @@
 # MODULE : SynchronisationEntra
 # ============================================================================
 # Rôle :
-#   Moteur de calcul différentiel (Diff) et de déploiement idempotent.
+#   Moteur de calcul différentiel et de déploiement idempotent.
 #   Compare l'état souhaité (déclarations Git YAML) à l'état réel (Entra ID)
 #   et applique les changements de façon ordonnée et sécurisée.
-#
-# Auteur : Ardian Cloud IAM & DevOps
 # ============================================================================
 
 <#
 .SYNOPSIS
     Calcule le différentiel complet entre les déclarations YAML et Microsoft Entra ID.
+    Calcule précisément la liste de toutes les actions à réaliser (créations, mises à jour, suppressions)
 .DESCRIPTION
     Interroge l'état actuel dans Entra ID pour tous les catalogues et packages déclarés.
     Identifie précisément les créations, modifications, suppressions et éléments inchangés.
 .PARAMETER Declarations
-    Liste des objets déclaratifs chargés depuis les fichiers YAML.
+    Liste des objets déclaratifs chargés dans les fichiers YAML. (Liste des fichiers YAML)
 .PARAMETER SSoTPrerequisites
     Résultat optionnel de la validation SSoT (fourni par Valider-RessourcesEntraId).
 #>
@@ -27,13 +26,13 @@ function Comparer-EtatEntra {
         $Declarations,
 
         [Parameter(Mandatory = $false)]
-        $SSoTPrerequisites = $null,
+        $SSoTPrerequisites = $null,         # Résultat du contrôle SSoT précédent (Valider-RessourcesEntraId)
 
         [Parameter(Mandatory = $false)]
         $CataloguesExistants = $null,
 
         [Parameter(Mandatory = $false)]
-        [bool]$AllowDeletions = $true
+        [bool]$AllowDeletions = $true       #S'il vaut $false (par exemple lors d'un scénario de création pure), aucune suppression ne sera planifiée
     )
 
     Write-Verbose "Début du calcul différentiel (Diff) Git vs Entra ID..."
@@ -132,7 +131,7 @@ function Comparer-EtatEntra {
         if ($existingCat) {
             $catId = $existingCat.id
 
-            # Récupération des packages existants du catalogue (ou réutilisation si déjà alimentés)
+            # Récupération des packages existants du catalogue (ou réutilisation si déjà alimentés) - On récupère dans EntraID
             $existingAps = if ($existingCat.PSObject.Properties['accessPackages'] -and $null -ne $existingCat.accessPackages) {
                 $existingCat.accessPackages
             } else {
@@ -172,14 +171,15 @@ function Comparer-EtatEntra {
         }
 
         # Intégration des résolutions SSoT pour les correspondances d'identifiants
+        # Construit un dictionnaire de traduction bidirectionnel (Nom ↔ Identifiant GUID) en mémoire vive
         if ($SSoTPrerequisites) {
             if ($SSoTPrerequisites.ResolvedGroups) {
-                foreach ($k in $SSoTPrerequisites.ResolvedGroups.Keys) {
+                foreach ($k in $SSoTPrerequisites.ResolvedGroups.Keys) {                # $k = nom du groupe tel qu'écrit dans le YAML; $gId = GUID du groupe
                     $g = $SSoTPrerequisites.ResolvedGroups[$k]
                     if ($g -and $g.id) {
                         $gId = $g.id.Trim().ToLowerInvariant()
-                        $originIdToName[$gId] = $k.Trim()
-                        $nameToOriginId[$k.Trim().ToLowerInvariant()] = $g.id.Trim()
+                        $originIdToName[$gId] = $k.Trim()                               # Alimente le traducteur GUID ➔ Nom
+                        $nameToOriginId[$k.Trim().ToLowerInvariant()] = $g.id.Trim()    # Alimente le traducteur Nom ➔ GUID
                     }
                 }
             }
@@ -526,7 +526,7 @@ function Comparer-EtatEntra {
     Séquence d'exécution :
     1. Création / Mise à jour des catalogues
     2. Assignation des Catalog Owners
-    3. Onboarding des ressources (groupes, apps) dans les catalogues
+    3. Onboarding des ressources (groupes, apps, sharepoint) dans les catalogues
     4. Création / Mise à jour des Access Packages
     5. Association des rôles de ressources (Member, Owner, App Role) aux Access Packages
     6. Création / Mise à jour des politiques d'assignation
@@ -542,27 +542,15 @@ function Synchroniser-EtatEntra {
         $DiffReport = $null,
 
         [Parameter(Mandatory = $false)]
-        [long]$LiveCommentId = 0,
-
-        [Parameter(Mandatory = $false)]
         [bool]$AllowDeletions = $true
     )
 
-    function Update-LiveProgress {
-        param([string]$StatusText)
-        if ($LiveCommentId -gt 0 -and (Get-Command -Name "Update-LivePRComment" -ErrorAction SilentlyContinue)) {
-            Update-LivePRComment -CommentId $LiveCommentId -Message $StatusText
-        }
-    }
-
-    Write-Host "====================================================" -ForegroundColor Cyan
-    Write-Host "🚀 DÉPLOIEMENT DÉCLARATIF ENTRA ID (100% POWERSHELL)" -ForegroundColor Cyan
-    Write-Host "====================================================" -ForegroundColor Cyan
+    Write-Host "====================================" -ForegroundColor Cyan
+    Write-Host "🚀 DÉPLOIEMENT DÉCLARATIF ENTRA ID " -ForegroundColor Cyan
+    Write-Host "====================================" -ForegroundColor Cyan
 
     $deployedResources = [System.Collections.Generic.List[PSObject]]::new()
     $errors = [System.Collections.Generic.List[string]]::new()
-
-    Update-LiveProgress "### 🚀 Déploiement Microsoft Entra ID en cours...`n`n| Étape | Statut |`n|---|---|`n| 📦 Catalogues | ⏳ En cours... |`n| 📁 Ressources (Groupes, Apps, SharePoint) | ⏸️ En attente |`n| 🎁 Access Packages | ⏸️ En attente |`n| 📜 Politiques d'Assignation | ⏸️ En attente |"
 
     foreach ($doc in $Declarations) {
         $appName = $doc.app_name
@@ -597,7 +585,6 @@ function Synchroniser-EtatEntra {
         # -------------------------------------------------------------------
         # ÉTAPE 2 : Onboarding des Ressources dans le Catalogue
         # -------------------------------------------------------------------
-        Update-LiveProgress "### 🚀 Déploiement Microsoft Entra ID en cours...`n`n| Étape | Statut |`n|---|---|`n| 📦 Catalogues | ✅ Prêts |`n| 📁 Ressources (Groupes, Apps, SharePoint) | ⏳ En cours... |`n| 🎁 Access Packages | ⏸️ En attente |`n| 📜 Politiques d'Assignation | ⏸️ En attente |"
 
         $onboardedResourcesMap = @{}
         $originIdToName = @{}
@@ -674,7 +661,6 @@ function Synchroniser-EtatEntra {
         # -------------------------------------------------------------------
         # ÉTAPE 3 : Création / Mise à jour des Access Packages
         # -------------------------------------------------------------------
-        Update-LiveProgress "### 🚀 Déploiement Microsoft Entra ID en cours...`n`n| Étape | Statut |`n|---|---|`n| 📦 Catalogues | ✅ Prêts |`n| 📁 Ressources (Groupes, Apps, SharePoint) | ✅ Associées |`n| 🎁 Access Packages | ⏳ En cours... |`n| 📜 Politiques d'Assignation | ⏸️ En attente |"
 
         $existingAps = Get-AccessPackageEntra -CatalogId $catalogId
         $existingApMap = @{}
@@ -890,16 +876,8 @@ function Synchroniser-EtatEntra {
 
     if ($errors.Count -eq 0) {
         Write-Host "`n✅ Déploiement Entra ID terminé avec succès !" -ForegroundColor Green
-        if ($LiveCommentId -gt 0 -and (Get-Command -Name "Formater-RapportDeploiementCD" -ErrorAction SilentlyContinue)) {
-            $finalSummary = Formater-RapportDeploiementCD -DeployedResources $deployedResources
-            Update-LiveProgress $finalSummary
-        }
     } else {
         Write-Host "`n❌ Déploiement Entra ID terminé avec des erreurs." -ForegroundColor Red
-        if ($LiveCommentId -gt 0) {
-            $errList = ($errors | ForEach-Object { "- $_" }) -join "`n"
-            Update-LiveProgress "### ❌ Déploiement Entra ID terminé avec des erreurs`n`n$errList"
-        }
     }
 
     return [PSCustomObject]@{

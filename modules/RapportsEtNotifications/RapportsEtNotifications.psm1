@@ -4,8 +4,7 @@
 # Rôle :
 #   Construit et formate les synthèses et rapports en Markdown pour les
 #   commentaires de Pull Request GitHub et les GITHUB_STEP_SUMMARY.
-#   Génère les blocs d'alerte GitHub (CAUTION, NOTE) pour les blocages SSoT
-#   et les approbations requises.
+#   Génère les blocs d'alerte GitHub pour les blocages SSoT et les approbations requises.
 # ============================================================================
 
 <#
@@ -13,8 +12,10 @@
     Génère le commentaire Markdown complet pour l'Étape 2 de la validation CI.
 .PARAMETER DiffReport
     Objet de résultat retourné par Comparer-EtatEntra.
+    Contient le bilan des écarts entre Git et Entra ID.
 .PARAMETER SSoTReport
-    Objet de résultat retourné par Valider-RessourcesEntraId.
+    Objet de résultat retourné par Valider-RessourcesEntraId. 
+    Indique si toutes les ressources déclarées dans le YAML (groupes, appRole, sites SharePoint, utilisateurs) existent déjà dans Entra ID
 .PARAMETER ChangedFiles
     Liste des chemins de fichiers déclaratifs modifiés.
 #>
@@ -33,17 +34,17 @@ function Formater-RapportPlanCI {
 
     $sb = [System.Text.StringBuilder]::new()
 
-    # Cas 1 : Ressources bloquantes manquantes dans Entra ID (Échec SSoT)
+    # Cas 1 : Ressources bloquantes manquantes dans Entra ID (SSoTReport non valide)
     if ($SSoTReport -and -not $SSoTReport.IsValid) {
-        $sb.AppendLine("## ❌ Étape 2 : Contrôle des Ressources — Échec du contrôle SSoT (Ressources manquantes dans Entra ID)") | Out-Null
+        $sb.AppendLine("## ❌ Étape 2 : Contrôle des Ressources — Échec du contrôle (Ressources manquantes dans Entra ID)") | Out-Null
         $sb.AppendLine() | Out-Null
         $sb.AppendLine("> [!CAUTION]") | Out-Null
         $sb.AppendLine("> ### 🚫 Ressources bloquantes à créer dans Entra ID :") | Out-Null
-        $sb.AppendLine("> **Certaines ressources (groupes, rôles applicatifs ou utilisateurs) déclarées dans votre fichier YAML n'existent pas dans Microsoft Entra ID.**") | Out-Null
+        $sb.AppendLine("> **Certaines ressources (groupes, applications ou sharepointSite), AppRoles ou utilisateurs déclarées dans votre fichier YAML n'existent pas dans Microsoft Entra ID.**") | Out-Null
         $sb.AppendLine(">") | Out-Null
         $sb.AppendLine("> 💡 **Procédure de déblocage (Sans recréer d'Issue) :**") | Out-Null
-        $sb.AppendLine("> 1. Créez les ressources manquantes directement dans le portail Microsoft Entra ID.") | Out-Null
-        $sb.AppendLine("> 2. Cliquez sur le bouton **""Re-run jobs""** de cette Pull Request pour relancer immédiatement la vérification.") | Out-Null
+        $sb.AppendLine("> 1. Créer les ressources manquantes dans le portail Microsoft Entra ID.") | Out-Null
+        $sb.AppendLine("> 2. Cliquer sur le bouton **""Re-run jobs""** de cette Pull Request pour relancer immédiatement la vérification.") | Out-Null
         $sb.AppendLine(">") | Out-Null
         $sb.AppendLine("> **Détail des ressources manquantes détectées :**") | Out-Null
 
@@ -54,7 +55,7 @@ function Formater-RapportPlanCI {
         }
         if ($SSoTReport.MissingAppRoles) {
             foreach ($role in $SSoTReport.MissingAppRoles) {
-                $sb.AppendLine("> - 🔑 Rôle applicatif manquant : ``$role``") | Out-Null
+                $sb.AppendLine("> - 🔑 App Role manquant : ``$role``") | Out-Null
             }
         }
         if ($SSoTReport.MissingGroups) {
@@ -76,7 +77,7 @@ function Formater-RapportPlanCI {
         return $sb.ToString()
     }
 
-    # Cas 2 : Succès SSoT — Affichage du plan de déploiement
+    # Cas 2 : Succès SSoT — Affichage du plan de déploiement (SSoT valide)
     $sb.AppendLine("## ✅ Étape 2 : Contrôle des Ressources — Ressources validées — Plan prêt pour approbation") | Out-Null
     $sb.AppendLine() | Out-Null
 
@@ -132,9 +133,9 @@ function Formater-RapportPlanCI {
     # Détails des suppressions prévues
     $hasDeletes = $DiffReport -and ($DiffReport.AccessPackagesToDelete.Count -gt 0 -or ($DiffReport.ResourceRolesToDelete -and $DiffReport.ResourceRolesToDelete.Count -gt 0))
     if ($hasDeletes) {
-        $sb.AppendLine("#### 🗑️ Ressources obsolètes à supprimer :") | Out-Null
+        $sb.AppendLine("#### 🗑️ Ressources à supprimer :") | Out-Null
         foreach ($ap in $DiffReport.AccessPackagesToDelete) {
-            $sb.AppendLine("- ⚠️ **Access Package obsolète** : ``$($ap.DisplayName)``") | Out-Null
+            $sb.AppendLine("- ⚠️ **Access Package à supprimer** : ``$($ap.DisplayName)``") | Out-Null
         }
         if ($DiffReport.ResourceRolesToDelete) {
             foreach ($r in $DiffReport.ResourceRolesToDelete) {
@@ -148,7 +149,7 @@ function Formater-RapportPlanCI {
     $sb.AppendLine() | Out-Null
     $sb.AppendLine("> [!NOTE]") | Out-Null
     $sb.AppendLine("> ### ℹ️ Étape suivante : Validation Humaine") | Out-Null
-    $sb.AppendLine("> Toutes les ressources cibles existent dans Microsoft Entra ID. Un administrateur habilité doit examiner ce plan et apposer son approbation (**Approve**) sur cette Pull Request avant de procéder au merge.") | Out-Null
+    $sb.AppendLine("> Un administrateur habilité doit examiner ce plan et apposer son approbation (**Approve**) sur cette Pull Request avant de procéder au merge.") | Out-Null
 
     return $sb.ToString()
 }
@@ -171,8 +172,8 @@ function Formater-RapportDeploiementCD {
     $sb.AppendLine() | Out-Null
     $sb.AppendLine("Toutes les ressources ont été provisionnées et sont actives dans **Microsoft Entra ID** :") | Out-Null
     $sb.AppendLine() | Out-Null
-    $sb.AppendLine("| Type de Ressource | Nom dans Entra ID | Identifiant Entra ID (Object ID) | Statut |") | Out-Null
-    $sb.AppendLine("|---|---|---|---|") | Out-Null
+    $sb.AppendLine("| Type de Ressource | Nom dans Entra ID | Statut |") | Out-Null
+    $sb.AppendLine("|---|---|---|") | Out-Null
 
     foreach ($res in $DeployedResources) {
         $emoji = switch ($res.Type) {
@@ -181,7 +182,7 @@ function Formater-RapportDeploiementCD {
             "Politique d'Assignation" { "📜" }
             default                   { "🔹" }
         }
-        $sb.AppendLine("| $emoji **$($res.Type)** | ``$($res.DisplayName)`` | ``$($res.Id)`` | ✅ $($res.Status) |") | Out-Null
+        $sb.AppendLine("| $emoji **$($res.Type)** | ``$($res.DisplayName)`` | ✅ $($res.Status) |") | Out-Null
     }
 
     $sb.AppendLine() | Out-Null
@@ -201,7 +202,7 @@ function New-LivePRComment {
         [int]$PrNumber,
 
         [Parameter(Mandatory = $false)]
-        [string]$InitialMessage = "### 🚀 Déploiement Microsoft Entra ID en cours...`n`n*Initialisation de l'orchestration CD PowerShell...*"
+        [string]$InitialMessage = "### 🔄 Modification en cours dans l'Entra ID..."
     )
 
     $token = if ($env:GITHUB_TOKEN) { $env:GITHUB_TOKEN } else { $env:GH_PAT }
@@ -216,7 +217,7 @@ function New-LivePRComment {
         $headers = @{
             "Authorization" = "Bearer $token"
             "Accept"        = "application/vnd.github.v3+json"
-            "User-Agent"    = "Ardian-GitOps-Engine"
+            "User-Agent"    = "GitOps-Engine"
         }
         $body = @{ body = $InitialMessage } | ConvertTo-Json
         $resp = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -Body ([System.Text.Encoding]::UTF8.GetBytes($body)) -ContentType "application/json; charset=utf-8"
@@ -233,16 +234,16 @@ function New-LivePRComment {
 
 <#
 .SYNOPSIS
-    Met à jour un commentaire existant sur la PR GitHub en direct.
+    Met à jour/écrase un commentaire existant sur la PR GitHub en direct.
 #>
 function Update-LivePRComment {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
-        [long]$CommentId,
+        [long]$CommentId,   #L'identifiant retourné plus tôt par New-LivePRComment
 
         [Parameter(Mandatory = $true)]
-        [string]$Message
+        [string]$Message    #Le nouveau contenu Markdown qui doit remplacer l'ancien.
     )
 
     $token = if ($env:GITHUB_TOKEN) { $env:GITHUB_TOKEN } else { $env:GH_PAT }
@@ -256,7 +257,7 @@ function Update-LivePRComment {
         $headers = @{
             "Authorization" = "Bearer $token"
             "Accept"        = "application/vnd.github.v3+json"
-            "User-Agent"    = "Ardian-GitOps-Engine"
+            "User-Agent"    = "GitOps-Engine"
         }
         $body = @{ body = $Message } | ConvertTo-Json
         Invoke-RestMethod -Uri $uri -Method Patch -Headers $headers -Body ([System.Text.Encoding]::UTF8.GetBytes($body)) -ContentType "application/json; charset=utf-8" | Out-Null
@@ -279,27 +280,25 @@ function Formater-RapportImportCD {
     )
 
     $sb = [System.Text.StringBuilder]::new()
-    $sb.AppendLine("## 📥 Importation Entra ID enregistrée dans Git (Mode Lecture Seule)") | Out-Null
+    $sb.AppendLine("## 📥 Importation Entra ID enregistrée dans Git") | Out-Null
     $sb.AppendLine() | Out-Null
     $sb.AppendLine("> [!NOTE]") | Out-Null
     $sb.AppendLine("> ### 🔒 Sécurité & Intégrité Microsoft Entra ID") | Out-Null
     $sb.AppendLine("> Le scénario d'importation (Reverse Engineering) est **strictement en lecture seule**.") | Out-Null
-    $sb.AppendLine("> Les déclarations YAML enregistrées reflètent fidèlement l'état réel existant dans Entra ID.") | Out-Null
-    $sb.AppendLine("> **Aucune modification, création ou suppression n'a été appliquée à Microsoft Entra ID.**") | Out-Null
     $sb.AppendLine() | Out-Null
-    $sb.AppendLine("### 📦 Applications et Catalogues synchronisés dans Git :") | Out-Null
+    $sb.AppendLine("### 📦 Catalogues synchronisés dans Git :") | Out-Null
     $sb.AppendLine() | Out-Null
-    $sb.AppendLine("| Application Git | Fichier Déclaratif | Statut dans Entra ID |") | Out-Null
-    $sb.AppendLine("|---|---|---|") | Out-Null
+    $sb.AppendLine("| Catalogue | Fichier Déclaratif |") | Out-Null
+    $sb.AppendLine("|---|---|") | Out-Null
 
     if ($YamlFiles -and $YamlFiles.Count -gt 0) {
         foreach ($yf in $YamlFiles) {
             $fName = if ($yf.Name) { $yf.Name } elseif ($yf -is [string]) { [System.IO.Path]::GetFileName($yf) } else { [string]$yf }
             $appBase = [System.IO.Path]::GetFileNameWithoutExtension($fName)
-            $sb.AppendLine("| ``$appBase`` | ``$fName`` | 🟢 Intact (Lecture seule) |") | Out-Null
+            $sb.AppendLine("| ``$appBase`` | ``$fName`` |") | Out-Null
         }
     } else {
-        $sb.AppendLine("| - | - | 🟢 Intact (Lecture seule) |") | Out-Null
+        $sb.AppendLine("| - | - |") | Out-Null
     }
 
     $sb.AppendLine() | Out-Null

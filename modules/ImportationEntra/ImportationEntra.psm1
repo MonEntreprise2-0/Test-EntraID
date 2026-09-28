@@ -394,7 +394,7 @@ function Exporter-CatalogueVersYaml {
         $yamlAccessPackages.Add($apDict)
     }
 
-    # 3. Génération du fichier YAML (strictement app_name, AUCUN catalogue_name / catalog_name)
+    # 3. Génération du fichier YAML
     $catalogDesc = if ($matchedCatalog.description -and -not [string]::IsNullOrWhiteSpace($matchedCatalog.description)) {
         $matchedCatalog.description.Trim()
     } elseif ($existingDescription) {

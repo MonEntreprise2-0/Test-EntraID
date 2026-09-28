@@ -65,7 +65,7 @@ if ($PrNumber -le 0) {
                 $ghHeaders = @{
                     "Authorization" = "Bearer $ghToken"
                     "Accept"        = "application/vnd.github.v3+json"
-                    "User-Agent"    = "Ardian-GitOps-Engine"
+                    "User-Agent"    = "GitOps-Engine"
                 }
                 $ghPulls = Invoke-RestMethod -Uri $ghUri -Headers $ghHeaders -Method Get -ErrorAction Stop
                 if ($ghPulls -and $ghPulls.Count -gt 0 -and $ghPulls[0].number) {
@@ -88,7 +88,7 @@ if ($PrNumber -gt 0 -and ($env:GITHUB_TOKEN -or $env:GH_PAT) -and $env:GITHUB_RE
         $ghHeaders = @{
             "Authorization" = "Bearer $ghToken"
             "Accept"        = "application/vnd.github.v3+json"
-            "User-Agent"    = "Ardian-GitOps-Engine"
+            "User-Agent"    = "GitOps-Engine"
         }
         $prDetails = Invoke-RestMethod -Uri $prUri -Headers $ghHeaders -Method Get -ErrorAction SilentlyContinue
     } catch {
@@ -130,7 +130,7 @@ if ($PrNumber -gt 0) {
     $initMsg = if ($isImportOperation) {
         "### 📥 Enregistrement de l'importation Entra ID...`n`n*Validation en mode lecture seule (aucune écriture dans Entra ID)...*"
     } else {
-        "### 🚀 Déploiement Microsoft Entra ID en cours...`n`n*Initialisation de l'orchestration CD PowerShell...*"
+        "### 🔄 Modification en cours dans l'Entra ID..."
     }
     Write-Host "📡 Initialisation du Live Logging sur la Pull Request #$PrNumber..." -ForegroundColor Cyan
     $liveCommentId = New-LivePRComment -PrNumber $PrNumber -InitialMessage $initMsg
@@ -166,25 +166,65 @@ if ($All -or ($env:DEPLOY_ALL -eq 'true')) {
         return $false
     })
 } else {
-    # Détection automatique via Git des fichiers modifiés
+    # Détection automatique des fichiers modifiés
     $detectedRelFiles = @()
-    try {
-        $isGit = (git rev-parse --is-inside-work-tree 2>$null)
-        if ($isGit -eq 'true') {
-            $rawDiff = @(git diff --name-only HEAD~1 HEAD -- "$DeclarationsDir" 2>$null)
-            if (-not $rawDiff -or $rawDiff.Count -eq 0) {
-                $rawDiff = @(git diff-tree --no-commit-id --name-only -r HEAD -- "$DeclarationsDir" 2>$null)
+
+    # 1. Détection prioritaire via l'API GitHub de la Pull Request si disponible
+    if ($PrNumber -gt 0 -and ($env:GITHUB_TOKEN -or $env:GH_PAT) -and $env:GITHUB_REPOSITORY) {
+        try {
+            $ghToken = if ($env:GITHUB_TOKEN) { $env:GITHUB_TOKEN } else { $env:GH_PAT }
+            $prFilesUri = "https://api.github.com/repos/$($env:GITHUB_REPOSITORY)/pulls/$PrNumber/files?per_page=100"
+            $ghHeaders = @{
+                "Authorization" = "Bearer $ghToken"
+                "Accept"        = "application/vnd.github.v3+json"
+                "User-Agent"    = "GitOps-Engine"
             }
-            if ($rawDiff -and $rawDiff.Count -gt 0) {
-                $detectedRelFiles = @($rawDiff | Where-Object { $_ -match '\.ya?ml$' -and $_ -notmatch '(^|[/\\])_' })
+            $prFilesResp = Invoke-RestMethod -Uri $prFilesUri -Headers $ghHeaders -Method Get -ErrorAction Stop
+            if ($prFilesResp -and $prFilesResp.Count -gt 0) {
+                $prYamlFiles = @($prFilesResp | Where-Object {
+                    $fn = $_.filename
+                    if (-not $fn) { return $false }
+                    $norm = $fn.Replace('\', '/')
+                    $isDecl = ($norm -like "$DeclarationsDir/*" -or $norm -like "*/$DeclarationsDir/*")
+                    $isYaml = ($norm -match '\.ya?ml$')
+                    $isNotIgnored = ($norm -notmatch '(^|[/\\])_')
+                    $notDeleted = ($_.status -ne 'removed')
+                    return ($isDecl -and $isYaml -and $isNotIgnored -and $notDeleted)
+                } | ForEach-Object { $_.filename })
+
+                if ($prYamlFiles.Count -gt 0) {
+                    $detectedRelFiles = $prYamlFiles
+                    Write-Host "🎯 Détection via l'API GitHub PR #$PrNumber : $($detectedRelFiles.Count) fichier(s) déclaratif(s) modifié(s) :" -ForegroundColor Cyan
+                    $detectedRelFiles | ForEach-Object { Write-Host "   - $_" -ForegroundColor Yellow }
+                } else {
+                    Write-Host "ℹ️ La PR #$PrNumber ne contient aucun fichier déclaratif YAML actif modifié." -ForegroundColor Cyan
+                }
             }
+        } catch {
+            Write-Verbose "Détection des fichiers PR via l'API GitHub impossible : $_"
         }
-    } catch {
-        Write-Verbose "Détection git des fichiers modifiés impossible : $_"
+    }
+
+    # 2. Détection via Git local (si non trouvé via l'API GitHub)
+    if ($detectedRelFiles.Count -eq 0) {
+        try {
+            $isGit = (git rev-parse --is-inside-work-tree 2>$null)
+            if ($isGit -eq 'true') {
+                $rawDiff = @(git diff --name-only HEAD~1 HEAD -- "$DeclarationsDir" 2>$null)
+                if (-not $rawDiff -or $rawDiff.Count -eq 0) {
+                    $rawDiff = @(git diff-tree --no-commit-id --name-only -r HEAD -- "$DeclarationsDir" 2>$null)
+                }
+                if ($rawDiff -and $rawDiff.Count -gt 0) {
+                    $detectedRelFiles = @($rawDiff | Where-Object { $_ -match '\.ya?ml$' -and $_ -notmatch '(^|[/\\])_' })
+                }
+            }
+        } catch {
+            Write-Verbose "Détection git des fichiers modifiés impossible : $_"
+        }
     }
 
     if ($detectedRelFiles.Count -gt 0) {
-        Write-Host "🎯 Détection automatique Git : $($detectedRelFiles.Count) fichier(s) déclaratif(s) modifié(s) :" -ForegroundColor Cyan
+        Write-Host "🎯 Détection automatique : $($detectedRelFiles.Count) fichier(s) déclaratif(s) sélectionné(s) :" -ForegroundColor Cyan
         $detectedRelFiles | ForEach-Object { Write-Host "   - $_" -ForegroundColor Yellow }
 
         $normalizedDetected = @($detectedRelFiles | ForEach-Object { $_.Trim().Replace('\', '/') })
@@ -201,6 +241,9 @@ if ($All -or ($env:DEPLOY_ALL -eq 'true')) {
             }
             return $false
         })
+    } elseif ($PrNumber -gt 0) {
+        Write-Host "ℹ️ Aucun fichier déclaratif modifié dans la PR #$PrNumber." -ForegroundColor Cyan
+        $yamlFiles = @()
     } else {
         Write-Host "ℹ️ Aucune modification déclarative ciblée détectée via Git. Réconciliation de toutes les applications ($($allYamlFiles.Count))." -ForegroundColor Cyan
         $yamlFiles = $allYamlFiles
@@ -210,7 +253,7 @@ if ($All -or ($env:DEPLOY_ALL -eq 'true')) {
 if ($yamlFiles.Count -eq 0) {
     Write-Host "ℹ️ Aucun fichier déclaratif existant à déployer suite au filtrage." -ForegroundColor Cyan
     if ($liveCommentId -gt 0) {
-        Update-LivePRComment -CommentId $liveCommentId -Message "### ℹ️ Déploiement Microsoft Entra ID`n`nAucun fichier déclaratif existant à déployer."
+        Update-LivePRComment -CommentId $liveCommentId -Message "### ℹ️ Déploiement Microsoft Entra ID`n`nAucun fichier déclaratif modifié dans cette Pull Request."
     }
     exit 0
 }
@@ -271,11 +314,11 @@ if ($isImportOperation) {
         }
     }
 
-    # 3. Synchronisation ordonnée vers Entra ID avec retour en direct
+    # 3. Synchronisation ordonnée vers Entra ID
     $isCreation = ($prDetails -and ($prDetails.head.ref -like "*create-*" -or $prDetails.body -match 'OPERATION:\s*admin_create'))
     $syncResult = $null
     try {
-        $syncResult = Synchroniser-EtatEntra -Declarations $declarations -LiveCommentId $liveCommentId -AllowDeletions (-not $isCreation)
+        $syncResult = Synchroniser-EtatEntra -Declarations $declarations -AllowDeletions (-not $isCreation)
     } catch {
         Write-Error "❌ Exception critique lors de la synchronisation Entra ID : $_"
         if ($liveCommentId -gt 0) {
@@ -286,6 +329,10 @@ if ($isImportOperation) {
 
     if (-not $syncResult.Success) {
         Write-Error "❌ Le déploiement Entra ID s'est achevé avec des erreurs."
+        if ($liveCommentId -gt 0) {
+            $errList = ($syncResult.Errors | ForEach-Object { "- $_" }) -join "`n"
+            Update-LivePRComment -CommentId $liveCommentId -Message "### ❌ Déploiement Entra ID terminé avec des erreurs`n`n$errList"
+        }
         exit 1
     }
 
@@ -300,8 +347,11 @@ if ($isImportOperation) {
         Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $summaryMd -Encoding UTF8
     }
 
-    # Si le live comment n'avait pas été initialisé mais qu'on a un numéro de PR, on poste le rapport final
-    if ($liveCommentId -le 0 -and $PrNumber -gt 0) {
+    # Mise à jour du commentaire PR avec le récapitulatif final
+    if ($liveCommentId -gt 0) {
+        Write-Host "📡 Mise à jour du commentaire sur la PR #$PrNumber avec le récapitulatif final..." -ForegroundColor Cyan
+        Update-LivePRComment -CommentId $liveCommentId -Message $summaryMd
+    } elseif ($PrNumber -gt 0) {
         Write-Host "📡 Publication du rapport final sur la Pull Request #$PrNumber..." -ForegroundColor Cyan
         $null = New-LivePRComment -PrNumber $PrNumber -InitialMessage $summaryMd
     }
