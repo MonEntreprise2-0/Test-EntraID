@@ -19,9 +19,6 @@ param(
     [string]$DeclarationDir = "declaration",
 
     [Parameter(Mandatory = $false)]
-    [string]$FallbackApproverEmail = "",
-
-    [Parameter(Mandatory = $false)]
     [string]$OutputList = "imported_apps.txt",
 
     [Parameter(Mandatory = $false)]
@@ -77,7 +74,7 @@ $summaryRows = [System.Collections.Generic.List[string]]::new()
 foreach ($appName in $appNames) {
     Write-Host "`nTraitement de l'application : '$appName'..." -ForegroundColor Yellow
     try {
-        $res = Exporter-CatalogueVersYaml -TargetCatalogName $appName -DeclarationDir $DeclarationDir -FallbackApproverEmail $FallbackApproverEmail
+        $res = Exporter-CatalogueVersYaml -TargetCatalogName $appName -DeclarationDir $DeclarationDir
         if ($res.Success) {
             $importedApps.Add($res.AppName)
             $statusText = if ($res.WasOverwritten) { "✅ Réécrit / Écrasé avec succès" } else { "✅ Importé avec succès" }

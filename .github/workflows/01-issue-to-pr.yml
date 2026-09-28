@@ -500,7 +500,6 @@ jobs:
         shell: pwsh
         env:
           TARGET_APPS: ${{ steps.parse.outputs.target_applications }}
-          FALLBACK_APPROVER_EMAIL: "OrlaineLEKANEGUETSA@monentreprise123.onmicrosoft.com"
         run: |
           if (-not $env:TARGET_APPS -or [string]::IsNullOrWhiteSpace($env:TARGET_APPS)) {
             $err = "Aucun catalogue à importer n'a pu être extrait du formulaire de l'Issue. Veuillez renseigner le champ 'Noms exacts des catalogues à importer (CAT-{app_name})'."
@@ -512,7 +511,6 @@ jobs:
           & ./scripts/Importer-DepuisEntra.ps1 `
             -Applications $env:TARGET_APPS `
             -DeclarationDir "declaration" `
-            -FallbackApproverEmail $env:FALLBACK_APPROVER_EMAIL `
             -OutputList "./parsed/imported_apps.txt" `
             -ErrorFile "./parsed/import_errors.txt" `
             -SummaryFile "./parsed/import_summary.md"

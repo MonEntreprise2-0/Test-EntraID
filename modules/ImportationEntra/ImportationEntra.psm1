@@ -2,21 +2,22 @@
 # MODULE : ImportationEntra
 # ============================================================================
 # Rôle :
-#   Rétro-ingénierie (Reverse Engineering) de catalogues existants dans Entra ID
-#   vers des fichiers de déclaration YAML au format Ardian v2 (Scénario D).
-#   Applique le contrôle strict de la nomenclature :
-#     [Contexte/Sous-Application] [Privilège] - [Environnement]
+#   Rétro-ingénierie (Reverse Engineering) de catalogues existants dans Entra ID vers des fichiers de déclaration YAML.
+#
+#    
 # ============================================================================
 
 <#
 .SYNOPSIS
-    Valide et décompose le nom d'un Access Package selon la règle de nomenclature obligatoire.
+    Lorsqu'on importe un catalogue existant depuis Entra ID pour générer son YAML, cette fonction accomplit deux missions :
+
+    1. Vérifier que l'Access Package respecte strictement la nomenclature obligatoire de l'entreprise : [app_name] - [Contexte] [Privilège] - [Environnement]
+    2. Décomposer le nom pour en extraire automatiquement les 3 clés nécessaires au fichier YAML : context_subapp, privilege_level, env 
 .DESCRIPTION
     Convention attendue :
-    - Avec contexte : "{app_name} - [Context] [Privilege] - [Env]" (ex: "iCredit - SubApp Admin - PRD")
-    - Sans contexte : "{app_name} - [Privilege] - [Env]" (ex: "iCredit - Admin - PRD")
-    Contrainte stricte : Env doit faire partie de DEV, UAT, PRD, TST, GLB (insensible à la casse).
-    La casse saisie pour Env est préservée.
+    - Avec contexte : "{app_name} - [Context] [Privilege] - [Env]" (ex: "monApp - SubApp Admin - PRD")
+    - Sans contexte : "{app_name} - [Privilege] - [Env]" (ex: "monApp - Admin - PRD")
+    Contrainte stricte : Env doit avoir les valeurs suivantes DEV, UAT, PRD, TST, GLB.
 .OUTPUTS
     PSCustomObject contenant IsValid, AppName, ContextSubapp, Privilege, Env, ErrorMessage.
 #>
@@ -24,16 +25,16 @@ function Tester-NomenclatureAccessPackage {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
-        [string]$DisplayName,
+        [string]$DisplayName,  # Nom de l'accessPackage dans EntraID
 
         [Parameter(Mandatory = $false)]
-        [string]$AppName = ""
+        [string]$AppName = ""  # Nom du catalogue
     )
 
     $clean = $DisplayName.Trim()
     $allowedEnvs = @('DEV', 'UAT', 'PRD', 'TST', 'GLB')
 
-    # 1. Vérification du préfixe de l'application si fourni
+    # 1. Vérification du préfixe de l'application si fourni (Si l'app_name est fourni, alors le nom de l'AccessPackage doit obligatoirement commencer par cet app_name)
     $workingName = $clean
     if (-not [string]::IsNullOrWhiteSpace($AppName)) {
         $appPrefix = "$AppName - "
@@ -123,13 +124,11 @@ function Tester-NomenclatureAccessPackage {
 
 <#
 .SYNOPSIS
-    Aspire un catalogue existant depuis Entra ID et génère la déclaration YAML correspondante.
+    Récupère un catalogue existant depuis Entra ID et génère la déclaration YAML correspondante.
 .PARAMETER TargetCatalogOrAppName
-    Nom du catalogue ou de l'application à importer.
+    Nom du catalogue à importer.
 .PARAMETER DeclarationDir
-    Répertoire racine des déclarations (défaut : 'declaration').
-.PARAMETER FallbackApproverEmail
-    Email de l'approbateur par défaut si aucun approbateur direct n'est configuré dans la politique.
+    Répertoire racine des déclarations sur Github (défaut : 'declaration').
 #>
 function Exporter-CatalogueVersYaml {
     [CmdletBinding()]
@@ -138,10 +137,7 @@ function Exporter-CatalogueVersYaml {
         [string]$TargetCatalogName,
 
         [Parameter(Mandatory = $false)]
-        [string]$DeclarationDir = "declaration",
-
-        [Parameter(Mandatory = $false)]
-        [string]$FallbackApproverEmail = ""
+        [string]$DeclarationDir = "declaration"
     )
 
     $rawInput = $TargetCatalogName.Trim()
@@ -330,13 +326,6 @@ function Exporter-CatalogueVersYaml {
                             }
                         }
                     }
-                }
-
-                # 4. Fallback si l'approbation est requise mais aucun approbateur direct résolu
-                $isApprovalRequired = ($ras.isApprovalRequired -eq $true -or $ras.isApprovalRequiredForAdd -eq $true)
-                if ($isApprovalRequired -and $approverEmails.Count -eq 0 -and -not [string]::IsNullOrWhiteSpace($FallbackApproverEmail)) {
-                    Write-Host "  ⚠️ Approbation requise mais aucun approbateur direct résolu. Utilisation de l'email de secours : $FallbackApproverEmail" -ForegroundColor Yellow
-                    $approverEmails.Add($FallbackApproverEmail.Trim())
                 }
             }
         }

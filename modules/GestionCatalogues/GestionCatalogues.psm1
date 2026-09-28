@@ -3,8 +3,7 @@
 # ============================================================================
 # Rôle :
 #   Gère le cycle de vie des catalogues d'Entitlement Management Entra ID,
-#   l'onboarding des ressources (groupes et applications) dans les catalogues
-#   et l'assignation des propriétaires de catalogues (Catalog Owners).
+#   l'onboarding des ressources (groupes et applications) dans les catalogues.
 # ============================================================================
 
 <#
@@ -44,6 +43,7 @@ function Get-CatalogueEntra {
                 return $cat
             }
         }
+        #Si la recherche simple (ci-dessus) a échouée, on fait une recherche intelligente (ci-dessous). 
         $cleanSearchNoAccents = $cleanName -replace '[\u00E8-\u00EB\u00C8-\u00CBéèêëÉÈÊË]','e' `
                                            -replace '[\u00E0-\u00E5\u00C0-\u00C5àâäÀÂÄ]','a' `
                                            -replace '[\u00EC-\u00EF\u00CC-\u00CFîïÎÏ]','i' `
@@ -82,7 +82,7 @@ function New-CatalogueEntra {
         [string]$DisplayName,
 
         [Parameter(Mandatory = $false)]
-        [string]$Description = "Géré par GitOps",
+        [string]$Description = "Description par défaut du catalogue",
 
         [Parameter(Mandatory = $false)]
         [bool]$IsExternallyVisible = $false
@@ -148,7 +148,7 @@ function Remove-CatalogueEntra {
 
 <#
 .SYNOPSIS
-    Liste toutes les ressources (groupes, applications) actuellement associées à un catalogue.
+    Liste toutes les ressources actuellement associées à un catalogue.
 #>
 function Get-RessourcesCatalogue {
     [CmdletBinding()]
